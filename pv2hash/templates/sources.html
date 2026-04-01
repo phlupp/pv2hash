@@ -35,6 +35,12 @@
                 </div>
             </header>
 
+            {% if saved %}
+            <section class="alert success">
+                Quelle gespeichert und Runtime neu geladen.
+            </section>
+            {% endif %}
+
             <form method="post" action="/sources">
                 <section class="card">
                     <div class="card-head">
@@ -51,14 +57,100 @@
                             <span>Typ</span>
                             <select name="source_type">
                                 <option value="simulator" {% if source.type == "simulator" %}selected{% endif %}>simulator</option>
-                                <option value="sma_speedwire" {% if source.type == "sma_speedwire" %}selected{% endif %}>sma_speedwire</option>
-                                <option value="modbus_inverter" {% if source.type == "modbus_inverter" %}selected{% endif %}>modbus_inverter</option>
+                                <option value="sma_meter_protocol" {% if source.type == "sma_meter_protocol" %}selected{% endif %}>sma_meter_protocol</option>
                             </select>
                         </label>
 
                         <label class="checkbox-row">
                             <input type="checkbox" name="source_enabled" {% if source.enabled %}checked{% endif %}>
                             <span>Quelle aktiviert</span>
+                        </label>
+                    </div>
+                </section>
+
+                <section class="card top-gap">
+                    <div class="card-head">
+                        <h2>SMA Meter Protocol</h2>
+                    </div>
+
+                    <div class="form-grid">
+                        <label>
+                            <span>Multicast IP</span>
+                            <input
+                                type="text"
+                                name="multicast_ip"
+                                value="{{ source.settings.multicast_ip if source.settings and source.settings.multicast_ip is defined else '239.12.255.254' }}"
+                            >
+                            <small class="help">Standard bei SMA: 239.12.255.254</small>
+                        </label>
+
+                        <label>
+                            <span>Bind Port</span>
+                            <input
+                                type="number"
+                                name="bind_port"
+                                value="{{ source.settings.bind_port if source.settings and source.settings.bind_port is defined else 9522 }}"
+                            >
+                        </label>
+
+                        <label>
+                            <span>Lokale Interface-IP</span>
+                            {% set selected_ip = source.settings.interface_ip if source.settings and source.settings.interface_ip is defined else '0.0.0.0' %}
+                            <select name="interface_ip">
+                                {% for item in local_interface_ips %}
+                                <option value="{{ item.address }}" {% if item.address == selected_ip %}selected{% endif %}>
+                                    {{ item.label }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <small class="help">
+                                Für SMA aktuell IPv4 verwenden. Möglichst die echte IP im SMA-LAN wählen, nicht 0.0.0.0.
+                            </small>
+                        </label>
+
+                        <label>
+                            <span>Packet Timeout (Sekunden)</span>
+                            <input
+                                type="number"
+                                step="0.1"
+                                name="packet_timeout_seconds"
+                                value="{{ source.settings.packet_timeout_seconds if source.settings and source.settings.packet_timeout_seconds is defined else 1.0 }}"
+                            >
+                            <small class="help">Wartezeit pro Empfangsversuch eines neuen UDP-Pakets.</small>
+                        </label>
+
+                        <label>
+                            <span>Stale nach (Sekunden)</span>
+                            <input
+                                type="number"
+                                step="0.1"
+                                name="stale_after_seconds"
+                                value="{{ source.settings.stale_after_seconds if source.settings and source.settings.stale_after_seconds is defined else 8.0 }}"
+                            >
+                            <small class="help">Ab wann der letzte bekannte Wert als veraltet gilt.</small>
+                        </label>
+
+                        <label>
+                            <span>Offline nach (Sekunden)</span>
+                            <input
+                                type="number"
+                                step="0.1"
+                                name="offline_after_seconds"
+                                value="{{ source.settings.offline_after_seconds if source.settings and source.settings.offline_after_seconds is defined else 30.0 }}"
+                            >
+                            <small class="help">Ab wann die Quelle als offline gilt.</small>
+                        </label>
+
+                        <label>
+                            <span>Geräte-IP Filter (optional)</span>
+                            <input
+                                type="text"
+                                name="device_ip"
+                                value="{{ source.settings.device_ip if source.settings and source.settings.device_ip is defined else '' }}"
+                            >
+                            <small class="help">
+                                Optional. Nur Pakete dieses SMA-Geräts auswerten, z. B. 192.168.11.10.
+                            </small>
                         </label>
                     </div>
 

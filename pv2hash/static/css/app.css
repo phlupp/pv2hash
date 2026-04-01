@@ -346,3 +346,40 @@ select:focus {
     background: linear-gradient(135deg, #c54766, #e25b5b);
     border-color: rgba(226, 91, 91, .35);
 }
+
+select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background: rgba(255,255,255,.05);
+    color: var(--text);
+}
+
+select option {
+    background: #2a2f58;
+    color: #f1f3ff;
+}
+
+select:focus {
+    background: rgba(255,255,255,.08);
+    color: var(--text);
+}
+
+.help {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.alert {
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+}
+
+.alert.success {
+    background: rgba(104, 224, 160, 0.12);
+    border-color: rgba(104, 224, 160, 0.28);
+    color: #dff8ea;
+}

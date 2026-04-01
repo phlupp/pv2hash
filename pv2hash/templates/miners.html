@@ -34,6 +34,12 @@
                     <p>Konfigurierte Miner verwalten</p>
                 </div>
             </header>
+			
+			{% if saved %}
+			<section class="alert success">
+				Miner-Konfiguration gespeichert und Runtime neu geladen.
+			</section>
+			{% endif %}
 
             <section class="card">
                 <div class="card-head">
@@ -60,8 +66,28 @@
                     </label>
 
                     <label>
+                        <span>API Port</span>
+                        <input type="number" name="port" value="4028">
+                    </label>
+
+                    <label>
                         <span>Priorität</span>
                         <input type="number" name="priority" value="100" min="1" max="999">
+                    </label>
+
+                    <label>
+                        <span>Seriennummer</span>
+                        <input type="text" name="serial_number">
+                    </label>
+
+                    <label>
+                        <span>Modell</span>
+                        <input type="text" name="model">
+                    </label>
+
+                    <label>
+                        <span>Firmware Version</span>
+                        <input type="text" name="firmware_version">
                     </label>
 
                     <div class="actions">
@@ -100,8 +126,28 @@
                         </label>
 
                         <label>
+                            <span>API Port</span>
+                            <input type="number" name="port" value="{{ miner.settings.port if miner.settings and miner.settings.port is defined else 4028 }}">
+                        </label>
+
+                        <label>
                             <span>Priorität</span>
                             <input type="number" name="priority" value="{{ miner.priority }}" min="1" max="999">
+                        </label>
+
+                        <label>
+                            <span>Seriennummer</span>
+                            <input type="text" name="serial_number" value="{{ miner.serial_number or '' }}">
+                        </label>
+
+                        <label>
+                            <span>Modell</span>
+                            <input type="text" name="model" value="{{ miner.model or '' }}">
+                        </label>
+
+                        <label>
+                            <span>Firmware Version</span>
+                            <input type="text" name="firmware_version" value="{{ miner.firmware_version or '' }}">
                         </label>
 
                         <label class="checkbox-row">

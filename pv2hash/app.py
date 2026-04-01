@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import asdict
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import FastAPI, Form, Request
@@ -12,6 +12,7 @@ from pv2hash.config.store import load_config, save_config
 from pv2hash.controller.distribution import apply_distribution
 from pv2hash.runtime import AppState
 from pv2hash.services import RuntimeServices
+from pv2hash.netutils import get_local_ipv4_addresses
 
 
 app = FastAPI(title="PV2Hash")
@@ -29,6 +30,11 @@ async def control_loop() -> None:
         refresh_seconds = state.config["app"].get("refresh_seconds", 5)
 
         snapshot = await services.source.read()
+
+        source_last_live_packet_at = getattr(services.source, "last_live_packet_at", None)
+        if source_last_live_packet_at is not None:
+            state.last_live_packet_at = source_last_live_packet_at
+
         target_profile = services.controller.decide_profile(snapshot.grid_power_w)
 
         profiles = apply_distribution(
@@ -76,6 +82,9 @@ async def dashboard(request: Request):
         "instance_name": state.config["system"]["instance_name"],
         "last_decision": state.last_decision,
         "last_reload_at": state.last_reload_at,
+        "source_debug": services.get_source_debug_info(),
+        "source_reloaded_at": state.source_reloaded_at,
+        "last_live_packet_at": state.last_live_packet_at,
     }
 
     return templates.TemplateResponse(
@@ -90,6 +99,7 @@ async def settings_page(request: Request):
     context = {
         "request": request,
         "config": state.config,
+        "saved": request.query_params.get("saved") == "1",
     }
     return templates.TemplateResponse(
         request=request,
@@ -114,7 +124,7 @@ async def save_settings(request: Request):
     save_config(state.config)
     reload_runtime()
 
-    return RedirectResponse(url="/settings", status_code=303)
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 
 @app.get("/sources")
@@ -122,6 +132,8 @@ async def sources_page(request: Request):
     context = {
         "request": request,
         "source": state.config["source"],
+        "saved": request.query_params.get("saved") == "1",
+        "local_interface_ips": get_local_ipv4_addresses(),
     }
     return templates.TemplateResponse(
         request=request,
@@ -131,19 +143,29 @@ async def sources_page(request: Request):
 
 
 @app.post("/sources")
-async def save_source(
-    source_type: str = Form(...),
-    source_name: str = Form(...),
-    source_enabled: str | None = Form(None),
-):
+async def save_source(request: Request):
+    form = await request.form()
+
+    source_type = form.get("source_type", "simulator")
+    source_name = form.get("source_name", "Source")
+    source_enabled = form.get("source_enabled") == "on"
+
     state.config["source"]["type"] = source_type
     state.config["source"]["name"] = source_name
-    state.config["source"]["enabled"] = source_enabled == "on"
+    state.config["source"]["enabled"] = source_enabled
+    state.config["source"].setdefault("settings", {})
+    state.config["source"]["settings"]["multicast_ip"] = form.get("multicast_ip", "239.12.255.254")
+    state.config["source"]["settings"]["bind_port"] = int(form.get("bind_port", 9522))
+    state.config["source"]["settings"]["interface_ip"] = form.get("interface_ip", "0.0.0.0").strip() or "0.0.0.0"
+    state.config["source"]["settings"]["packet_timeout_seconds"] = float(form.get("packet_timeout_seconds", 1.0))
+    state.config["source"]["settings"]["stale_after_seconds"] = float(form.get("stale_after_seconds", 8.0))
+    state.config["source"]["settings"]["offline_after_seconds"] = float(form.get("offline_after_seconds", 30.0))
+    state.config["source"]["settings"]["device_ip"] = form.get("device_ip", "").strip()
 
     save_config(state.config)
     reload_runtime()
 
-    return RedirectResponse(url="/sources", status_code=303)
+    return RedirectResponse(url="/sources?saved=1", status_code=303)
 
 
 @app.get("/miners")
@@ -151,6 +173,7 @@ async def miners_page(request: Request):
     context = {
         "request": request,
         "miners": state.config.get("miners", []),
+        "saved": request.query_params.get("saved") == "1",
     }
     return templates.TemplateResponse(
         request=request,
@@ -160,63 +183,62 @@ async def miners_page(request: Request):
 
 
 @app.post("/miners/add")
-async def add_miner(
-    name: str = Form(...),
-    host: str = Form(...),
-    driver: str = Form(...),
-    priority: int = Form(100),
-):
+async def add_miner(request: Request):
+    form = await request.form()
+
     miner_id = f"m-{uuid4().hex[:8]}"
+    driver = form.get("driver", "simulator")
 
     state.config.setdefault("miners", []).append(
         {
             "id": miner_id,
-            "name": name,
-            "host": host,
+            "name": form.get("name", "Miner"),
+            "host": form.get("host", ""),
             "driver": driver,
             "enabled": True,
-            "priority": priority,
-            "serial_number": None,
-            "model": None,
-            "firmware_version": None,
-            "settings": {},
+            "priority": int(form.get("priority", 100)),
+            "serial_number": form.get("serial_number") or None,
+            "model": form.get("model") or None,
+            "firmware_version": form.get("firmware_version") or None,
+            "settings": {
+                "port": int(form.get("port", 4028)),
+            },
         }
     )
 
     save_config(state.config)
     reload_runtime()
 
-    return RedirectResponse(url="/miners", status_code=303)
+    return RedirectResponse(url="/miners?saved=1", status_code=303)
 
 
 @app.post("/miners/update")
-async def update_miner(
-    miner_id: str = Form(...),
-    name: str = Form(...),
-    host: str = Form(...),
-    driver: str = Form(...),
-    priority: int = Form(...),
-    enabled: str | None = Form(None),
-):
+async def update_miner(request: Request):
+    form = await request.form()
+    miner_id = form.get("miner_id")
+
     for miner in state.config.get("miners", []):
         if miner["id"] == miner_id:
-            miner["name"] = name
-            miner["host"] = host
-            miner["driver"] = driver
-            miner["priority"] = priority
-            miner["enabled"] = enabled == "on"
+            miner["name"] = form.get("name", miner["name"])
+            miner["host"] = form.get("host", miner["host"])
+            miner["driver"] = form.get("driver", miner["driver"])
+            miner["priority"] = int(form.get("priority", miner.get("priority", 100)))
+            miner["enabled"] = form.get("enabled") == "on"
+            miner["serial_number"] = form.get("serial_number") or None
+            miner["model"] = form.get("model") or None
+            miner["firmware_version"] = form.get("firmware_version") or None
+            miner.setdefault("settings", {})
+            miner["settings"]["port"] = int(form.get("port", miner["settings"].get("port", 4028)))
             break
 
     save_config(state.config)
     reload_runtime()
 
-    return RedirectResponse(url="/miners", status_code=303)
+    return RedirectResponse(url="/miners?saved=1", status_code=303)
 
 
 @app.post("/miners/delete")
-async def delete_miner(
-    miner_id: str = Form(...),
-):
+async def delete_miner(miner_id: str = Form(...)):
     state.config["miners"] = [
         miner for miner in state.config.get("miners", [])
         if miner["id"] != miner_id
@@ -225,7 +247,7 @@ async def delete_miner(
     save_config(state.config)
     reload_runtime()
 
-    return RedirectResponse(url="/miners", status_code=303)
+    return RedirectResponse(url="/miners?saved=1", status_code=303)
 
 
 @app.post("/system/reload")
@@ -243,6 +265,7 @@ async def api_status():
         "started_at": state.started_at.isoformat(),
         "last_decision": state.last_decision,
         "last_reload_at": state.last_reload_at.isoformat(),
+        "source_debug": services.get_source_debug_info(),
     }
     return JSONResponse(payload)
 

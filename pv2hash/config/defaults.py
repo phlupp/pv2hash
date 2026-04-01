@@ -27,7 +27,15 @@ DEFAULT_CONFIG = {
         "type": "simulator",
         "name": "Simulator Source",
         "enabled": True,
-        "settings": {},
+        "settings": {
+            "multicast_ip": "239.12.255.254",
+            "bind_port": 9522,
+            "interface_ip": "0.0.0.0",
+            "packet_timeout_seconds": 1.0,
+            "stale_after_seconds": 8.0,
+            "offline_after_seconds": 30.0,
+            "device_ip": "",
+        },
     },
     "miners": [
         {
@@ -40,7 +48,9 @@ DEFAULT_CONFIG = {
             "serial_number": "SIM-M1",
             "model": "Simulator",
             "firmware_version": "sim-0.1",
-            "settings": {},
+            "settings": {
+                "port": 4028,
+            },
         },
         {
             "id": "m2",
@@ -52,7 +62,9 @@ DEFAULT_CONFIG = {
             "serial_number": "SIM-M2",
             "model": "Simulator",
             "firmware_version": "sim-0.1",
-            "settings": {},
+            "settings": {
+                "port": 4028,
+            },
         },
     ],
 }
