@@ -30,6 +30,9 @@ class SmaMeterProtocolSource(EnergySource):
 
         self.last_snapshot: EnergySnapshot | None = None
         self.last_live_packet_at: datetime | None = None
+        
+        self.debug_dump_obis = False
+        self._last_obis_signature: str | None = None
 
         self.debug_info = {
             "received_packets": 0,
@@ -170,6 +173,7 @@ class SmaMeterProtocolSource(EnergySource):
         pos = 28
         active_plus_w = 0.0
         active_minus_w = 0.0
+        entries: list[dict] = []
 
         while pos + 4 <= len(packet):
             obis_num = struct.unpack(">I", packet[pos:pos + 4])[0]
@@ -193,6 +197,15 @@ class SmaMeterProtocolSource(EnergySource):
                 raw_value = struct.unpack(">Q", packet[pos:pos + 8])[0]
                 value = float(raw_value)
 
+            entries.append(
+                {
+                    "obis_num": obis_num,
+                    "length": obis_length,
+                    "raw_value": raw_value,
+                    "value": value,
+                }
+            )
+
             if obis_num == 0x00010400:
                 active_plus_w = value
             elif obis_num == 0x00020400:
@@ -200,7 +213,13 @@ class SmaMeterProtocolSource(EnergySource):
 
             pos += obis_length
 
-        grid_power_w = active_plus_w - active_minus_w
+        self._dump_obis_entries(entries)
+
+        # SMA liefert:
+        # Bezug = positiv (1.4.0)
+        # Einspeisung = negativ (2.4.0)
+        grid_power_w = -(active_plus_w + active_minus_w)
+
         pv_power_w = abs(grid_power_w) if grid_power_w < 0 else None
 
         self.debug_info["active_plus_w"] = active_plus_w
@@ -215,3 +234,49 @@ class SmaMeterProtocolSource(EnergySource):
             source="sma_meter_protocol",
             quality="live",
         )
+        
+    def _format_obis_num(self, obis_num: int) -> str:
+        a = (obis_num >> 24) & 0xFF
+        b = (obis_num >> 16) & 0xFF
+        c = (obis_num >> 8) & 0xFF
+        d = obis_num & 0xFF
+        return f"{a:02x}{b:02x}{c:02x}{d:02x} / {a}:{b}.{c}.{d}"
+            
+    def _dump_obis_entries(self, entries: list[dict]) -> None:
+        if not self.debug_dump_obis:
+            return
+
+        interesting = []
+        for entry in entries:
+            if entry["obis_num"] == 0x00010400:
+                interesting.append(entry)
+            elif entry["obis_num"] == 0x00020400:
+                interesting.append(entry)
+            elif entry["length"] == 4 and ((entry["obis_num"] >> 8) & 0xFF) == 4:
+                interesting.append(entry)
+
+        if not interesting:
+            return
+
+        signature = "|".join(
+            f"{entry['obis_num']:08x}:{entry['value']}"
+            for entry in interesting
+        )
+
+        # Nur loggen, wenn sich der Inhalt geändert hat
+        if signature == self._last_obis_signature:
+            return
+
+        self._last_obis_signature = signature
+
+        print("[SMA][OBIS] ---- packet dump start ----")
+        for entry in interesting:
+            print(
+                "[SMA][OBIS] "
+                f"obis=0x{entry['obis_num']:08x} "
+                f"({self._format_obis_num(entry['obis_num'])}) "
+                f"len={entry['length']} "
+                f"raw={entry['raw_value']} "
+                f"value={entry['value']}"
+            )
+        print("[SMA][OBIS] ---- packet dump end ----")
