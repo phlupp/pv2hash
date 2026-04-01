@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PV2Hash – Einstellungen</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">PV</div>
+                <div>
+                    <div class="brand-title">PV2Hash</div>
+                    <div class="brand-subtitle">{{ config.system.instance_name }}</div>
+                </div>
+            </div>
+
+            <nav class="nav">
+                <a class="nav-item" href="/">Dashboard</a>
+                <span class="nav-item disabled">Quellen</span>
+                <span class="nav-item disabled">Miner</span>
+                <a class="nav-item active" href="/settings">Einstellungen</a>
+                <span class="nav-item disabled">Verlauf</span>
+                <span class="nav-item disabled">System</span>
+            </nav>
+        </aside>
+
+        <main class="content">
+            <header class="topbar">
+                <div>
+                    <h1>Einstellungen</h1>
+                    <p>Basis-Konfiguration für Instanz und grobe Regelung</p>
+                </div>
+            </header>
+
+            <form method="post" action="/settings">
+                <section class="grid grid-2">
+                    <article class="card">
+                        <div class="card-head">
+                            <h2>Allgemein</h2>
+                        </div>
+
+                        <div class="form-grid">
+                            <label>
+                                <span>Instanzname</span>
+                                <input type="text" name="instance_name" value="{{ config.system.instance_name }}">
+                            </label>
+
+                            <label>
+                                <span>Refresh-Intervall (Sekunden)</span>
+                                <input type="number" name="refresh_seconds" value="{{ config.app.refresh_seconds }}" min="1" max="60">
+                            </label>
+
+                            <label>
+                                <span>Policy-Modus</span>
+                                <select name="policy_mode">
+                                    <option value="coarse" {% if config.control.policy_mode == "coarse" %}selected{% endif %}>coarse</option>
+                                    <option value="fine" {% if config.control.policy_mode == "fine" %}selected{% endif %}>fine</option>
+                                </select>
+                            </label>
+
+                            <label>
+                                <span>Verteilstrategie</span>
+                                <select name="distribution_mode">
+                                    <option value="equal" {% if config.control.distribution_mode == "equal" %}selected{% endif %}>equal</option>
+                                    <option value="cascade" {% if config.control.distribution_mode == "cascade" %}selected{% endif %}>cascade</option>
+                                </select>
+                            </label>
+                        </div>
+                    </article>
+
+                    <article class="card">
+                        <div class="card-head">
+                            <h2>Schwellwerte</h2>
+                        </div>
+
+                        <div class="form-grid">
+                            <label>
+                                <span>Eco ab Einspeisung kleiner als</span>
+                                <input type="number" name="threshold_eco" value="{{ config.control.coarse_thresholds.eco }}">
+                            </label>
+
+                            <label>
+                                <span>Mid ab Einspeisung kleiner als</span>
+                                <input type="number" name="threshold_mid" value="{{ config.control.coarse_thresholds.mid }}">
+                            </label>
+
+                            <label>
+                                <span>High ab Einspeisung kleiner als</span>
+                                <input type="number" name="threshold_high" value="{{ config.control.coarse_thresholds.high }}">
+                            </label>
+                        </div>
+                    </article>
+                </section>
+
+                <section class="card">
+                    <div class="actions">
+                        <button class="btn" type="submit">Einstellungen speichern</button>
+                    </div>
+                </section>
+            </form>
+        </main>
+    </div>
+</body>
+</html>

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PV2Hash</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+    <meta http-equiv="refresh" content="5">
+</head>
+<body>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">PV</div>
+                <div>
+                    <div class="brand-title">PV2Hash</div>
+                    <div class="brand-subtitle">{{ instance_name }}</div>
+                </div>
+            </div>
+
+            <nav class="nav">
+                <a class="nav-item active" href="/">Dashboard</a>
+                <span class="nav-item disabled">Quellen</span>
+                <span class="nav-item disabled">Miner</span>
+                <a class="nav-item" href="/settings">Einstellungen</a>
+                <span class="nav-item disabled">Verlauf</span>
+                <span class="nav-item disabled">System</span>
+            </nav>
+        </aside>
+
+        <main class="content">
+            <header class="topbar">
+                <div>
+                    <h1>Dashboard</h1>
+                    <p>Live-Status der Energie- und Miner-Steuerung</p>
+                </div>
+                <div class="badge-row">
+                    <span class="badge">{{ policy_mode }}</span>
+                    <span class="badge">{{ distribution_mode }}</span>
+                </div>
+            </header>
+
+            <section class="grid grid-4">
+                <article class="card stat">
+                    <span class="label">Netzleistung</span>
+                    {% if snapshot %}
+                        <strong class="{{ 'good' if snapshot.grid_power_w < 0 else 'warn' }}">
+                            {{ "%.0f"|format(snapshot.grid_power_w) }} W
+                        </strong>
+                    {% else %}
+                        <strong>—</strong>
+                    {% endif %}
+                    <small>negativ = Einspeisung</small>
+                </article>
+
+                <article class="card stat">
+                    <span class="label">PV-Leistung</span>
+                    <strong>
+                        {% if snapshot and snapshot.pv_power_w is not none %}
+                            {{ "%.0f"|format(snapshot.pv_power_w) }} W
+                        {% else %}
+                            —
+                        {% endif %}
+                    </strong>
+                    <small>Quelle: {{ snapshot.source if snapshot else "—" }}</small>
+                </article>
+
+                <article class="card stat">
+                    <span class="label">Miner gesamt</span>
+                    <strong>{{ "%.0f"|format(total_miner_power) }} W</strong>
+                    <small>{{ miner_count }} Miner verbunden</small>
+                </article>
+
+                <article class="card stat">
+                    <span class="label">Batterie SOC</span>
+                    <strong>
+                        {% if snapshot and snapshot.battery_soc_pct is not none %}
+                            {{ "%.1f"|format(snapshot.battery_soc_pct) }} %
+                        {% else %}
+                            —
+                        {% endif %}
+                    </strong>
+                    <small>optional / quellenabhängig</small>
+                </article>
+            </section>
+
+            <section class="grid grid-2">
+                <article class="card">
+                    <div class="card-head">
+                        <h2>Energie</h2>
+                    </div>
+
+                    <div class="kv">
+                        <div class="kv-row">
+                            <span>Hausverbrauch</span>
+                            <strong>
+                                {% if snapshot and snapshot.house_power_w is not none %}
+                                    {{ "%.0f"|format(snapshot.house_power_w) }} W
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Batterie lädt</span>
+                            <strong>
+                                {% if snapshot and snapshot.battery_charge_power_w is not none %}
+                                    {{ "%.0f"|format(snapshot.battery_charge_power_w) }} W
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Batterie entlädt</span>
+                            <strong>
+                                {% if snapshot and snapshot.battery_discharge_power_w is not none %}
+                                    {{ "%.0f"|format(snapshot.battery_discharge_power_w) }} W
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Qualität</span>
+                            <strong>{{ snapshot.quality if snapshot and snapshot.quality else "—" }}</strong>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <h2>System</h2>
+                    </div>
+
+                    <div class="kv">
+                        <div class="kv-row">
+                            <span>Instanz</span>
+                            <strong>{{ instance_name }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Policy-Modus</span>
+                            <strong>{{ policy_mode }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Verteilstrategie</span>
+                            <strong>{{ distribution_mode }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Gestartet</span>
+                            <strong>{{ started_at }}</strong>
+                        </div>
+                    </div>
+                </article>
+            </section>
+
+            <section class="card">
+                <div class="card-head">
+                    <h2>Miner</h2>
+                </div>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Host</th>
+                                <th>Treiber</th>
+                                <th>Profil</th>
+                                <th>Leistung</th>
+                                <th>Seriennummer</th>
+                                <th>Firmware</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for miner in miners %}
+                            <tr>
+                                <td>{{ miner.name }}</td>
+                                <td>{{ miner.host }}</td>
+                                <td>{{ miner.driver }}</td>
+                                <td><span class="pill">{{ miner.profile }}</span></td>
+                                <td>{{ "%.0f"|format(miner.power_w) }} W</td>
+                                <td>{{ miner.serial_number or "—" }}</td>
+                                <td>{{ miner.firmware_version or "—" }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% if not miners %}
+                            <tr>
+                                <td colspan="7">Keine Miner vorhanden.</td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+</body>
+</html>

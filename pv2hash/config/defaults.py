@@ -1,0 +1,58 @@
+DEFAULT_CONFIG = {
+    "app": {
+        "name": "PV2Hash",
+        "host": "0.0.0.0",
+        "port": 8000,
+        "refresh_seconds": 5,
+        "theme": "dark",
+    },
+    "system": {
+        "instance_name": "PV2Hash Node",
+        "log_level": "INFO",
+        "check_updates": True,
+        "auto_update_enabled": False,
+    },
+    "control": {
+        "policy_mode": "coarse",
+        "distribution_mode": "equal",
+        "min_switch_interval_seconds": 60,
+        "cooldown_seconds": 15,
+        "coarse_thresholds": {
+            "eco": -500,
+            "mid": -1500,
+            "high": -2500,
+        },
+    },
+    "source": {
+        "type": "simulator",
+        "name": "Simulator Source",
+        "enabled": True,
+        "settings": {},
+    },
+    "miners": [
+        {
+            "id": "m1",
+            "name": "Miner 1",
+            "host": "192.168.11.101",
+            "driver": "simulator",
+            "enabled": True,
+            "priority": 10,
+            "serial_number": "SIM-M1",
+            "model": "Simulator",
+            "firmware_version": "sim-0.1",
+            "settings": {},
+        },
+        {
+            "id": "m2",
+            "name": "Miner 2",
+            "host": "192.168.11.102",
+            "driver": "simulator",
+            "enabled": True,
+            "priority": 20,
+            "serial_number": "SIM-M2",
+            "model": "Simulator",
+            "firmware_version": "sim-0.1",
+            "settings": {},
+        },
+    ],
+}
