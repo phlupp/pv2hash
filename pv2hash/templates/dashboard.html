@@ -20,8 +20,8 @@
 
             <nav class="nav">
                 <a class="nav-item active" href="/">Dashboard</a>
-                <span class="nav-item disabled">Quellen</span>
-                <span class="nav-item disabled">Miner</span>
+                <a class="nav-item" href="/sources">Quellen</a>
+                <a class="nav-item" href="/miners">Miner</a>
                 <a class="nav-item" href="/settings">Einstellungen</a>
                 <span class="nav-item disabled">Verlauf</span>
                 <span class="nav-item disabled">System</span>
@@ -37,6 +37,7 @@
                 <div class="badge-row">
                     <span class="badge">{{ policy_mode }}</span>
                     <span class="badge">{{ distribution_mode }}</span>
+                    <span class="badge">Decision: {{ last_decision or "—" }}</span>
                 </div>
             </header>
 
@@ -68,7 +69,7 @@
                 <article class="card stat">
                     <span class="label">Miner gesamt</span>
                     <strong>{{ "%.0f"|format(total_miner_power) }} W</strong>
-                    <small>{{ miner_count }} Miner verbunden</small>
+                    <small>{{ miner_count }} Miner aktiv</small>
                 </article>
 
                 <article class="card stat">
@@ -93,33 +94,15 @@
                     <div class="kv">
                         <div class="kv-row">
                             <span>Hausverbrauch</span>
-                            <strong>
-                                {% if snapshot and snapshot.house_power_w is not none %}
-                                    {{ "%.0f"|format(snapshot.house_power_w) }} W
-                                {% else %}
-                                    —
-                                {% endif %}
-                            </strong>
+                            <strong>{{ "%.0f"|format(snapshot.house_power_w) if snapshot and snapshot.house_power_w is not none else "—" }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Batterie lädt</span>
-                            <strong>
-                                {% if snapshot and snapshot.battery_charge_power_w is not none %}
-                                    {{ "%.0f"|format(snapshot.battery_charge_power_w) }} W
-                                {% else %}
-                                    —
-                                {% endif %}
-                            </strong>
+                            <strong>{{ "%.0f"|format(snapshot.battery_charge_power_w) if snapshot and snapshot.battery_charge_power_w is not none else "—" }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Batterie entlädt</span>
-                            <strong>
-                                {% if snapshot and snapshot.battery_discharge_power_w is not none %}
-                                    {{ "%.0f"|format(snapshot.battery_discharge_power_w) }} W
-                                {% else %}
-                                    —
-                                {% endif %}
-                            </strong>
+                            <strong>{{ "%.0f"|format(snapshot.battery_discharge_power_w) if snapshot and snapshot.battery_discharge_power_w is not none else "—" }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Qualität</span>
@@ -139,24 +122,28 @@
                             <strong>{{ instance_name }}</strong>
                         </div>
                         <div class="kv-row">
-                            <span>Policy-Modus</span>
-                            <strong>{{ policy_mode }}</strong>
+                            <span>Letzte Entscheidung</span>
+                            <strong>{{ last_decision or "—" }}</strong>
                         </div>
                         <div class="kv-row">
-                            <span>Verteilstrategie</span>
-                            <strong>{{ distribution_mode }}</strong>
+                            <span>Letzter Reload</span>
+                            <strong>{{ last_reload_at }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Gestartet</span>
                             <strong>{{ started_at }}</strong>
                         </div>
                     </div>
+
+                    <form method="post" action="/system/reload" class="inline-form top-gap">
+                        <button class="btn" type="submit">Runtime neu laden</button>
+                    </form>
                 </article>
             </section>
 
             <section class="card">
                 <div class="card-head">
-                    <h2>Miner</h2>
+                    <h2>Miner Runtime</h2>
                 </div>
 
                 <div class="table-wrap">
@@ -186,7 +173,7 @@
                             {% endfor %}
                             {% if not miners %}
                             <tr>
-                                <td colspan="7">Keine Miner vorhanden.</td>
+                                <td colspan="7">Keine Miner aktiv.</td>
                             </tr>
                             {% endif %}
                         </tbody>

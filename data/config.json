@@ -3,24 +3,24 @@
     "name": "PV2Hash",
     "host": "0.0.0.0",
     "port": 8000,
-    "refresh_seconds": 10,
+    "refresh_seconds": 5,
     "theme": "dark"
   },
   "system": {
-    "instance_name": "PV2Hash Node Phlupp",
+    "instance_name": "PV2Hash Node",
     "log_level": "INFO",
     "check_updates": true,
     "auto_update_enabled": false
   },
   "control": {
     "policy_mode": "coarse",
-    "distribution_mode": "equal",
+    "distribution_mode": "cascade",
     "min_switch_interval_seconds": 60,
     "cooldown_seconds": 15,
     "coarse_thresholds": {
-      "eco": -501,
-      "mid": -1501,
-      "high": -2501
+      "eco": -500,
+      "mid": -1500,
+      "high": -2500
     }
   },
   "source": {
@@ -32,7 +32,7 @@
   "miners": [
     {
       "id": "m1",
-      "name": "Miner 1",
+      "name": "Miner 11",
       "host": "192.168.11.101",
       "driver": "simulator",
       "enabled": true,
@@ -44,7 +44,7 @@
     },
     {
       "id": "m2",
-      "name": "Miner 2",
+      "name": "Miner 12",
       "host": "192.168.11.102",
       "driver": "simulator",
       "enabled": true,
@@ -52,6 +52,18 @@
       "serial_number": "SIM-M2",
       "model": "Simulator",
       "firmware_version": "sim-0.1",
+      "settings": {}
+    },
+    {
+      "id": "m-22c295c4",
+      "name": "Miner 13",
+      "host": "192.168.11.103",
+      "driver": "simulator",
+      "enabled": true,
+      "priority": 100,
+      "serial_number": null,
+      "model": null,
+      "firmware_version": null,
       "settings": {}
     }
   ]

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PV2Hash – Miner</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">PV</div>
+                <div>
+                    <div class="brand-title">PV2Hash</div>
+                    <div class="brand-subtitle">Miner Verwaltung</div>
+                </div>
+            </div>
+
+            <nav class="nav">
+                <a class="nav-item" href="/">Dashboard</a>
+                <a class="nav-item" href="/sources">Quellen</a>
+                <a class="nav-item active" href="/miners">Miner</a>
+                <a class="nav-item" href="/settings">Einstellungen</a>
+                <span class="nav-item disabled">Verlauf</span>
+                <span class="nav-item disabled">System</span>
+            </nav>
+        </aside>
+
+        <main class="content">
+            <header class="topbar">
+                <div>
+                    <h1>Miner</h1>
+                    <p>Konfigurierte Miner verwalten</p>
+                </div>
+            </header>
+
+            <section class="card">
+                <div class="card-head">
+                    <h2>Miner hinzufügen</h2>
+                </div>
+
+                <form method="post" action="/miners/add" class="form-grid">
+                    <label>
+                        <span>Name</span>
+                        <input type="text" name="name" required>
+                    </label>
+
+                    <label>
+                        <span>Host / IP</span>
+                        <input type="text" name="host" required>
+                    </label>
+
+                    <label>
+                        <span>Treiber</span>
+                        <select name="driver">
+                            <option value="simulator">simulator</option>
+                            <option value="braiins">braiins</option>
+                        </select>
+                    </label>
+
+                    <label>
+                        <span>Priorität</span>
+                        <input type="number" name="priority" value="100" min="1" max="999">
+                    </label>
+
+                    <div class="actions">
+                        <button class="btn" type="submit">Miner anlegen</button>
+                    </div>
+                </form>
+            </section>
+
+            <div class="grid">
+                {% for miner in miners %}
+                <section class="card">
+                    <div class="card-head">
+                        <h2>{{ miner.name }}</h2>
+                        <span class="badge">{{ miner.id }}</span>
+                    </div>
+
+                    <form method="post" action="/miners/update" class="form-grid">
+                        <input type="hidden" name="miner_id" value="{{ miner.id }}">
+
+                        <label>
+                            <span>Name</span>
+                            <input type="text" name="name" value="{{ miner.name }}" required>
+                        </label>
+
+                        <label>
+                            <span>Host / IP</span>
+                            <input type="text" name="host" value="{{ miner.host }}" required>
+                        </label>
+
+                        <label>
+                            <span>Treiber</span>
+                            <select name="driver">
+                                <option value="simulator" {% if miner.driver == "simulator" %}selected{% endif %}>simulator</option>
+                                <option value="braiins" {% if miner.driver == "braiins" %}selected{% endif %}>braiins</option>
+                            </select>
+                        </label>
+
+                        <label>
+                            <span>Priorität</span>
+                            <input type="number" name="priority" value="{{ miner.priority }}" min="1" max="999">
+                        </label>
+
+                        <label class="checkbox-row">
+                            <input type="checkbox" name="enabled" {% if miner.enabled %}checked{% endif %}>
+                            <span>Miner aktiviert</span>
+                        </label>
+
+                        <div class="actions split">
+                            <button class="btn" type="submit">Speichern</button>
+                        </div>
+                    </form>
+
+                    <form method="post" action="/miners/delete" class="inline-form top-gap">
+                        <input type="hidden" name="miner_id" value="{{ miner.id }}">
+                        <button class="btn btn-danger" type="submit">Miner löschen</button>
+                    </form>
+                </section>
+                {% endfor %}
+
+                {% if not miners %}
+                <section class="card">
+                    <p>Keine Miner konfiguriert.</p>
+                </section>
+                {% endif %}
+            </div>
+        </main>
+    </div>
+</body>
+</html>

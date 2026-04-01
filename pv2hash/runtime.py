@@ -12,3 +12,5 @@ class AppState:
     snapshot: EnergySnapshot | None = None
     miners: list[MinerInfo] = field(default_factory=list)
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_decision: str | None = None
+    last_reload_at: datetime = field(default_factory=lambda: datetime.now(UTC))

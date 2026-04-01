@@ -319,3 +319,30 @@ select:focus {
     font-weight: 700;
     box-shadow: var(--shadow);
 }
+
+.checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.checkbox-row input {
+    width: auto;
+}
+
+.inline-form {
+    display: inline-block;
+}
+
+.top-gap {
+    margin-top: 16px;
+}
+
+.split {
+    justify-content: space-between;
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #c54766, #e25b5b);
+    border-color: rgba(226, 91, 91, .35);
+}

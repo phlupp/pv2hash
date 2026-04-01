@@ -17,7 +17,12 @@ def build_source(config: dict) -> EnergySource:
 def build_miners(config: dict) -> list[MinerAdapter]:
     miner_adapters: list[MinerAdapter] = []
 
-    for miner_cfg in config.get("miners", []):
+    miner_items = sorted(
+        config.get("miners", []),
+        key=lambda m: (m.get("priority", 100), m.get("name", "")),
+    )
+
+    for miner_cfg in miner_items:
         if not miner_cfg.get("enabled", True):
             continue
 

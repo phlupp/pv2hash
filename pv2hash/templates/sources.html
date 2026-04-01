@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PV2Hash – Quellen</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">PV</div>
+                <div>
+                    <div class="brand-title">PV2Hash</div>
+                    <div class="brand-subtitle">{{ source.name }}</div>
+                </div>
+            </div>
+
+            <nav class="nav">
+                <a class="nav-item" href="/">Dashboard</a>
+                <a class="nav-item active" href="/sources">Quellen</a>
+                <a class="nav-item" href="/miners">Miner</a>
+                <a class="nav-item" href="/settings">Einstellungen</a>
+                <span class="nav-item disabled">Verlauf</span>
+                <span class="nav-item disabled">System</span>
+            </nav>
+        </aside>
+
+        <main class="content">
+            <header class="topbar">
+                <div>
+                    <h1>Quellen</h1>
+                    <p>Aktive Energiequelle auswählen und vorbereiten</p>
+                </div>
+            </header>
+
+            <form method="post" action="/sources">
+                <section class="card">
+                    <div class="card-head">
+                        <h2>Aktive Quelle</h2>
+                    </div>
+
+                    <div class="form-grid">
+                        <label>
+                            <span>Name</span>
+                            <input type="text" name="source_name" value="{{ source.name }}">
+                        </label>
+
+                        <label>
+                            <span>Typ</span>
+                            <select name="source_type">
+                                <option value="simulator" {% if source.type == "simulator" %}selected{% endif %}>simulator</option>
+                                <option value="sma_speedwire" {% if source.type == "sma_speedwire" %}selected{% endif %}>sma_speedwire</option>
+                                <option value="modbus_inverter" {% if source.type == "modbus_inverter" %}selected{% endif %}>modbus_inverter</option>
+                            </select>
+                        </label>
+
+                        <label class="checkbox-row">
+                            <input type="checkbox" name="source_enabled" {% if source.enabled %}checked{% endif %}>
+                            <span>Quelle aktiviert</span>
+                        </label>
+                    </div>
+
+                    <div class="actions top-gap">
+                        <button class="btn" type="submit">Quelle speichern</button>
+                    </div>
+                </section>
+            </form>
+        </main>
+    </div>
+</body>
+</html>
