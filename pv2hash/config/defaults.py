@@ -65,6 +65,8 @@ DEFAULT_CONFIG = {
         "min_switch_interval_seconds": 60,
         "cooldown_seconds": 15,
         "switch_hysteresis_w": 100,
+        "max_import_w": 200,
+        "import_hold_seconds": 15,
         "coarse_thresholds": {
             "eco": -500,
             "mid": -1500,

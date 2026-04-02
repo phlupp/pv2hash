@@ -24,10 +24,10 @@
       "stale_after_seconds": 8.0,
       "offline_after_seconds": 30.0,
       "device_ip": "192.168.11.10",
-      "timeout_seconds": 1.0,
-	  "simulator_import_power_w": 1000.0,
+      "simulator_import_power_w": 1000.0,
       "simulator_export_power_w": 10000.0,
-      "simulator_ramp_rate_w_per_minute": 600.0
+      "simulator_ramp_rate_w_per_minute": 1200.0,
+      "timeout_seconds": 1.0
     }
   },
   "miners": [
@@ -73,8 +73,11 @@
   "control": {
     "policy_mode": "coarse",
     "distribution_mode": "cascade",
-    "min_switch_interval_seconds": 60,
+    "min_switch_interval_seconds": 20,
     "cooldown_seconds": 15,
+    "switch_hysteresis_w": 100,
+    "max_import_w": 200,
+    "import_hold_seconds": 15,
     "coarse_thresholds": {
       "eco": -500,
       "mid": -1500,

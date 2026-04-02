@@ -78,27 +78,68 @@
                     </article>
 
                     <article class="card">
-                        <div class="card-head">
-                            <h2>Schwellwerte</h2>
-                        </div>
+						<div class="card-head">
+							<h2>Regelung</h2>
+						</div>
 
-                        <div class="form-grid">
-                            <label>
-                                <span>Eco ab Einspeisung kleiner als</span>
-                                <input type="number" name="threshold_eco" value="{{ config.control.coarse_thresholds.eco }}">
-                            </label>
+						<div class="form-grid">
+							<label>
+								<span>Eco ab Einspeisung kleiner als</span>
+								<input type="number" name="threshold_eco" value="{{ config.control.coarse_thresholds.eco }}">
+								<small class="help">Negativer Wert. Beispiel: -500 = ab 500 W Einspeisung.</small>
+							</label>
 
-                            <label>
-                                <span>Mid ab Einspeisung kleiner als</span>
-                                <input type="number" name="threshold_mid" value="{{ config.control.coarse_thresholds.mid }}">
-                            </label>
+							<label>
+								<span>Mid ab Einspeisung kleiner als</span>
+								<input type="number" name="threshold_mid" value="{{ config.control.coarse_thresholds.mid }}">
+							</label>
 
-                            <label>
-                                <span>High ab Einspeisung kleiner als</span>
-                                <input type="number" name="threshold_high" value="{{ config.control.coarse_thresholds.high }}">
-                            </label>
-                        </div>
-                    </article>
+							<label>
+								<span>High ab Einspeisung kleiner als</span>
+								<input type="number" name="threshold_high" value="{{ config.control.coarse_thresholds.high }}">
+							</label>
+
+							<label>
+								<span>Hysterese (W)</span>
+								<input type="number" name="switch_hysteresis_w" value="{{ config.control.switch_hysteresis_w or 100 }}" min="0">
+								<small class="help">Verhindert Flattern an den Schaltschwellen.</small>
+							</label>
+
+							<label>
+								<span>Mindest-Schaltintervall (Sekunden)</span>
+								<input
+									type="number"
+									name="min_switch_interval_seconds"
+									value="{{ config.control.min_switch_interval_seconds or 60 }}"
+									min="0"
+								>
+								<small class="help">Zeit zwischen zwei Profilwechseln.</small>
+							</label>
+
+							<label>
+								<span>Max. Netzbezug (W)</span>
+								<input
+									type="number"
+									name="max_import_w"
+									value="{{ config.control.max_import_w if config.control.max_import_w is defined else 200 }}"
+									min="0"
+								>
+								<small class="help">Bis zu diesem Bezug darf coarse noch tolerieren.</small>
+							</label>
+
+							<label>
+								<span>Import halten / Verzögerung (Sekunden)</span>
+								<input
+									type="number"
+									name="import_hold_seconds"
+									value="{{ config.control.import_hold_seconds if config.control.import_hold_seconds is defined else 15 }}"
+									min="0"
+								>
+								<small class="help">Wie lange zu hoher Bezug anstehen muss, bevor zurückgeschaltet wird.</small>
+							</label>
+						</div>
+					</article>
+					
                 </section>
 
                 <section class="card">

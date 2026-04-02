@@ -18,11 +18,16 @@ class ControllerState:
     degraded_quality: str | None = None
     degraded_since_monotonic: float | None = None
 
+    import_exceeded_since_monotonic: float | None = None
+
     last_fallback_log_key: str | None = None
     last_live_hold_log_key: str | None = None
+    last_import_log_key: str | None = None
 
 
 class BasicController:
+    PROFILE_ORDER = ("off", "eco", "mid", "high")
+
     def __init__(self, control_config: dict) -> None:
         thresholds = control_config.get("coarse_thresholds", {})
         self.eco_threshold = float(thresholds.get("eco", -500))
@@ -34,6 +39,13 @@ class BasicController:
         )
         self.switch_hysteresis_w = float(
             control_config.get("switch_hysteresis_w", 0)
+        )
+
+        self.max_import_w = float(
+            control_config.get("max_import_w", 200)
+        )
+        self.import_hold_seconds = float(
+            control_config.get("import_hold_seconds", 15)
         )
 
         self.source_loss = control_config.get("source_loss", {})
@@ -59,23 +71,28 @@ class BasicController:
 
     def _decide_live(self, grid_power_w: float) -> str:
         now_mono = monotonic()
-        current = self.state.current_live_profile
+        current = self.state.current_live_profile or "off"
 
-        candidate = self._choose_live_profile(
-            grid_power_w=grid_power_w,
-            current_profile=current,
-        )
-
-        if current is None:
-            self.state.current_live_profile = candidate
+        if self.state.current_live_profile is None:
+            self.state.current_live_profile = "off"
             self.state.live_profile_since_monotonic = now_mono
-            self.state.last_live_hold_log_key = None
             logger.info(
-                "Initial live decision: profile=%s grid_power_w=%.1f",
-                candidate,
+                "Initial live state: profile=%s grid_power_w=%.1f",
+                self.state.current_live_profile,
                 grid_power_w,
             )
-            return candidate
+
+        candidate = current
+
+        if current == "off":
+            candidate = self._decide_up_from_off(grid_power_w)
+            self._reset_import_tracking()
+        else:
+            if self._should_step_down(grid_power_w, now_mono):
+                candidate = self._step_down(current)
+            else:
+                self._track_import_state(grid_power_w, now_mono)
+                candidate = self._maybe_step_up(current, grid_power_w)
 
         if candidate == current:
             self.state.last_live_hold_log_key = None
@@ -116,70 +133,124 @@ class BasicController:
         self.state.live_profile_since_monotonic = now_mono
         self.state.last_live_hold_log_key = None
 
+        if candidate != "off":
+            self.state.last_import_log_key = None
+        else:
+            self._reset_import_tracking()
+
         return candidate
 
-    def _choose_live_profile(
-        self,
-        *,
-        grid_power_w: float,
-        current_profile: str | None,
-    ) -> str:
-        # Beim allerersten Live-Wert keine zusätzliche Hysterese,
-        # damit das System normal anlaufen kann.
-        if current_profile is None:
-            return self._decide_without_hysteresis(grid_power_w)
+    def _decide_up_from_off(self, grid_power_w: float) -> str:
+        h = self.switch_hysteresis_w
+        step_threshold = self._get_step_up_threshold("off", "eco")
 
+        if grid_power_w < step_threshold - h:
+            return "eco"
+        return "off"
+
+    def _maybe_step_up(self, current_profile: str, grid_power_w: float) -> str:
         h = self.switch_hysteresis_w
 
-        if current_profile == "off":
-            if grid_power_w < self.high_threshold - h:
-                return "high"
-            if grid_power_w < self.mid_threshold - h:
-                return "mid"
-            if grid_power_w < self.eco_threshold - h:
-                return "eco"
-            return "off"
-
         if current_profile == "eco":
-            if grid_power_w < self.high_threshold - h:
-                return "high"
-            if grid_power_w < self.mid_threshold - h:
+            step_threshold = self._get_step_up_threshold("eco", "mid")
+            if grid_power_w < step_threshold - h:
                 return "mid"
-            if grid_power_w > self.eco_threshold + h:
-                return "off"
             return "eco"
 
         if current_profile == "mid":
-            if grid_power_w < self.high_threshold - h:
+            step_threshold = self._get_step_up_threshold("mid", "high")
+            if grid_power_w < step_threshold - h:
                 return "high"
-            if grid_power_w > self.mid_threshold + h:
-                if grid_power_w > self.eco_threshold + h:
-                    return "off"
-                return "eco"
             return "mid"
 
         if current_profile == "high":
-            if grid_power_w > self.high_threshold + h:
-                if grid_power_w > self.mid_threshold + h:
-                    if grid_power_w > self.eco_threshold + h:
-                        return "off"
-                    return "eco"
-                return "mid"
             return "high"
 
-        logger.warning(
-            "Unknown current live profile=%r -> falling back to plain coarse logic",
-            current_profile,
+        return current_profile
+
+    def _should_step_down(self, grid_power_w: float, now_mono: float) -> bool:
+        if self.state.current_live_profile in (None, "off"):
+            self._reset_import_tracking()
+            return False
+
+        reset_threshold = self.max_import_w - self.switch_hysteresis_w
+
+        if grid_power_w <= reset_threshold:
+            self._reset_import_tracking()
+            return False
+
+        if grid_power_w <= self.max_import_w:
+            return False
+
+        if self.state.import_exceeded_since_monotonic is None:
+            self.state.import_exceeded_since_monotonic = now_mono
+            self._log_import_once(
+                "start",
+                "Import threshold exceeded: grid_power_w=%.1f max_import_w=%.1f",
+                grid_power_w,
+                self.max_import_w,
+            )
+            return False
+
+        elapsed = now_mono - self.state.import_exceeded_since_monotonic
+
+        if elapsed >= self.import_hold_seconds:
+            self._log_import_once(
+                "step_down",
+                (
+                    "Import hold exceeded: grid_power_w=%.1f max_import_w=%.1f "
+                    "elapsed=%.1fs -> step down"
+                ),
+                grid_power_w,
+                self.max_import_w,
+                elapsed,
+            )
+            self.state.import_exceeded_since_monotonic = now_mono
+            self.state.last_import_log_key = None
+            return True
+
+        self._log_import_once(
+            "holding",
+            (
+                "Import detected: grid_power_w=%.1f max_import_w=%.1f "
+                "elapsed=%.1fs hold=%.1fs"
+            ),
+            grid_power_w,
+            self.max_import_w,
+            elapsed,
+            self.import_hold_seconds,
         )
-        return self._decide_without_hysteresis(grid_power_w)
+        return False
 
-    def _decide_without_hysteresis(self, grid_power_w: float) -> str:
-        if grid_power_w < self.high_threshold:
-            return "high"
-        if grid_power_w < self.mid_threshold:
+    def _track_import_state(self, grid_power_w: float, now_mono: float) -> None:
+        reset_threshold = self.max_import_w - self.switch_hysteresis_w
+
+        if grid_power_w <= reset_threshold:
+            if self.state.import_exceeded_since_monotonic is not None:
+                logger.info(
+                    "Import condition cleared: grid_power_w=%.1f reset_threshold=%.1f",
+                    grid_power_w,
+                    reset_threshold,
+                )
+            self._reset_import_tracking()
+            return
+
+        if grid_power_w > self.max_import_w and self.state.import_exceeded_since_monotonic is None:
+            self.state.import_exceeded_since_monotonic = now_mono
+            self._log_import_once(
+                "start",
+                "Import threshold exceeded: grid_power_w=%.1f max_import_w=%.1f",
+                grid_power_w,
+                self.max_import_w,
+            )
+
+    def _step_down(self, current_profile: str) -> str:
+        if current_profile == "high":
             return "mid"
-        if grid_power_w < self.eco_threshold:
+        if current_profile == "mid":
             return "eco"
+        if current_profile == "eco":
+            return "off"
         return "off"
 
     def _decide_degraded(self, quality: str) -> str:
@@ -282,6 +353,10 @@ class BasicController:
         logger.warning("Unknown snapshot quality=%r -> treating as offline", quality)
         return "offline"
 
+    def _reset_import_tracking(self) -> None:
+        self.state.import_exceeded_since_monotonic = None
+        self.state.last_import_log_key = None
+
     def _log_fallback_once(
         self,
         key: str,
@@ -305,3 +380,33 @@ class BasicController:
 
         self.state.last_live_hold_log_key = key
         logger.info(msg, *args)
+
+    def _log_import_once(
+        self,
+        key: str,
+        msg: str,
+        *args,
+    ) -> None:
+        if self.state.last_import_log_key == key:
+            return
+
+        self.state.last_import_log_key = key
+        logger.info(msg, *args)
+        
+    def _get_total_threshold(self, profile: str) -> float:
+        if profile == "eco":
+            return self.eco_threshold
+        if profile == "mid":
+            return self.mid_threshold
+        if profile == "high":
+            return self.high_threshold
+        return 0.0
+
+
+    def _get_step_up_threshold(self, current_profile: str, next_profile: str) -> float:
+        current_total = abs(self._get_total_threshold(current_profile))
+        next_total = abs(self._get_total_threshold(next_profile))
+        additional_required = max(0.0, next_total - current_total)
+
+        # negative = benötigte Einspeisung am Netzanschlusspunkt
+        return -additional_required

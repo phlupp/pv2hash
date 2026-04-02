@@ -166,6 +166,15 @@ async def save_settings(request: Request):
     state.config["control"]["coarse_thresholds"]["mid"] = int(form.get("threshold_mid", -1500))
     state.config["control"]["coarse_thresholds"]["high"] = int(form.get("threshold_high", -2500))
 
+    state.config["control"]["switch_hysteresis_w"] = int(form.get("switch_hysteresis_w", 100))
+    state.config["control"]["min_switch_interval_seconds"] = int(
+        form.get("min_switch_interval_seconds", 60)
+    )
+    state.config["control"]["max_import_w"] = int(form.get("max_import_w", 200))
+    state.config["control"]["import_hold_seconds"] = int(
+        form.get("import_hold_seconds", 15)
+    )
+
     save_config(state.config)
     logger.info("Settings saved")
     reload_runtime()
