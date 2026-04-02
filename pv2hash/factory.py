@@ -15,13 +15,20 @@ def build_source(config: dict) -> EnergySource:
     source_type = source_cfg.get("type", "simulator")
     settings = source_cfg.get("settings", {})
 
-    if source_type == "sma_speedwire":
-        source_type = "sma_meter_protocol"
-
     logger.info("Building source adapter: %s", source_type)
 
     if source_type == "simulator":
-        return SimulatorSource()
+        return SimulatorSource(
+            simulator_import_power_w=float(
+                settings.get("simulator_import_power_w", 1000.0)
+            ),
+            simulator_export_power_w=float(
+                settings.get("simulator_export_power_w", 10000.0)
+            ),
+            simulator_ramp_rate_w_per_minute=float(
+                settings.get("simulator_ramp_rate_w_per_minute", 600.0)
+            ),
+        )
 
     if source_type == "sma_meter_protocol":
         return SmaMeterProtocolSource(

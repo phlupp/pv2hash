@@ -17,6 +17,7 @@ class RuntimeServices:
         self.miners = []
         self.controller = None
         self.last_error: str | None = None
+        self.reload_generation = 0
 
     def reload_from_config(self) -> None:
         config = load_config()
@@ -34,12 +35,18 @@ class RuntimeServices:
         self.miners = build_miners(config)
         self.controller = BasicController(config["control"])
         self.last_error = None
+        self.reload_generation += 1
 
         now = datetime.now(UTC)
         self.state.last_reload_at = now
         self.state.source_reloaded_at = now
 
-        logger.info("Runtime reload finished, miners=%d", len(self.miners))
+        logger.info(
+            "Runtime reload finished, miners=%d generation=%d source=%s",
+            len(self.miners),
+            self.reload_generation,
+            config["source"].get("type"),
+        )
 
     def get_source_debug_info(self) -> dict:
         if self.source is None:

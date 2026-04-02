@@ -42,28 +42,54 @@ async def control_loop() -> None:
     while True:
         refresh_seconds = state.config["app"].get("refresh_seconds", 5)
 
-        snapshot = await services.source.read()
+        try:
+            generation = services.reload_generation
+            source = services.source
+            controller = services.controller
+            miners = list(services.miners)
+            distribution_mode = state.config["control"]["distribution_mode"]
 
-        source_last_live_packet_at = getattr(services.source, "last_live_packet_at", None)
-        if source_last_live_packet_at is not None:
+            current_total_miner_power_w = (
+                sum(m.power_w for m in state.miners) if state.miners else 0.0
+            )
+
+            if hasattr(source, "set_simulated_miner_power_w"):
+                source.set_simulated_miner_power_w(current_total_miner_power_w)
+            
+            snapshot = await source.read()
+
+            if generation != services.reload_generation or source is not services.source:
+                logger.info("Discarding stale control iteration after runtime reload")
+                await asyncio.sleep(0.1)
+                continue
+
+            source_last_live_packet_at = getattr(source, "last_live_packet_at", None)
             state.last_live_packet_at = source_last_live_packet_at
 
-        target_profile = services.controller.decide_profile(snapshot.grid_power_w)
+            target_profile = controller.decide(snapshot)
 
-        profiles = apply_distribution(
-            state.config["control"]["distribution_mode"],
-            target_profile,
-            services.miners,
-        )
+            profiles = apply_distribution(
+                distribution_mode,
+                target_profile,
+                miners,
+            )
 
-        for miner, profile in zip(services.miners, profiles):
-            await miner.set_profile(profile)
+            for miner, profile in zip(miners, profiles):
+                await miner.set_profile(profile)
 
-        miner_states = [await miner.get_status() for miner in services.miners]
+            miner_states = [await miner.get_status() for miner in miners]
 
-        state.snapshot = snapshot
-        state.miners = miner_states
-        state.last_decision = target_profile
+            if generation != services.reload_generation:
+                logger.info("Discarding state update after runtime reload")
+                await asyncio.sleep(0.1)
+                continue
+
+            state.snapshot = snapshot
+            state.miners = miner_states
+            state.last_decision = target_profile
+
+        except Exception:
+            logger.exception("Unhandled error in control loop")
 
         await asyncio.sleep(refresh_seconds)
 
@@ -77,6 +103,10 @@ async def startup_event() -> None:
 def reload_runtime() -> None:
     logger.info("Reloading runtime")
     services.reload_from_config()
+    state.snapshot = None
+    state.miners = []
+    state.last_decision = None
+    state.last_live_packet_at = None
     state.last_reload_at = datetime.now(UTC)
 
 

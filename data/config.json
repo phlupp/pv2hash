@@ -12,19 +12,8 @@
     "check_updates": true,
     "auto_update_enabled": false
   },
-  "control": {
-    "policy_mode": "coarse",
-    "distribution_mode": "cascade",
-    "min_switch_interval_seconds": 60,
-    "cooldown_seconds": 15,
-    "coarse_thresholds": {
-      "eco": -500,
-      "mid": -1500,
-      "high": -2500
-    }
-  },
   "source": {
-    "type": "sma_meter_protocol",
+    "type": "simulator",
     "name": "SMA EM 20",
     "enabled": true,
     "settings": {
@@ -35,7 +24,10 @@
       "stale_after_seconds": 8.0,
       "offline_after_seconds": 30.0,
       "device_ip": "192.168.11.10",
-      "timeout_seconds": 1.0
+      "timeout_seconds": 1.0,
+	  "simulator_import_power_w": 1000.0,
+      "simulator_export_power_w": 10000.0,
+      "simulator_ramp_rate_w_per_minute": 600.0
     }
   },
   "miners": [
@@ -77,5 +69,25 @@
       "firmware_version": null,
       "settings": {}
     }
-  ]
+  ],
+  "control": {
+    "policy_mode": "coarse",
+    "distribution_mode": "cascade",
+    "min_switch_interval_seconds": 60,
+    "cooldown_seconds": 15,
+    "coarse_thresholds": {
+      "eco": -500,
+      "mid": -1500,
+      "high": -2500
+    },
+    "source_loss": {
+      "stale": {
+        "mode": "hold_last",
+        "hold_seconds": 15
+      },
+      "offline": {
+        "mode": "off"
+      }
+    }
+  }
 }

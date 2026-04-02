@@ -12,17 +12,6 @@ DEFAULT_CONFIG = {
         "check_updates": True,
         "auto_update_enabled": False,
     },
-    "control": {
-        "policy_mode": "coarse",
-        "distribution_mode": "equal",
-        "min_switch_interval_seconds": 60,
-        "cooldown_seconds": 15,
-        "coarse_thresholds": {
-            "eco": -500,
-            "mid": -1500,
-            "high": -2500,
-        },
-    },
     "source": {
         "type": "simulator",
         "name": "Simulator Source",
@@ -35,6 +24,9 @@ DEFAULT_CONFIG = {
             "stale_after_seconds": 8.0,
             "offline_after_seconds": 30.0,
             "device_ip": "",
+            "simulator_import_power_w": 1000.0,
+            "simulator_export_power_w": 10000.0,
+            "simulator_ramp_rate_w_per_minute": 600.0,
         },
     },
     "miners": [
@@ -67,4 +59,25 @@ DEFAULT_CONFIG = {
             },
         },
     ],
+    "control": {
+        "policy_mode": "coarse",
+        "distribution_mode": "equal",
+        "min_switch_interval_seconds": 60,
+        "cooldown_seconds": 15,
+        "switch_hysteresis_w": 100,
+        "coarse_thresholds": {
+            "eco": -500,
+            "mid": -1500,
+            "high": -2500,
+        },
+        "source_loss": {
+            "stale": {
+                "mode": "hold_last",
+                "hold_seconds": 15,
+            },
+            "offline": {
+                "mode": "off",
+            },
+        },
+    },
 }
