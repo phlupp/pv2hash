@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PV2Hash – System</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">PV</div>
+                <div>
+                    <div class="brand-title">PV2Hash</div>
+                    <div class="brand-subtitle">{{ instance_name }}</div>
+                </div>
+            </div>
+
+            <nav class="nav">
+                <a class="nav-item" href="/">Dashboard</a>
+                <a class="nav-item" href="/sources">Quellen</a>
+                <a class="nav-item" href="/miners">Miner</a>
+                <a class="nav-item" href="/settings">Einstellungen</a>
+                <span class="nav-item disabled">Verlauf</span>
+                <a class="nav-item active" href="/system">System</a>
+            </nav>
+        </aside>
+
+        <main class="content">
+            <header class="topbar">
+                <div>
+                    <h1>System</h1>
+                    <p>Status, Runtime und Live-Konsole</p>
+                </div>
+            </header>
+
+            <section class="grid grid-2">
+                <article class="card">
+                    <div class="card-head">
+                        <h2>Status</h2>
+                    </div>
+
+                    <div class="kv">
+                        <div class="kv-row">
+                            <span>Instanz</span>
+                            <strong>{{ instance_name }}</strong>
+                        </div>
+						<div class="kv-row">
+							<span>Version</span>
+							<strong>{{ app_version }}</strong>
+						</div>
+						<div class="kv-row">
+							<span>Build</span>
+							<strong>{{ app_build }}</strong>
+						</div>
+						<div class="kv-row">
+							<span>Version vollständig</span>
+							<strong>{{ app_version_full }}</strong>
+						</div>
+                        <div class="kv-row">
+                            <span>Log-Level</span>
+                            <strong>{{ log_level }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Quelle</span>
+                            <strong>{{ source_type }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Miner aktiv</span>
+                            <strong>{{ miner_count }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Gestartet</span>
+                            <strong>{{ started_at }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Letzter Reload</span>
+                            <strong>{{ last_reload_at }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Letztes Live-Paket</span>
+                            <strong>{{ last_live_packet_at if last_live_packet_at else "—" }}</strong>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="card">
+                    <div class="card-head">
+                        <h2>Aktionen</h2>
+                    </div>
+
+                    <div class="actions start wrap">
+                        <form method="post" action="/system/reload" class="inline-form">
+                            <button class="btn" type="submit">Runtime neu laden</button>
+                        </form>
+
+                        <a class="btn btn-info" href="/api/logs/download">Log herunterladen</a>
+                    </div>
+                </article>
+            </section>
+
+            <section class="card">
+                <div class="console-toolbar">
+                    <div class="console-toolbar-left">
+                        <h2>Echtzeit-Logs</h2>
+                    </div>
+
+                    <div class="console-toolbar-right">
+                        <button id="toggleConsoleBtn" class="btn btn-secondary" type="button">AUSBLENDEN LOGS</button>
+                        <button id="toggleScrollBtn" class="btn btn-warning" type="button">STOPPEN SCROLLING</button>
+                        <button id="clearFilterBtn" class="btn btn-info" type="button">FILTER LÖSCHEN</button>
+
+                        <label class="console-filter-label" for="logFilterInput">Filter</label>
+                        <input id="logFilterInput" class="console-filter-input" type="text" placeholder="Logs filtern...">
+                    </div>
+                </div>
+
+                <div id="consoleWrap" class="console-wrap">
+                    <div id="logConsole" class="console-output">
+                        <div class="log-line"><span class="log-message">Lade Logs...</span></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+	<script>
+		const logConsole = document.getElementById("logConsole");
+		const logFilterInput = document.getElementById("logFilterInput");
+		const toggleConsoleBtn = document.getElementById("toggleConsoleBtn");
+		const toggleScrollBtn = document.getElementById("toggleScrollBtn");
+		const clearFilterBtn = document.getElementById("clearFilterBtn");
+		const consoleWrap = document.getElementById("consoleWrap");
+
+		let autoScroll = true;
+		let consoleVisible = true;
+		let allLines = [];
+
+		function escapeHtml(text) {
+			const div = document.createElement("div");
+			div.textContent = text;
+			return div.innerHTML;
+		}
+
+		function renderLevel(line) {
+			const parts = line.split(" | ");
+			if (parts.length < 4) {
+				return `<div class="log-row"><div class="log-message-full">${escapeHtml(line)}</div></div>`;
+			}
+
+			const timestamp = parts[0];
+			const level = parts[1].trim();
+			const logger = parts[2];
+			const message = parts.slice(3).join(" | ");
+
+			const levelClass = {
+				"ERROR": "log-level-error",
+				"WARNING": "log-level-warning",
+				"INFO": "log-level-info",
+				"DEBUG": "log-level-debug"
+			}[level] || "";
+
+			return `
+				<div class="log-row">
+					<div class="log-col-time">${escapeHtml(timestamp)}</div>
+					<div class="log-col-level"><span class="log-level ${levelClass}">${escapeHtml(level)}</span></div>
+					<div class="log-col-logger">${escapeHtml(logger)}</div>
+					<div class="log-col-message">${escapeHtml(message)}</div>
+				</div>
+			`;
+		}
+
+		async function fetchLogs() {
+			try {
+				const response = await fetch("/api/logs", { cache: "no-store" });
+				const data = await response.json();
+				allLines = Array.isArray(data.lines) ? data.lines : [];
+				renderLogs();
+			} catch (err) {
+				logConsole.innerHTML = `<div class="log-row"><div class="log-message-full">Fehler beim Laden der Logs.</div></div>`;
+			}
+		}
+
+		function renderLogs() {
+			const filter = logFilterInput.value.trim().toLowerCase();
+
+			const filtered = !filter
+				? allLines
+				: allLines.filter(line => line.toLowerCase().includes(filter));
+
+			logConsole.innerHTML = filtered.map(renderLevel).join("");
+
+			if (autoScroll) {
+				consoleWrap.scrollTop = consoleWrap.scrollHeight;
+			}
+		}
+
+		toggleConsoleBtn.addEventListener("click", () => {
+			consoleVisible = !consoleVisible;
+			consoleWrap.style.display = consoleVisible ? "block" : "none";
+			toggleConsoleBtn.textContent = consoleVisible ? "AUSBLENDEN LOGS" : "EINBLENDEN LOGS";
+		});
+
+		toggleScrollBtn.addEventListener("click", () => {
+			autoScroll = !autoScroll;
+			toggleScrollBtn.textContent = autoScroll ? "STOPPEN SCROLLING" : "STARTEN SCROLLING";
+			if (autoScroll) {
+				consoleWrap.scrollTop = consoleWrap.scrollHeight;
+			}
+		});
+
+		clearFilterBtn.addEventListener("click", () => {
+			logFilterInput.value = "";
+			renderLogs();
+		});
+
+		logFilterInput.addEventListener("input", renderLogs);
+
+		fetchLogs();
+		setInterval(fetchLogs, 2000);
+	</script>
+</body>
+</html>

@@ -3,8 +3,12 @@ import socket
 import struct
 from datetime import UTC, datetime
 
+from pv2hash.logging_ext.setup import get_logger
 from pv2hash.models.energy import EnergySnapshot
 from pv2hash.sources.base import EnergySource
+
+
+logger = get_logger("pv2hash.source.sma_meter_protocol")
 
 
 class SmaMeterProtocolSource(EnergySource):
@@ -30,9 +34,10 @@ class SmaMeterProtocolSource(EnergySource):
 
         self.last_snapshot: EnergySnapshot | None = None
         self.last_live_packet_at: datetime | None = None
-        
+
         self.debug_dump_obis = False
         self._last_obis_signature: str | None = None
+        self._last_logged_quality: str | None = None
 
         self.debug_info = {
             "received_packets": 0,
@@ -80,6 +85,15 @@ class SmaMeterProtocolSource(EnergySource):
         sock.settimeout(self.packet_timeout_seconds)
 
         self.debug_info["multicast_joined"] = True
+
+        logger.info(
+            "SMA meter protocol source initialized: multicast=%s port=%s interface=%s device_filter=%s",
+            self.multicast_ip,
+            self.bind_port,
+            self.interface_ip,
+            self.device_ip or "-",
+        )
+
         return sock
 
     async def read(self) -> EnergySnapshot:
@@ -114,7 +128,8 @@ class SmaMeterProtocolSource(EnergySource):
             self.debug_info["parsed_packets"] += 1
             self.debug_info["last_error"] = None
             self.debug_info["last_live_packet_at"] = snapshot.updated_at.isoformat()
-            self.debug_info["current_quality"] = "live"
+            self._set_quality("live")
+
             return snapshot
 
         except TimeoutError:
@@ -124,8 +139,15 @@ class SmaMeterProtocolSource(EnergySource):
         except Exception as exc:
             self.debug_info["parse_errors"] += 1
             self.debug_info["last_error"] = str(exc)
+            logger.exception("Error while reading SMA meter protocol packet")
 
         return self._fallback_snapshot()
+
+    def _set_quality(self, quality: str) -> None:
+        self.debug_info["current_quality"] = quality
+        if quality != self._last_logged_quality:
+            logger.info("SMA source quality changed to %s", quality)
+            self._last_logged_quality = quality
 
     def _fallback_snapshot(self) -> EnergySnapshot:
         now = datetime.now(UTC)
@@ -140,7 +162,7 @@ class SmaMeterProtocolSource(EnergySource):
             else:
                 quality = "offline"
 
-            self.debug_info["current_quality"] = quality
+            self._set_quality(quality)
 
             return EnergySnapshot(
                 grid_power_w=self.last_snapshot.grid_power_w,
@@ -154,13 +176,58 @@ class SmaMeterProtocolSource(EnergySource):
                 quality=quality,
             )
 
-        self.debug_info["current_quality"] = "no_data"
+        self._set_quality("no_data")
         return EnergySnapshot(
             grid_power_w=0.0,
             updated_at=now,
             source="sma_meter_protocol",
             quality="no_data",
         )
+
+    def _format_obis_num(self, obis_num: int) -> str:
+        a = (obis_num >> 24) & 0xFF
+        b = (obis_num >> 16) & 0xFF
+        c = (obis_num >> 8) & 0xFF
+        d = obis_num & 0xFF
+        return f"{a:02x}{b:02x}{c:02x}{d:02x} / {a}:{b}.{c}.{d}"
+
+    def _dump_obis_entries(self, entries: list[dict]) -> None:
+        if not self.debug_dump_obis:
+            return
+
+        interesting = []
+        for entry in entries:
+            if entry["obis_num"] == 0x00010400:
+                interesting.append(entry)
+            elif entry["obis_num"] == 0x00020400:
+                interesting.append(entry)
+            elif entry["length"] == 4 and ((entry["obis_num"] >> 8) & 0xFF) == 4:
+                interesting.append(entry)
+
+        if not interesting:
+            return
+
+        signature = "|".join(
+            f"{entry['obis_num']:08x}:{entry['value']}"
+            for entry in interesting
+        )
+
+        if signature == self._last_obis_signature:
+            return
+
+        self._last_obis_signature = signature
+
+        logger.debug("---- SMA OBIS packet dump start ----")
+        for entry in interesting:
+            logger.debug(
+                "obis=0x%08x (%s) len=%s raw=%s value=%s",
+                entry["obis_num"],
+                self._format_obis_num(entry["obis_num"]),
+                entry["length"],
+                entry["raw_value"],
+                entry["value"],
+            )
+        logger.debug("---- SMA OBIS packet dump end ----")
 
     def _parse_emeter_packet(self, packet: bytes) -> EnergySnapshot:
         if len(packet) < 32:
@@ -191,10 +258,10 @@ class SmaMeterProtocolSource(EnergySource):
                 break
 
             if obis_length == 4:
-                raw_value = struct.unpack(">I", packet[pos:pos + 4])[0]
+                raw_value = struct.unpack(">i", packet[pos:pos + 4])[0]
                 value = raw_value / 10.0
             else:
-                raw_value = struct.unpack(">Q", packet[pos:pos + 8])[0]
+                raw_value = struct.unpack(">q", packet[pos:pos + 8])[0]
                 value = float(raw_value)
 
             entries.append(
@@ -215,11 +282,7 @@ class SmaMeterProtocolSource(EnergySource):
 
         self._dump_obis_entries(entries)
 
-        # SMA liefert:
-        # Bezug = positiv (1.4.0)
-        # Einspeisung = negativ (2.4.0)
         grid_power_w = -(active_plus_w + active_minus_w)
-
         pv_power_w = abs(grid_power_w) if grid_power_w < 0 else None
 
         self.debug_info["active_plus_w"] = active_plus_w
@@ -234,49 +297,3 @@ class SmaMeterProtocolSource(EnergySource):
             source="sma_meter_protocol",
             quality="live",
         )
-        
-    def _format_obis_num(self, obis_num: int) -> str:
-        a = (obis_num >> 24) & 0xFF
-        b = (obis_num >> 16) & 0xFF
-        c = (obis_num >> 8) & 0xFF
-        d = obis_num & 0xFF
-        return f"{a:02x}{b:02x}{c:02x}{d:02x} / {a}:{b}.{c}.{d}"
-            
-    def _dump_obis_entries(self, entries: list[dict]) -> None:
-        if not self.debug_dump_obis:
-            return
-
-        interesting = []
-        for entry in entries:
-            if entry["obis_num"] == 0x00010400:
-                interesting.append(entry)
-            elif entry["obis_num"] == 0x00020400:
-                interesting.append(entry)
-            elif entry["length"] == 4 and ((entry["obis_num"] >> 8) & 0xFF) == 4:
-                interesting.append(entry)
-
-        if not interesting:
-            return
-
-        signature = "|".join(
-            f"{entry['obis_num']:08x}:{entry['value']}"
-            for entry in interesting
-        )
-
-        # Nur loggen, wenn sich der Inhalt geändert hat
-        if signature == self._last_obis_signature:
-            return
-
-        self._last_obis_signature = signature
-
-        print("[SMA][OBIS] ---- packet dump start ----")
-        for entry in interesting:
-            print(
-                "[SMA][OBIS] "
-                f"obis=0x{entry['obis_num']:08x} "
-                f"({self._format_obis_num(entry['obis_num'])}) "
-                f"len={entry['length']} "
-                f"raw={entry['raw_value']} "
-                f"value={entry['value']}"
-            )
-        print("[SMA][OBIS] ---- packet dump end ----")

@@ -3,7 +3,11 @@ from datetime import UTC, datetime
 from pv2hash.config.store import load_config
 from pv2hash.controller.basic import BasicController
 from pv2hash.factory import build_miners, build_source
+from pv2hash.logging_ext.setup import get_logger
 from pv2hash.runtime import AppState
+
+
+logger = get_logger("pv2hash.runtime")
 
 
 class RuntimeServices:
@@ -17,13 +21,25 @@ class RuntimeServices:
     def reload_from_config(self) -> None:
         config = load_config()
         self.state.config = config
+
+        logger.info("Reloading runtime from config")
+        logger.info(
+            "Source type=%s, distribution=%s, policy=%s",
+            config["source"].get("type"),
+            config["control"].get("distribution_mode"),
+            config["control"].get("policy_mode"),
+        )
+
         self.source = build_source(config)
         self.miners = build_miners(config)
         self.controller = BasicController(config["control"])
         self.last_error = None
+
         now = datetime.now(UTC)
         self.state.last_reload_at = now
         self.state.source_reloaded_at = now
+
+        logger.info("Runtime reload finished, miners=%d", len(self.miners))
 
     def get_source_debug_info(self) -> dict:
         if self.source is None:

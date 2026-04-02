@@ -1,9 +1,13 @@
+from pv2hash.logging_ext.setup import get_logger
 from pv2hash.miners.base import MinerAdapter
 from pv2hash.miners.braiins import BraiinsMiner
 from pv2hash.miners.simulator import SimulatorMiner
 from pv2hash.sources.base import EnergySource
 from pv2hash.sources.simulator import SimulatorSource
 from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
+
+
+logger = get_logger("pv2hash.factory")
 
 
 def build_source(config: dict) -> EnergySource:
@@ -13,6 +17,8 @@ def build_source(config: dict) -> EnergySource:
 
     if source_type == "sma_speedwire":
         source_type = "sma_meter_protocol"
+
+    logger.info("Building source adapter: %s", source_type)
 
     if source_type == "simulator":
         return SimulatorSource()
@@ -45,6 +51,14 @@ def build_miners(config: dict) -> list[MinerAdapter]:
 
         driver = miner_cfg.get("driver", "simulator")
         settings = miner_cfg.get("settings", {})
+
+        logger.info(
+            "Building miner adapter: id=%s name=%s driver=%s host=%s",
+            miner_cfg.get("id"),
+            miner_cfg.get("name"),
+            driver,
+            miner_cfg.get("host"),
+        )
 
         if driver == "simulator":
             miner_adapters.append(

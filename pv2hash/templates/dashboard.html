@@ -24,7 +24,7 @@
                 <a class="nav-item" href="/miners">Miner</a>
                 <a class="nav-item" href="/settings">Einstellungen</a>
                 <span class="nav-item disabled">Verlauf</span>
-                <span class="nav-item disabled">System</span>
+                <a class="nav-item" href="/system">System</a>
             </nav>
         </aside>
 
@@ -106,155 +106,39 @@
                 </article>
 
                 <article class="card">
-                    <div class="card-head">
-                        <h2>System</h2>
-                    </div>
+					<div class="card-head">
+						<h2>System</h2>
+					</div>
 
-                    <div class="kv">
-                        <div class="kv-row">
-                            <span>Instanz</span>
-                            <strong>{{ instance_name }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Letzte Entscheidung</span>
-                            <strong>{{ last_decision or "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Letzter Reload</span>
-                            <strong>{{ last_reload_at }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Gestartet</span>
-                            <strong>{{ started_at }}</strong>
-                        </div>
+					<div class="kv">
 						<div class="kv-row">
-							<span>Quelle neu geladen</span>
-							<strong>{{ source_reloaded_at if source_reloaded_at else "—" }}</strong>
+							<span>Instanz</span>
+							<strong>{{ instance_name }}</strong>
+						</div>
+						<div class="kv-row">
+							<span>Quellenstatus</span>
+							<strong>{{ snapshot.quality if snapshot else "—" }}</strong>
+						</div>
+						<div class="kv-row">
+							<span>Letzte Entscheidung</span>
+							<strong>{{ last_decision or "—" }}</strong>
 						</div>
 						<div class="kv-row">
 							<span>Letztes Live-Paket</span>
 							<strong>{{ last_live_packet_at if last_live_packet_at else "—" }}</strong>
 						</div>
-                    </div>
+						<div class="kv-row">
+							<span>Letzter Reload</span>
+							<strong>{{ last_reload_at }}</strong>
+						</div>
+					</div>
 
-                    <form method="post" action="/system/reload" class="inline-form top-gap">
-                        <button class="btn" type="submit">Runtime neu laden</button>
-                    </form>
-                </article>
+					<form method="post" action="/system/reload" class="inline-form top-gap">
+						<button class="btn" type="submit">Runtime neu laden</button>
+					</form>
+				</article>
             </section>
-
-            <section class="grid grid-2">
-                <article class="card">
-                    <div class="card-head">
-                        <h2>SMA Debug</h2>
-                    </div>
-
-                    <div class="kv">
-                        <div class="kv-row">
-                            <span>Empfangene Pakete</span>
-                            <strong>{{ source_debug.received_packets if source_debug else "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Geparste Pakete</span>
-                            <strong>{{ source_debug.parsed_packets if source_debug else "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Ignorierte Pakete</span>
-                            <strong>{{ source_debug.ignored_packets if source_debug else "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Timeouts</span>
-                            <strong>{{ source_debug.timeouts if source_debug else "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Parse Errors</span>
-                            <strong>{{ source_debug.parse_errors if source_debug else "—" }}</strong>
-                        </div>
-						<div class="kv-row">
-							<span>Aktuelle Qualität</span>
-							<strong>{{ source_debug.current_quality if source_debug else "—" }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Packet Timeout</span>
-							<strong>{{ source_debug.packet_timeout_seconds if source_debug else "—" }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Stale nach</span>
-							<strong>{{ source_debug.stale_after_seconds if source_debug else "—" }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Offline nach</span>
-							<strong>{{ source_debug.offline_after_seconds if source_debug else "—" }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Letztes Live-Paket</span>
-							<strong>{{ source_debug.last_live_packet_at if source_debug and source_debug.last_live_packet_at else "—" }}</strong>
-						</div>
-                    </div>
-                </article>
-
-                <article class="card">
-                    <div class="card-head">
-                        <h2>Letztes SMA Paket</h2>
-                    </div>
-
-                    <div class="kv">
-						<div class="kv-row">
-							<span>Multicast IP</span>
-							<strong>{{ source_debug.multicast_ip if source_debug else "—" }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Bind Port</span>
-							<strong>{{ source_debug.bind_port if source_debug else "—" }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Interface-IP</span>
-							<strong>{{ source_debug.interface_ip if source_debug else "—" }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Multicast Join</span>
-							<strong>{{ source_debug.multicast_joined if source_debug else "—" }}</strong>
-						</div>
-                        <div class="kv-row">
-                            <span>Sender-IP</span>
-                            <strong>{{ source_debug.last_sender_ip if source_debug else "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Sender-Port</span>
-                            <strong>{{ source_debug.last_sender_port if source_debug else "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Paketgröße</span>
-                            <strong>{{ source_debug.last_packet_len if source_debug else "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Protokoll</span>
-                            <strong>{{ source_debug.last_protocol if source_debug else "—" }}</strong>
-                        </div>
-						<div class="kv-row">
-							<span>Active Power +</span>
-							<strong>{{ source_debug.active_plus_w if source_debug and source_debug.active_plus_w is defined else "—" }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Active Power -</span>
-							<strong>{{ source_debug.active_minus_w if source_debug and source_debug.active_minus_w is defined else "—" }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Grid Power intern</span>
-							<strong>{{ source_debug.grid_power_w if source_debug and source_debug.grid_power_w is defined else "—" }}</strong>
-						</div>
-                        <div class="kv-row">
-                            <span>IP-Filter</span>
-                            <strong>{{ source_debug.device_ip_filter if source_debug and source_debug.device_ip_filter else "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Letzter Fehler</span>
-                            <strong>{{ source_debug.last_error if source_debug and source_debug.last_error else "—" }}</strong>
-                        </div>
-                    </div>
-                </article>
-            </section>
-
+            
             <section class="card">
                 <div class="card-head">
                     <h2>Miner Runtime</h2>

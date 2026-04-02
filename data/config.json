@@ -25,7 +25,7 @@
   },
   "source": {
     "type": "sma_meter_protocol",
-    "name": "Simulator Source",
+    "name": "SMA EM 20",
     "enabled": true,
     "settings": {
       "multicast_ip": "239.12.255.254",
