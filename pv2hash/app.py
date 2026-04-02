@@ -9,7 +9,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from pv2hash.config.store import load_config, save_config
-from pv2hash.controller.distribution import apply_distribution
 from pv2hash.logging_ext.setup import (
     get_log_file_path,
     get_logger,
@@ -47,7 +46,7 @@ async def control_loop() -> None:
             source = services.source
             controller = services.controller
             miners = list(services.miners)
-            distribution_mode = state.config["control"]["distribution_mode"]
+            distribution_mode = state.config["control"].get("distribution_mode", "equal")
 
             current_total_miner_power_w = (
                 sum(m.power_w for m in state.miners) if state.miners else 0.0
@@ -55,7 +54,7 @@ async def control_loop() -> None:
 
             if hasattr(source, "set_simulated_miner_power_w"):
                 source.set_simulated_miner_power_w(current_total_miner_power_w)
-            
+
             snapshot = await source.read()
 
             if generation != services.reload_generation or source is not services.source:
@@ -66,15 +65,13 @@ async def control_loop() -> None:
             source_last_live_packet_at = getattr(source, "last_live_packet_at", None)
             state.last_live_packet_at = source_last_live_packet_at
 
-            target_profile = controller.decide(snapshot)
-
-            profiles = apply_distribution(
-                distribution_mode,
-                target_profile,
-                miners,
+            decision = controller.decide(
+                snapshot=snapshot,
+                miners=miners,
+                distribution_mode=distribution_mode,
             )
 
-            for miner, profile in zip(miners, profiles):
+            for miner, profile in zip(miners, decision.profiles):
                 await miner.set_profile(profile)
 
             miner_states = [await miner.get_status() for miner in miners]
@@ -86,7 +83,7 @@ async def control_loop() -> None:
 
             state.snapshot = snapshot
             state.miners = miner_states
-            state.last_decision = target_profile
+            state.last_decision = decision.summary
 
         except Exception:
             logger.exception("Unhandled error in control loop")
@@ -161,16 +158,15 @@ async def save_settings(request: Request):
     state.config["app"]["refresh_seconds"] = int(form.get("refresh_seconds", 5))
     state.config["control"]["policy_mode"] = form.get("policy_mode", "coarse")
     state.config["control"]["distribution_mode"] = form.get("distribution_mode", "equal")
-
-    state.config["control"]["coarse_thresholds"]["eco"] = int(form.get("threshold_eco", -500))
-    state.config["control"]["coarse_thresholds"]["mid"] = int(form.get("threshold_mid", -1500))
-    state.config["control"]["coarse_thresholds"]["high"] = int(form.get("threshold_high", -2500))
-
-    state.config["control"]["switch_hysteresis_w"] = int(form.get("switch_hysteresis_w", 100))
+    state.config["control"]["switch_hysteresis_w"] = int(
+        form.get("switch_hysteresis_w", 100)
+    )
     state.config["control"]["min_switch_interval_seconds"] = int(
         form.get("min_switch_interval_seconds", 60)
     )
-    state.config["control"]["max_import_w"] = int(form.get("max_import_w", 200))
+    state.config["control"]["max_import_w"] = int(
+        form.get("max_import_w", 200)
+    )
     state.config["control"]["import_hold_seconds"] = int(
         form.get("import_hold_seconds", 15)
     )
@@ -249,6 +245,15 @@ async def add_miner(request: Request):
     name = form.get("name", "Miner")
     host = form.get("host", "")
 
+    if driver == "braiins":
+        default_eco = 1200
+        default_mid = 2200
+        default_high = 3200
+    else:
+        default_eco = 900
+        default_mid = 1800
+        default_high = 3000
+
     state.config.setdefault("miners", []).append(
         {
             "id": miner_id,
@@ -262,6 +267,20 @@ async def add_miner(request: Request):
             "firmware_version": form.get("firmware_version") or None,
             "settings": {
                 "port": int(form.get("port", 4028)),
+            },
+            "profiles": {
+                "off": {
+                    "power_w": int(form.get("profile_off_power_w", 0)),
+                },
+                "eco": {
+                    "power_w": int(form.get("profile_eco_power_w", default_eco)),
+                },
+                "mid": {
+                    "power_w": int(form.get("profile_mid_power_w", default_mid)),
+                },
+                "high": {
+                    "power_w": int(form.get("profile_high_power_w", default_high)),
+                },
             },
         }
     )
@@ -280,16 +299,63 @@ async def update_miner(request: Request):
 
     for miner in state.config.get("miners", []):
         if miner["id"] == miner_id:
+            driver = form.get("driver", miner["driver"])
+
+            if driver == "braiins":
+                default_eco = 1200
+                default_mid = 2200
+                default_high = 3200
+            else:
+                default_eco = 900
+                default_mid = 1800
+                default_high = 3000
+
             miner["name"] = form.get("name", miner["name"])
             miner["host"] = form.get("host", miner["host"])
-            miner["driver"] = form.get("driver", miner["driver"])
+            miner["driver"] = driver
             miner["priority"] = int(form.get("priority", miner.get("priority", 100)))
             miner["enabled"] = form.get("enabled") == "on"
             miner["serial_number"] = form.get("serial_number") or None
             miner["model"] = form.get("model") or None
             miner["firmware_version"] = form.get("firmware_version") or None
             miner.setdefault("settings", {})
-            miner["settings"]["port"] = int(form.get("port", miner["settings"].get("port", 4028)))
+            miner["settings"]["port"] = int(
+                form.get("port", miner["settings"].get("port", 4028))
+            )
+
+            miner.setdefault("profiles", {})
+            miner["profiles"]["off"] = {
+                "power_w": int(
+                    form.get(
+                        "profile_off_power_w",
+                        miner.get("profiles", {}).get("off", {}).get("power_w", 0),
+                    )
+                )
+            }
+            miner["profiles"]["eco"] = {
+                "power_w": int(
+                    form.get(
+                        "profile_eco_power_w",
+                        miner.get("profiles", {}).get("eco", {}).get("power_w", default_eco),
+                    )
+                )
+            }
+            miner["profiles"]["mid"] = {
+                "power_w": int(
+                    form.get(
+                        "profile_mid_power_w",
+                        miner.get("profiles", {}).get("mid", {}).get("power_w", default_mid),
+                    )
+                )
+            }
+            miner["profiles"]["high"] = {
+                "power_w": int(
+                    form.get(
+                        "profile_high_power_w",
+                        miner.get("profiles", {}).get("high", {}).get("power_w", default_high),
+                    )
+                )
+            }
 
             logger.info(
                 "Miner updated: id=%s name=%s driver=%s host=%s enabled=%s",
@@ -321,6 +387,7 @@ async def delete_miner(miner_id: str = Form(...)):
 
     return RedirectResponse(url="/miners?saved=1", status_code=303)
 
+
 @app.get("/system")
 async def system_page(request: Request):
     context = {
@@ -341,6 +408,7 @@ async def system_page(request: Request):
         name="system.html",
         context=context,
     )
+
 
 @app.post("/system/reload")
 async def system_reload():

@@ -43,6 +43,12 @@ DEFAULT_CONFIG = {
             "settings": {
                 "port": 4028,
             },
+            "profiles": {
+                "off": {"power_w": 0},
+                "eco": {"power_w": 900},
+                "mid": {"power_w": 1800},
+                "high": {"power_w": 3000},
+            },
         },
         {
             "id": "m2",
@@ -57,6 +63,12 @@ DEFAULT_CONFIG = {
             "settings": {
                 "port": 4028,
             },
+            "profiles": {
+                "off": {"power_w": 0},
+                "eco": {"power_w": 900},
+                "mid": {"power_w": 1800},
+                "high": {"power_w": 3000},
+            },
         },
     ],
     "control": {
@@ -67,11 +79,6 @@ DEFAULT_CONFIG = {
         "switch_hysteresis_w": 100,
         "max_import_w": 200,
         "import_hold_seconds": 15,
-        "coarse_thresholds": {
-            "eco": -500,
-            "mid": -1500,
-            "high": -2500,
-        },
         "source_loss": {
             "stale": {
                 "mode": "hold_last",

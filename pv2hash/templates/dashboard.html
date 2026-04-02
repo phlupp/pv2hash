@@ -29,6 +29,17 @@
         </aside>
 
         <main class="content">
+            {% set ns = namespace(active_count=0, max_high_power=0.0) %}
+            {% for miner in miners %}
+                {% if miner.is_active|default(true) %}
+                    {% set ns.active_count = ns.active_count + 1 %}
+                {% endif %}
+
+                {% if miner.profiles is defined and miner.profiles and miner.profiles.high is defined and miner.profiles.high.power_w is defined %}
+                    {% set ns.max_high_power = ns.max_high_power + miner.profiles.high.power_w %}
+                {% endif %}
+            {% endfor %}
+
             <header class="topbar">
                 <div>
                     <h1>Dashboard</h1>
@@ -37,7 +48,6 @@
                 <div class="badge-row">
                     <span class="badge">{{ policy_mode }}</span>
                     <span class="badge">{{ distribution_mode }}</span>
-                    <span class="badge">Decision: {{ last_decision or "—" }}</span>
                 </div>
             </header>
 
@@ -63,23 +73,65 @@
                 <article class="card stat">
                     <span class="label">Miner gesamt</span>
                     <strong>{{ "%.0f"|format(total_miner_power) }} W</strong>
-                    <small>{{ miner_count }} Miner aktiv</small>
+                    <small>{{ ns.active_count }} Miner aktiv (max. {{ "%.0f"|format(ns.max_high_power) }} W)</small>
                 </article>
 
                 <article class="card stat">
-                    <span class="label">Batterie SOC</span>
-                    <strong>
-                        {% if snapshot and snapshot.battery_soc_pct is not none %}
-                            {{ "%.1f"|format(snapshot.battery_soc_pct) }} %
-                        {% else %}
-                            —
-                        {% endif %}
-                    </strong>
-                    <small>optional / quellenabhängig</small>
+                    <span class="label">Status</span>
+                    <strong>{{ last_decision or "—" }}</strong>
+                    <small>Quellenstatus: {{ snapshot.quality if snapshot else "—" }}</small>
                 </article>
             </section>
 
-            <section class="grid grid-2">
+            <section class="card top-gap">
+                <div class="card-head">
+                    <h2>Miner Runtime</h2>
+                </div>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Status</th>
+                                <th>Host</th>
+                                <th>Treiber</th>
+                                <th>Profil</th>
+                                <th>Leistung</th>
+                                <th>Seriennummer</th>
+                                <th>Firmware</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for miner in miners %}
+                            <tr>
+                                <td>{{ miner.name }}</td>
+                                <td>
+                                    {% if miner.is_active|default(true) %}
+                                        <span class="pill">aktiv</span>
+                                    {% else %}
+                                        <span class="pill">inaktiv</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ miner.host }}</td>
+                                <td>{{ miner.driver }}</td>
+                                <td><span class="pill">{{ miner.profile }}</span></td>
+                                <td>{{ "%.0f"|format(miner.power_w) }} W</td>
+                                <td>{{ miner.serial_number or "—" }}</td>
+                                <td>{{ miner.firmware_version or "—" }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% if not miners %}
+                            <tr>
+                                <td colspan="8">Keine Miner aktiv.</td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="grid grid-2 top-gap">
                 <article class="card">
                     <div class="card-head">
                         <h2>Energie</h2>
@@ -95,6 +147,16 @@
                             <strong>{{ "%.0f"|format(snapshot.house_power_w) if snapshot and snapshot.house_power_w is not none else "—" }}</strong>
                         </div>
                         <div class="kv-row">
+                            <span>Batterie SOC</span>
+                            <strong>
+                                {% if snapshot and snapshot.battery_soc_pct is not none %}
+                                    {{ "%.1f"|format(snapshot.battery_soc_pct) }} %
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </strong>
+                        </div>
+                        <div class="kv-row">
                             <span>Batterie lädt</span>
                             <strong>{{ "%.0f"|format(snapshot.battery_charge_power_w) if snapshot and snapshot.battery_charge_power_w is not none else "—" }}</strong>
                         </div>
@@ -106,77 +168,37 @@
                 </article>
 
                 <article class="card">
-					<div class="card-head">
-						<h2>System</h2>
-					</div>
+                    <div class="card-head">
+                        <h2>System</h2>
+                    </div>
 
-					<div class="kv">
-						<div class="kv-row">
-							<span>Instanz</span>
-							<strong>{{ instance_name }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Quellenstatus</span>
-							<strong>{{ snapshot.quality if snapshot else "—" }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Letzte Entscheidung</span>
-							<strong>{{ last_decision or "—" }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Letztes Live-Paket</span>
-							<strong>{{ last_live_packet_at if last_live_packet_at else "—" }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Letzter Reload</span>
-							<strong>{{ last_reload_at }}</strong>
-						</div>
-					</div>
+                    <div class="kv">
+                        <div class="kv-row">
+                            <span>Instanz</span>
+                            <strong>{{ instance_name }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Verteilstrategie</span>
+                            <strong>{{ distribution_mode }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Policy</span>
+                            <strong>{{ policy_mode }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Letztes Live-Paket</span>
+                            <strong>{{ last_live_packet_at if last_live_packet_at else "—" }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Letzter Reload</span>
+                            <strong>{{ last_reload_at }}</strong>
+                        </div>
+                    </div>
 
-					<form method="post" action="/system/reload" class="inline-form top-gap">
-						<button class="btn" type="submit">Runtime neu laden</button>
-					</form>
-				</article>
-            </section>
-            
-            <section class="card">
-                <div class="card-head">
-                    <h2>Miner Runtime</h2>
-                </div>
-
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Host</th>
-                                <th>Treiber</th>
-                                <th>Profil</th>
-                                <th>Leistung</th>
-                                <th>Seriennummer</th>
-                                <th>Firmware</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for miner in miners %}
-                            <tr>
-                                <td>{{ miner.name }}</td>
-                                <td>{{ miner.host }}</td>
-                                <td>{{ miner.driver }}</td>
-                                <td><span class="pill">{{ miner.profile }}</span></td>
-                                <td>{{ "%.0f"|format(miner.power_w) }} W</td>
-                                <td>{{ miner.serial_number or "—" }}</td>
-                                <td>{{ miner.firmware_version or "—" }}</td>
-                            </tr>
-                            {% endfor %}
-                            {% if not miners %}
-                            <tr>
-                                <td colspan="7">Keine Miner aktiv.</td>
-                            </tr>
-                            {% endif %}
-                        </tbody>
-                    </table>
-                </div>
+                    <form method="post" action="/system/reload" class="inline-form top-gap">
+                        <button class="btn" type="submit">Runtime neu laden</button>
+                    </form>
+                </article>
             </section>
         </main>
     </div>

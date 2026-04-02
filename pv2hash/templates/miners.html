@@ -34,12 +34,12 @@
                     <p>Konfigurierte Miner verwalten</p>
                 </div>
             </header>
-			
-			{% if saved %}
-			<section class="alert success">
-				Miner-Konfiguration gespeichert und Runtime neu geladen.
-			</section>
-			{% endif %}
+
+            {% if saved %}
+            <section class="alert success">
+                Miner-Konfiguration gespeichert und Runtime neu geladen.
+            </section>
+            {% endif %}
 
             <section class="card">
                 <div class="card-head">
@@ -88,6 +88,26 @@
                     <label>
                         <span>Firmware Version</span>
                         <input type="text" name="firmware_version">
+                    </label>
+
+                    <label>
+                        <span>Off Leistung (W)</span>
+                        <input type="number" name="profile_off_power_w" value="0" min="0">
+                    </label>
+
+                    <label>
+                        <span>Eco Leistung (W)</span>
+                        <input type="number" name="profile_eco_power_w" value="900" min="0">
+                    </label>
+
+                    <label>
+                        <span>Mid Leistung (W)</span>
+                        <input type="number" name="profile_mid_power_w" value="1800" min="0">
+                    </label>
+
+                    <label>
+                        <span>High Leistung (W)</span>
+                        <input type="number" name="profile_high_power_w" value="3000" min="0">
                     </label>
 
                     <div class="actions">
@@ -148,6 +168,46 @@
                         <label>
                             <span>Firmware Version</span>
                             <input type="text" name="firmware_version" value="{{ miner.firmware_version or '' }}">
+                        </label>
+
+                        <label>
+                            <span>Off Leistung (W)</span>
+                            <input
+                                type="number"
+                                name="profile_off_power_w"
+                                value="{{ miner.profiles.off.power_w if miner.profiles and miner.profiles.off is defined else 0 }}"
+                                min="0"
+                            >
+                        </label>
+
+                        <label>
+                            <span>Eco Leistung (W)</span>
+                            <input
+                                type="number"
+                                name="profile_eco_power_w"
+                                value="{{ miner.profiles.eco.power_w if miner.profiles and miner.profiles.eco is defined else (1200 if miner.driver == 'braiins' else 900) }}"
+                                min="0"
+                            >
+                        </label>
+
+                        <label>
+                            <span>Mid Leistung (W)</span>
+                            <input
+                                type="number"
+                                name="profile_mid_power_w"
+                                value="{{ miner.profiles.mid.power_w if miner.profiles and miner.profiles.mid is defined else (2200 if miner.driver == 'braiins' else 1800) }}"
+                                min="0"
+                            >
+                        </label>
+
+                        <label>
+                            <span>High Leistung (W)</span>
+                            <input
+                                type="number"
+                                name="profile_high_power_w"
+                                value="{{ miner.profiles.high.power_w if miner.profiles and miner.profiles.high is defined else (3200 if miner.driver == 'braiins' else 3000) }}"
+                                min="0"
+                            >
                         </label>
 
                         <label class="checkbox-row">

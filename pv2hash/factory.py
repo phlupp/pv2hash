@@ -10,6 +10,23 @@ from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
 logger = get_logger("pv2hash.factory")
 
 
+def _default_profiles_for_driver(driver: str) -> dict:
+    if driver == "braiins":
+        return {
+            "off": {"power_w": 0},
+            "eco": {"power_w": 1200},
+            "mid": {"power_w": 2200},
+            "high": {"power_w": 3200},
+        }
+
+    return {
+        "off": {"power_w": 0},
+        "eco": {"power_w": 900},
+        "mid": {"power_w": 1800},
+        "high": {"power_w": 3000},
+    }
+
+
 def build_source(config: dict) -> EnergySource:
     source_cfg = config["source"]
     source_type = source_cfg.get("type", "simulator")
@@ -58,6 +75,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
 
         driver = miner_cfg.get("driver", "simulator")
         settings = miner_cfg.get("settings", {})
+        profiles = miner_cfg.get("profiles") or _default_profiles_for_driver(driver)
 
         logger.info(
             "Building miner adapter: id=%s name=%s driver=%s host=%s",
@@ -74,6 +92,11 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     name=miner_cfg["name"],
                     host=miner_cfg["host"],
                     priority=miner_cfg.get("priority", 100),
+                    enabled=miner_cfg.get("enabled", True),
+                    serial_number=miner_cfg.get("serial_number"),
+                    model=miner_cfg.get("model"),
+                    firmware_version=miner_cfg.get("firmware_version"),
+                    profiles=profiles,
                 )
             )
             continue
@@ -86,9 +109,11 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     host=miner_cfg["host"],
                     port=int(settings.get("port", 4028)),
                     priority=miner_cfg.get("priority", 100),
+                    enabled=miner_cfg.get("enabled", True),
                     serial_number=miner_cfg.get("serial_number"),
                     model=miner_cfg.get("model"),
                     firmware_version=miner_cfg.get("firmware_version"),
+                    profiles=profiles,
                 )
             )
             continue

@@ -3,15 +3,7 @@ import json
 from datetime import UTC, datetime
 
 from pv2hash.miners.base import MinerAdapter
-from pv2hash.models.miner import MinerInfo
-
-
-PROFILE_POWER_HINTS = {
-    "off": 0.0,
-    "eco": 1200.0,
-    "mid": 2200.0,
-    "high": 3200.0,
-}
+from pv2hash.models.miner import MinerInfo, MinerProfile, MinerProfiles
 
 
 class BraiinsMiner(MinerAdapter):
@@ -29,31 +21,50 @@ class BraiinsMiner(MinerAdapter):
         host: str,
         port: int = 4028,
         priority: int = 100,
+        enabled: bool = True,
         serial_number: str | None = None,
         model: str | None = None,
         firmware_version: str | None = None,
+        profiles: dict | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self.target_profile = "off"
+
+        profile_cfg = profiles or {
+            "off": {"power_w": 0},
+            "eco": {"power_w": 1200},
+            "mid": {"power_w": 2200},
+            "high": {"power_w": 3200},
+        }
+
+        miner_profiles = MinerProfiles(
+            off=MinerProfile(power_w=float(profile_cfg["off"]["power_w"])),
+            eco=MinerProfile(power_w=float(profile_cfg["eco"]["power_w"])),
+            mid=MinerProfile(power_w=float(profile_cfg["mid"]["power_w"])),
+            high=MinerProfile(power_w=float(profile_cfg["high"]["power_w"])),
+        )
 
         self.info = MinerInfo(
             id=miner_id,
             name=name,
             host=host,
             driver="braiins",
+            enabled=enabled,
+            is_active=False,
             priority=priority,
             serial_number=serial_number,
             model=model or "Unknown",
             firmware_version=firmware_version,
             profile="off",
             power_w=0.0,
+            profiles=miner_profiles,
         )
 
     async def set_profile(self, profile: str) -> None:
         self.target_profile = profile
         self.info.profile = profile
-        self.info.power_w = PROFILE_POWER_HINTS.get(profile, 0.0)
+        self.info.power_w = self.get_profile_power_w(profile)
         self.info.last_seen = datetime.now(UTC)
 
     async def get_status(self) -> MinerInfo:
@@ -62,13 +73,27 @@ class BraiinsMiner(MinerAdapter):
         if response:
             summary = self._extract_summary(response)
             if summary:
-                power = self._pick_float(summary, ["Power", "power", "power_consumption", "Power Limit"])
-                firmware = self._pick_str(summary, ["BOSminer", "bosminer", "version", "Version"])
+                self.info.is_active = True
+
+                power = self._pick_float(
+                    summary,
+                    ["Power", "power", "power_consumption", "Power Limit"],
+                )
+                firmware = self._pick_str(
+                    summary,
+                    ["BOSminer", "bosminer", "version", "Version"],
+                )
 
                 if power is not None:
                     self.info.power_w = power
                 if firmware:
                     self.info.firmware_version = firmware
+            else:
+                self.info.is_active = False
+                self.info.power_w = 0.0
+        else:
+            self.info.is_active = False
+            self.info.power_w = 0.0
 
         self.info.last_seen = datetime.now(UTC)
         return self.info

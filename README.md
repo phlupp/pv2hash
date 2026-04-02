@@ -6,7 +6,7 @@ Ziel ist es, überschüssige Energie aus einer PV-Anlage automatisiert in Bitcoi
 
 ## Status
 
-Aktueller Stand: `0.1.0+build.1`
+Aktueller Stand: `0.1.0+build.2`
 
 PV2Hash befindet sich in aktiver Entwicklung. Der aktuelle Stand ist ein funktionierender technischer MVP mit echter SMA-Meter-Anbindung, Weboberfläche, Logging-Grundlage und Multi-Miner-Struktur.
 
