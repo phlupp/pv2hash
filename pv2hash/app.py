@@ -41,7 +41,7 @@ EDITABLE_PROFILE_NAMES = ("floor", "eco", "mid", "high")
 
 def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
     if driver == "braiins":
-        return 4028, 0, 1200, 2200, 3200
+        return 50051, 0, 1200, 2200, 3200
     return 4028, 0, 900, 1800, 3000
 
 
@@ -72,6 +72,35 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
         "error_message": error_message,
     }
 
+
+
+
+def _build_miner_settings(
+    form,
+    driver: str,
+    default_port: int,
+    existing: dict | None = None,
+) -> dict:
+    existing = existing or {}
+    settings = {
+        "port": int(form.get("port", existing.get("port", default_port))),
+    }
+
+    if driver == "braiins":
+        username = str(form.get("username", existing.get("username") or "")).strip()
+        password_raw = str(form.get("password", "")).strip()
+        grpcurl_bin = str(form.get("grpcurl_bin", existing.get("grpcurl_bin") or "grpcurl")).strip()
+
+        if username:
+            settings["username"] = username
+        if password_raw:
+            settings["password"] = password_raw
+        elif existing.get("password"):
+            settings["password"] = existing["password"]
+        if grpcurl_bin:
+            settings["grpcurl_bin"] = grpcurl_bin
+
+    return settings
 
 def _parse_profile_values(form, driver: str) -> dict[str, dict[str, int]]:
     _, default_floor, default_eco, default_mid, default_high = _driver_profile_defaults(driver)
@@ -364,9 +393,7 @@ async def add_miner(request: Request):
             "serial_number": form.get("serial_number") or None,
             "model": form.get("model") or None,
             "firmware_version": form.get("firmware_version") or None,
-            "settings": {
-                "port": int(form.get("port", default_port)),
-            },
+            "settings": _build_miner_settings(form, driver, default_port),
             "profiles": profile_values,
         }
     )
@@ -410,9 +437,11 @@ async def update_miner(request: Request):
             miner["serial_number"] = form.get("serial_number") or None
             miner["model"] = form.get("model") or None
             miner["firmware_version"] = form.get("firmware_version") or None
-            miner.setdefault("settings", {})
-            miner["settings"]["port"] = int(
-                form.get("port", miner["settings"].get("port", default_port))
+            miner["settings"] = _build_miner_settings(
+                form,
+                driver,
+                default_port,
+                existing=miner.get("settings", {}),
             )
             miner["profiles"] = profile_values
 

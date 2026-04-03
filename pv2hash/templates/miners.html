@@ -73,7 +73,7 @@
 
                     <label>
                         <span>API Port</span>
-                        <input type="number" name="port" value="4028">
+                        <input type="number" name="port" value="50051">
                     </label>
 
                     <label>
@@ -95,6 +95,23 @@
                         <span>Firmware Version</span>
                         <input type="text" name="firmware_version">
                     </label>
+                    <label>
+                        <span>Braiins Benutzer</span>
+                        <input type="text" name="username" autocomplete="username">
+                    </label>
+
+                    <label>
+                        <span>Braiins Passwort</span>
+                        <input type="password" name="password" autocomplete="current-password">
+                        <small class="help">Für Braiins gRPC Login. Wird in der Config gespeichert.</small>
+                    </label>
+
+                    <label>
+                        <span>grpcurl Binary</span>
+                        <input type="text" name="grpcurl_bin" value="grpcurl">
+                        <small class="help">Standard: grpcurl im PATH. Port für Braiins typischerweise 50051.</small>
+                    </label>
+
 
                     <label>
                         <span>Floor Leistung (W)</span>
@@ -232,7 +249,7 @@
 
                         <label>
                             <span>API Port</span>
-                            <input type="number" name="port" value="{{ miner.settings.port if miner.settings and miner.settings.port is defined else 4028 }}">
+                            <input type="number" name="port" value="{{ miner.settings.port if miner.settings and miner.settings.port is defined else 50051 }}">
                         </label>
 
                         <label>
@@ -253,6 +270,21 @@
                         <label>
                             <span>Firmware Version</span>
                             <input type="text" name="firmware_version" value="{{ miner.firmware_version or '' }}">
+                        </label>
+                        <label>
+                            <span>Braiins Benutzer</span>
+                            <input type="text" name="username" value="{{ miner.settings.username if miner.settings and miner.settings.username is defined else '' }}" autocomplete="username">
+                        </label>
+
+                        <label>
+                            <span>Braiins Passwort</span>
+                            <input type="password" name="password" value="" placeholder="unverändert lassen" autocomplete="current-password">
+                            <small class="help">Leer lassen = gespeichertes Passwort beibehalten.</small>
+                        </label>
+
+                        <label>
+                            <span>grpcurl Binary</span>
+                            <input type="text" name="grpcurl_bin" value="{{ miner.settings.grpcurl_bin if miner.settings and miner.settings.grpcurl_bin is defined else 'grpcurl' }}">
                         </label>
 
                         <label>
