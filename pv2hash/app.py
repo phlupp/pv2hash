@@ -170,6 +170,17 @@ async def save_settings(request: Request):
     state.config["control"]["import_hold_seconds"] = int(
         form.get("import_hold_seconds", 15)
     )
+    state.config["control"].setdefault("source_loss", {})
+    state.config["control"]["source_loss"]["stale"] = {
+        "mode": form.get("stale_mode", "hold_current"),
+        "fallback_profile": form.get("stale_fallback_profile", "eco"),
+        "hold_seconds": int(form.get("stale_hold_seconds", 0)),
+    }
+    state.config["control"]["source_loss"]["offline"] = {
+        "mode": form.get("offline_mode", "off_all"),
+        "fallback_profile": form.get("offline_fallback_profile", "eco"),
+        "hold_seconds": int(form.get("offline_hold_seconds", 0)),
+    }
 
     save_config(state.config)
     logger.info("Settings saved")

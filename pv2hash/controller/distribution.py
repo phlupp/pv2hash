@@ -76,7 +76,7 @@ def get_step_up_plan(distribution_mode: str, miners: list) -> DistributionPlan:
         for idx in active:
             delta += max(
                 0.0,
-                miner_delta_power_w=miners[idx].get_profile_power_w(next_profile)
+                miners[idx].get_profile_power_w(next_profile)
                 - miners[idx].get_profile_power_w(current[idx]),
             )
             target[idx] = next_profile

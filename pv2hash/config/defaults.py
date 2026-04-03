@@ -81,11 +81,14 @@ DEFAULT_CONFIG = {
         "import_hold_seconds": 15,
         "source_loss": {
             "stale": {
-                "mode": "hold_last",
-                "hold_seconds": 15,
+                "mode": "hold_current",
+                "fallback_profile": "eco",
+                "hold_seconds": 0,
             },
             "offline": {
-                "mode": "off",
+                "mode": "off_all",
+                "fallback_profile": "eco",
+                "hold_seconds": 0,
             },
         },
     },

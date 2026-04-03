@@ -128,6 +128,74 @@
                             </label>
                         </div>
                     </article>
+					
+					<article class="card">
+						<div class="card-head">
+							<h2>Quellen-Fallback</h2>
+						</div>
+
+						<div class="form-grid">
+							<label>
+								<span>Bei stale</span>
+								<select name="stale_mode">
+									<option value="hold_current" {% if config.control.source_loss.stale.mode == "hold_current" %}selected{% endif %}>hold_current</option>
+									<option value="off_all" {% if config.control.source_loss.stale.mode == "off_all" %}selected{% endif %}>off_all</option>
+									<option value="force_profile" {% if config.control.source_loss.stale.mode == "force_profile" %}selected{% endif %}>force_profile</option>
+								</select>
+							</label>
+
+							<label>
+								<span>Stale Fallback-Profil</span>
+								<select name="stale_fallback_profile">
+									<option value="off" {% if config.control.source_loss.stale.fallback_profile == "off" %}selected{% endif %}>off</option>
+									<option value="eco" {% if config.control.source_loss.stale.fallback_profile == "eco" %}selected{% endif %}>eco</option>
+									<option value="mid" {% if config.control.source_loss.stale.fallback_profile == "mid" %}selected{% endif %}>mid</option>
+									<option value="high" {% if config.control.source_loss.stale.fallback_profile == "high" %}selected{% endif %}>high</option>
+								</select>
+							</label>
+
+							<label>
+								<span>Stale halten (Sekunden)</span>
+								<input
+									type="number"
+									name="stale_hold_seconds"
+									value="{{ config.control.source_loss.stale.hold_seconds if config.control.source_loss.stale.hold_seconds is defined else 0 }}"
+									min="0"
+								>
+								<small class="help">0 = unbegrenzt halten bis Verbindung zurückkehrt.</small>
+							</label>
+
+							<label>
+								<span>Bei offline</span>
+								<select name="offline_mode">
+									<option value="hold_current" {% if config.control.source_loss.offline.mode == "hold_current" %}selected{% endif %}>hold_current</option>
+									<option value="off_all" {% if config.control.source_loss.offline.mode == "off_all" %}selected{% endif %}>off_all</option>
+									<option value="force_profile" {% if config.control.source_loss.offline.mode == "force_profile" %}selected{% endif %}>force_profile</option>
+								</select>
+							</label>
+
+							<label>
+								<span>Offline Fallback-Profil</span>
+								<select name="offline_fallback_profile">
+									<option value="off" {% if config.control.source_loss.offline.fallback_profile == "off" %}selected{% endif %}>off</option>
+									<option value="eco" {% if config.control.source_loss.offline.fallback_profile == "eco" %}selected{% endif %}>eco</option>
+									<option value="mid" {% if config.control.source_loss.offline.fallback_profile == "mid" %}selected{% endif %}>mid</option>
+									<option value="high" {% if config.control.source_loss.offline.fallback_profile == "high" %}selected{% endif %}>high</option>
+								</select>
+							</label>
+
+							<label>
+								<span>Offline halten (Sekunden)</span>
+								<input
+									type="number"
+									name="offline_hold_seconds"
+									value="{{ config.control.source_loss.offline.hold_seconds if config.control.source_loss.offline.hold_seconds is defined else 0 }}"
+									min="0"
+								>
+								<small class="help">0 = unbegrenzt halten bis Verbindung zurückkehrt.</small>
+							</label>
+						</div>
+					</article>
                 </section>
 
                 <section class="card">

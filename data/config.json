@@ -72,7 +72,7 @@
       },
       "profiles": {
         "off": {
-          "power_w": 0
+          "power_w": 100
         },
         "eco": {
           "power_w": 900
@@ -96,11 +96,14 @@
     "import_hold_seconds": 15,
     "source_loss": {
       "stale": {
-        "mode": "hold_last",
+        "mode": "hold_current",
+        "fallback_profile": "eco",
         "hold_seconds": 15
       },
       "offline": {
-        "mode": "off"
+        "mode": "force_profile",
+        "fallback_profile": "eco",
+        "hold_seconds": 0
       }
     },
     "coarse_thresholds": {

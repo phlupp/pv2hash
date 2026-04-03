@@ -80,10 +80,9 @@ class BasicController:
                 miners=miners,
                 distribution_mode=distribution_mode,
             )
-
         return self._decide_degraded(
             quality=quality,
-            miner_count=len(miners),
+            miners=miners,
         )
 
     def _decide_live(
@@ -265,9 +264,11 @@ class BasicController:
         self,
         *,
         quality: str,
-        miner_count: int,
+        miners: list,
     ) -> ControlDecision:
         now_mono = monotonic()
+        miner_count = len(miners)
+        current_profiles = get_current_profiles(miners)
 
         if self.state.degraded_quality != quality:
             logger.warning(
@@ -278,21 +279,39 @@ class BasicController:
             self.state.degraded_quality = quality
             self.state.degraded_since_monotonic = now_mono
             self.state.last_fallback_log_key = None
+            self._reset_import_tracking()
 
         behavior = self._get_source_loss_behavior(quality)
-        mode = str(behavior.get("mode", "off")).strip().lower()
+        mode = str(behavior.get("mode", "off_all")).strip().lower()
+        fallback_profile = str(
+            behavior.get("fallback_profile", "eco")
+        ).strip().lower()
 
-        hold_seconds_raw = behavior.get("hold_seconds")
-        hold_seconds: float | None
-        if hold_seconds_raw in (None, "", False):
-            hold_seconds = None
-        else:
-            hold_seconds = float(hold_seconds_raw)
+        if fallback_profile not in ("off", "eco", "mid", "high"):
+            fallback_profile = "off"
 
-        if mode == "off":
+        hold_seconds_raw = behavior.get("hold_seconds", 0)
+        hold_seconds = float(hold_seconds_raw or 0)
+
+        def hold_expired() -> bool:
+            if hold_seconds <= 0:
+                return False
+            if self.state.degraded_since_monotonic is None:
+                return False
+            return (now_mono - self.state.degraded_since_monotonic) >= hold_seconds
+
+        def remaining_seconds() -> float:
+            if hold_seconds <= 0 or self.state.degraded_since_monotonic is None:
+                return 0.0
+            return max(
+                0.0,
+                hold_seconds - (now_mono - self.state.degraded_since_monotonic),
+            )
+
+        if mode == "off_all":
             self._log_fallback_once(
-                f"{quality}:off",
-                "Fallback active: quality=%s mode=off -> off",
+                f"{quality}:off_all",
+                "Fallback active: quality=%s mode=off_all",
                 quality,
             )
             return ControlDecision(
@@ -301,69 +320,85 @@ class BasicController:
                 summary=f"fallback_off ({quality})",
             )
 
-        if mode == "hold_last":
-            if not self.state.last_live_profiles:
+        if mode == "hold_current":
+            if hold_expired():
                 self._log_fallback_once(
-                    f"{quality}:hold_last:no_cached",
-                    "Fallback active: quality=%s mode=hold_last but no cached live plan -> off",
+                    f"{quality}:hold_current:expired",
+                    "Fallback expired: quality=%s mode=hold_current hold_seconds=%.1f -> off_all",
                     quality,
+                    hold_seconds,
                 )
                 return ControlDecision(
                     profiles=["off"] * miner_count,
                     action="fallback_off",
-                    summary=f"fallback_off ({quality}, no-cache)",
+                    summary=f"fallback_off ({quality}, expired)",
                 )
 
-            fallback_profiles = self.state.last_live_profiles[:miner_count]
-            if len(fallback_profiles) < miner_count:
-                fallback_profiles += ["off"] * (miner_count - len(fallback_profiles))
-
-            if (
-                hold_seconds is not None
-                and hold_seconds > 0
-                and self.state.degraded_since_monotonic is not None
-            ):
-                elapsed = now_mono - self.state.degraded_since_monotonic
-                if elapsed > hold_seconds:
-                    self._log_fallback_once(
-                        f"{quality}:hold_last:expired",
-                        "Fallback expired: quality=%s mode=hold_last hold_seconds=%.1f elapsed=%.1f -> off",
-                        quality,
-                        hold_seconds,
-                        elapsed,
-                    )
-                    return ControlDecision(
-                        profiles=["off"] * miner_count,
-                        action="fallback_off",
-                        summary=f"fallback_off ({quality}, expired)",
-                    )
-
+            if hold_seconds > 0:
                 self._log_fallback_once(
-                    f"{quality}:hold_last:timed",
-                    "Fallback active: quality=%s mode=hold_last remaining=%.1fs",
+                    f"{quality}:hold_current:timed",
+                    "Fallback active: quality=%s mode=hold_current remaining=%.1fs",
                     quality,
-                    max(0.0, hold_seconds - elapsed),
+                    remaining_seconds(),
+                )
+            else:
+                self._log_fallback_once(
+                    f"{quality}:hold_current:infinite",
+                    "Fallback active: quality=%s mode=hold_current",
+                    quality,
+                )
+
+            return ControlDecision(
+                profiles=current_profiles,
+                action="fallback_hold_current",
+                summary=f"fallback_hold_current ({quality})",
+            )
+
+        if mode == "force_profile":
+            forced_profiles = [
+                fallback_profile if miner.is_active_for_distribution() else "off"
+                for miner in miners
+            ]
+
+            if hold_expired():
+                self._log_fallback_once(
+                    f"{quality}:force_profile:{fallback_profile}:expired",
+                    "Fallback expired: quality=%s mode=force_profile profile=%s hold_seconds=%.1f -> off_all",
+                    quality,
+                    fallback_profile,
+                    hold_seconds,
                 )
                 return ControlDecision(
-                    profiles=fallback_profiles,
-                    action="fallback_hold",
-                    summary=f"fallback_hold ({quality})",
+                    profiles=["off"] * miner_count,
+                    action="fallback_off",
+                    summary=f"fallback_off ({quality}, expired)",
                 )
 
-            self._log_fallback_once(
-                f"{quality}:hold_last:infinite",
-                "Fallback active: quality=%s mode=hold_last",
-                quality,
-            )
+            if hold_seconds > 0:
+                self._log_fallback_once(
+                    f"{quality}:force_profile:{fallback_profile}:timed",
+                    "Fallback active: quality=%s mode=force_profile profile=%s remaining=%.1fs",
+                    quality,
+                    fallback_profile,
+                    remaining_seconds(),
+                )
+            else:
+                self._log_fallback_once(
+                    f"{quality}:force_profile:{fallback_profile}:infinite",
+                    "Fallback active: quality=%s mode=force_profile profile=%s",
+                    quality,
+                    fallback_profile,
+                )
+
             return ControlDecision(
-                profiles=fallback_profiles,
-                action="fallback_hold",
-                summary=f"fallback_hold ({quality})",
+                profiles=forced_profiles,
+                action="fallback_force_profile",
+                summary=f"fallback_force_profile ({quality}, {fallback_profile})",
             )
 
         self._log_fallback_once(
             f"{quality}:unsupported:{mode}",
-            "Fallback active: unsupported mode=%s for quality=%s -> off",
+            "Fallback active: unsupported mode=%s for quality=%s -> off_all",
             mode,
             quality,
         )
