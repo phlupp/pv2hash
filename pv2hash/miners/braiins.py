@@ -483,8 +483,13 @@ class BraiinsMiner(MinerAdapter):
         runtime_state: str,
         current_target_w: float | None,
     ) -> str | None:
-        if runtime_state in {"paused", "stopped"}:
+        if runtime_state == "stopped":
             return "off"
+
+        if runtime_state == "paused":
+            if self.target_profile == "off":
+                return "off"
+            return "floor"
 
         if current_target_w is None or self.info.profiles is None:
             return self.target_profile or self.info.profile
