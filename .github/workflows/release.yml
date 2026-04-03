@@ -37,10 +37,13 @@ jobs:
       - name: Set release variables
         shell: bash
         run: |
+          set -euo pipefail
           echo "VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
           echo "BUILD=${{ github.run_number }}" >> "$GITHUB_ENV"
           echo "FULL_VERSION=${{ inputs.version }}+build.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "VERSION_SLUG=${{ inputs.version }}-build.${{ github.run_number }}" >> "$GITHUB_ENV"
           echo "TAG=v${{ inputs.version }}-build.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "DIST_DIR=dist/${{ inputs.version }}-build.${{ github.run_number }}" >> "$GITHUB_ENV"
 
       - name: Update pv2hash/version.py
         shell: bash
@@ -96,3 +99,32 @@ jobs:
         run: |
           set -euo pipefail
           git push origin "$TAG"
+
+      - name: Build release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build_release.sh
+          bash scripts/build_release.sh
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$DIST_DIR/pv2hash-$VERSION_SLUG.tar.gz"
+          test -f "$DIST_DIR/manifest.json"
+          test -f "$DIST_DIR/SHA256SUMS"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            "$DIST_DIR/pv2hash-$VERSION_SLUG.tar.gz" \
+            "$DIST_DIR/manifest.json" \
+            "$DIST_DIR/SHA256SUMS" \
+            --title "PV2Hash $FULL_VERSION" \
+            --notes "Release $FULL_VERSION" \
+            --latest
