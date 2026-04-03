@@ -26,6 +26,32 @@ def _default_profiles_for_driver(driver: str) -> dict:
     }
 
 
+def _normalize_profiles(driver: str, profiles: dict | None) -> dict:
+    normalized = dict(profiles or {})
+
+    # Altbestand migrieren: off -> floor
+    if "floor" not in normalized and "off" in normalized:
+        normalized["floor"] = normalized["off"]
+
+    defaults = _default_profiles_for_driver(driver)
+
+    result: dict = {}
+    for name in ("floor", "eco", "mid", "high"):
+        value = normalized.get(name, defaults[name])
+
+        if isinstance(value, dict):
+            power_w = value.get("power_w", defaults[name]["power_w"])
+        else:
+            power_w = defaults[name]["power_w"]
+
+        try:
+            result[name] = {"power_w": float(power_w)}
+        except Exception:
+            result[name] = {"power_w": float(defaults[name]["power_w"])}
+
+    return result
+
+
 def build_source(config: dict) -> EnergySource:
     source_cfg = config["source"]
     source_type = source_cfg.get("type", "simulator")
@@ -74,7 +100,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
 
         driver = miner_cfg.get("driver", "simulator")
         settings = miner_cfg.get("settings", {})
-        profiles = miner_cfg.get("profiles") or _default_profiles_for_driver(driver)
+        profiles = _normalize_profiles(driver, miner_cfg.get("profiles"))
 
         logger.info(
             "Building miner adapter: id=%s name=%s driver=%s host=%s",
@@ -107,15 +133,15 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     name=miner_cfg["name"],
                     host=miner_cfg["host"],
                     port=int(settings.get("port", 50051)),
-                    username=settings.get("username"),
-                    password=settings.get("password"),
-                    grpcurl_bin=settings.get("grpcurl_bin", "grpcurl"),
+                    username=settings.get("username", "root"),
+                    password=settings.get("password", ""),
                     priority=miner_cfg.get("priority", 100),
                     enabled=miner_cfg.get("enabled", True),
                     serial_number=miner_cfg.get("serial_number"),
                     model=miner_cfg.get("model"),
                     firmware_version=miner_cfg.get("firmware_version"),
                     profiles=profiles,
+                    timeout_s=float(settings.get("timeout_s", 8.0)),
                 )
             )
             continue

@@ -1,26 +1,46 @@
+from __future__ import annotations
+
 import asyncio
-import json
-import logging
-import shutil
-from datetime import UTC, datetime, timedelta
+import time
+from datetime import UTC, datetime
 from typing import Any
+
+import grpc
+from google.protobuf.json_format import MessageToDict
 
 from pv2hash.miners.base import MinerAdapter
 from pv2hash.models.miner import MinerInfo, MinerProfile, MinerProfiles
+from pv2hash.vendor.braiins_api_stubs_path import ensure_braiins_stubs_on_path
 
-logger = logging.getLogger(__name__)
+ensure_braiins_stubs_on_path()
+
+import bos.version_pb2 as version_pb2
+import bos.version_pb2_grpc as version_pb2_grpc
+import bos.v1.authentication_pb2 as authentication_pb2
+import bos.v1.authentication_pb2_grpc as authentication_pb2_grpc
+import bos.v1.configuration_pb2 as configuration_pb2
+import bos.v1.configuration_pb2_grpc as configuration_pb2_grpc
+import bos.v1.miner_pb2 as miner_pb2
+import bos.v1.miner_pb2_grpc as miner_pb2_grpc
+import bos.v1.performance_pb2 as performance_pb2
+import bos.v1.performance_pb2_grpc as performance_pb2_grpc
 
 
 class BraiinsMiner(MinerAdapter):
     """
-    Read-only Braiins integration via gRPC reflection using ``grpcurl``.
+    Read-only Braiins implementation via native Python gRPC.
 
-    Warum dieser Zwischenschritt?
-    - Braiins Public API ist gRPC-basiert und Reflection-fähig.
-    - Damit können wir heute schon echte Status- und Constraint-Daten lesen,
-      ohne sofort protobuf-Stubs ins Repo zu vendoren.
-    - Schreibende Calls (PauseMining / ResumeMining / SetPowerTarget) folgen im
-      nächsten Schritt auf derselben Transportbasis.
+    Current scope:
+    - GetApiVersion
+    - Login
+    - GetConstraints
+    - GetMinerDetails
+    - GetMinerStatus (first stream message only)
+    - GetMinerStats
+    - GetErrors
+    - GetTunerState
+
+    Write APIs like PauseMining / ResumeMining / SetPowerTarget come later.
     """
 
     def __init__(
@@ -34,19 +54,24 @@ class BraiinsMiner(MinerAdapter):
         serial_number: str | None = None,
         model: str | None = None,
         firmware_version: str | None = None,
-        profiles: dict | None = None,
-        username: str | None = None,
-        password: str | None = None,
-        grpcurl_bin: str = "grpcurl",
+        profiles: dict[str, Any] | None = None,
+        username: str = "root",
+        password: str = "",
+        timeout_s: float = 8.0,
+        grpcurl_bin: str | None = None,
     ) -> None:
         self.host = host
-        self.port = port
-        self.username = username or None
-        self.password = password or None
-        self.grpcurl_bin = grpcurl_bin or "grpcurl"
+        self.port = int(port)
+        self.username = username or "root"
+        self.password = password or ""
+        self.timeout_s = float(timeout_s)
+
+        # Nur noch für Kompatibilität mit älterer Config/Factory vorhanden.
+        self.grpcurl_bin = grpcurl_bin
+
         self.target_profile = "off"
-        self._auth_token: str | None = None
-        self._auth_valid_until: datetime | None = None
+        self._token: str | None = None
+        self._token_expires_monotonic: float = 0.0
 
         profile_cfg = profiles or {
             "floor": {"power_w": 0},
@@ -54,6 +79,10 @@ class BraiinsMiner(MinerAdapter):
             "mid": {"power_w": 2200},
             "high": {"power_w": 3200},
         }
+
+        if "floor" not in profile_cfg and "off" in profile_cfg:
+            profile_cfg = dict(profile_cfg)
+            profile_cfg["floor"] = profile_cfg["off"]
 
         miner_profiles = MinerProfiles(
             floor=MinerProfile(power_w=float(profile_cfg["floor"]["power_w"])),
@@ -76,398 +105,364 @@ class BraiinsMiner(MinerAdapter):
             profile="off",
             power_w=0.0,
             profiles=miner_profiles,
-            reachable=False,
-            runtime_state="unknown",
-            control_mode="power_target",
         )
 
+        self._set_runtime_defaults()
+
     async def set_profile(self, profile: str) -> None:
+        """
+        Read-only in this step.
+        Das gewünschte Profil wird nur lokal gemerkt.
+        """
         self.target_profile = profile
         self.info.profile = profile
 
         if profile == "off":
             self.info.power_w = 0.0
-            self.info.runtime_state = "paused"
         else:
-            desired_w = self.get_profile_power_w(profile)
-            if desired_w <= 0:
-                self.info.power_w = 0.0
-                self.info.runtime_state = "paused"
-            else:
-                self.info.power_w = desired_w
-                self.info.runtime_state = "running"
+            self.info.power_w = self.get_profile_power_w(profile)
 
-        self.info.last_error = None
         self.info.last_seen = datetime.now(UTC)
 
     async def get_status(self) -> MinerInfo:
+        try:
+            bundle = await asyncio.to_thread(self._fetch_bundle_sync)
+            self._apply_bundle(bundle)
+        except Exception as exc:
+            self._mark_unreachable(f"gRPC read failed: {exc}")
+
         self.info.last_seen = datetime.now(UTC)
-        self.info.last_error = None
-        self.info.reachable = False
-        self.info.is_active = False
-
-        grpcurl_path = shutil.which(self.grpcurl_bin)
-        if grpcurl_path is None:
-            self.info.runtime_state = "unreachable"
-            self.info.last_error = (
-                f"grpcurl nicht gefunden ({self.grpcurl_bin}). "
-                "Bitte auf dem Host installieren."
-            )
-            return self.info
-
-        api_version = await self._grpc_call(
-            "braiins.bos.ApiVersionService/GetApiVersion",
-            data={},
-            use_auth=False,
-        )
-        if api_version is None:
-            self.info.runtime_state = "unreachable"
-            self.info.last_error = "Braiins gRPC API nicht erreichbar"
-            return self.info
-
-        self.info.reachable = True
-        self.info.api_version = self._format_api_version(api_version)
-
-        if not self.username or not self.password:
-            self.info.runtime_state = "unknown"
-            self.info.last_error = (
-                "Braiins Zugangsdaten fehlen. Bitte username/password im Miner hinterlegen."
-            )
-            return self.info
-
-        if not await self._ensure_login():
-            self.info.runtime_state = "unreachable"
-            if not self.info.last_error:
-                self.info.last_error = "Braiins Login fehlgeschlagen"
-            return self.info
-
-        details = await self._grpc_call(
-            "braiins.bos.v1.MinerService/GetMinerDetails",
-            data={},
-        )
-        status = await self._grpc_call(
-            "braiins.bos.v1.MinerService/GetMinerStatus",
-            data={},
-        )
-        stats = await self._grpc_call(
-            "braiins.bos.v1.MinerService/GetMinerStats",
-            data={},
-        )
-        errors = await self._grpc_call(
-            "braiins.bos.v1.MinerService/GetErrors",
-            data={},
-        )
-        constraints = await self._grpc_call(
-            "braiins.bos.v1.ConfigurationService/GetConstraints",
-            data={},
-        )
-        tuner_state = await self._grpc_call(
-            "braiins.bos.v1.PerformanceService/GetTunerState",
-            data={},
-        )
-
-        self._apply_details(details)
-        self._apply_status(status or details)
-        self._apply_stats(stats)
-        self._apply_constraints(constraints)
-        self._apply_tuner_state(tuner_state)
-        self._apply_errors(errors)
-
-        if self.info.runtime_state == "unknown" and self.info.reachable:
-            self.info.runtime_state = "running"
-            self.info.is_active = True
-
         return self.info
 
-    async def _ensure_login(self, *, force: bool = False) -> bool:
-        now = datetime.now(UTC)
-        if (
-            not force
-            and self._auth_token
-            and self._auth_valid_until is not None
-            and now < self._auth_valid_until
-        ):
-            return True
-
-        response = await self._grpc_call(
-            "braiins.bos.v1.AuthenticationService/Login",
-            data={
-                "username": self.username,
-                "password": self.password,
-            },
-            use_auth=False,
-        )
-        if not isinstance(response, dict):
-            self._auth_token = None
-            self._auth_valid_until = None
-            self.info.last_error = "Braiins Login fehlgeschlagen"
-            return False
-
-        token = str(response.get("token") or "").strip()
-        if not token:
-            self._auth_token = None
-            self._auth_valid_until = None
-            self.info.last_error = "Braiins Login lieferte kein Token"
-            return False
-
-        timeout_s = self._coerce_int(response.get("timeoutS"), default=3600)
-        timeout_s = max(timeout_s - 30, 60)
-
-        self._auth_token = token
-        self._auth_valid_until = now + timedelta(seconds=timeout_s)
-        return True
-
-    async def _grpc_call(
-        self,
-        method: str,
-        *,
-        data: dict[str, Any] | None = None,
-        use_auth: bool = True,
-        retry_auth: bool = True,
-    ) -> dict[str, Any] | list[Any] | None:
-        cmd = [
-            self.grpcurl_bin,
-            "-plaintext",
-        ]
-
-        if use_auth:
-            if not self._auth_token:
-                if not await self._ensure_login():
-                    return None
-            cmd.extend(["-H", f"authorization:{self._auth_token}"])
-
-        cmd.extend(["-d", json.dumps(data or {}, separators=(",", ":"))])
-        cmd.extend([f"{self.host}:{self.port}", method])
+    def _fetch_bundle_sync(self) -> dict[str, Any]:
+        target = f"{self.host}:{self.port}"
+        channel = grpc.insecure_channel(target)
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            grpc.channel_ready_future(channel).result(timeout=self.timeout_s)
+
+            api_stub = version_pb2_grpc.ApiVersionServiceStub(channel)
+            auth_stub = authentication_pb2_grpc.AuthenticationServiceStub(channel)
+            cfg_stub = configuration_pb2_grpc.ConfigurationServiceStub(channel)
+            miner_stub = miner_pb2_grpc.MinerServiceStub(channel)
+            perf_stub = performance_pb2_grpc.PerformanceServiceStub(channel)
+
+            api_version_msg = api_stub.GetApiVersion(
+                version_pb2.ApiVersionRequest(),
+                timeout=self.timeout_s,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=6.0)
-        except asyncio.TimeoutError:
-            self.info.last_error = f"grpcurl Timeout bei {method}"
-            return None
-        except Exception as exc:
-            self.info.last_error = f"grpcurl Fehler bei {method}: {exc}"
-            return None
+            api_version = self._msg_to_dict(api_version_msg)
 
-        stdout_text = stdout.decode(errors="ignore").strip()
-        stderr_text = stderr.decode(errors="ignore").strip()
+            token = self._ensure_token_sync(auth_stub)
+            metadata = [("authorization", token)]
 
-        if proc.returncode != 0:
-            if use_auth and retry_auth and self._looks_like_auth_error(stderr_text):
-                if await self._ensure_login(force=True):
-                    return await self._grpc_call(
-                        method,
-                        data=data,
-                        use_auth=use_auth,
-                        retry_auth=False,
-                    )
-
-            self.info.last_error = stderr_text or stdout_text or f"grpcurl Rückgabecode {proc.returncode}"
-            logger.debug("grpcurl call failed: method=%s stderr=%s", method, stderr_text)
-            return None
-
-        if not stdout_text:
-            return {}
-
-        try:
-            return json.loads(stdout_text)
-        except json.JSONDecodeError:
-            self.info.last_error = f"Ungültige JSON-Antwort von {method}"
-            logger.debug("Non-JSON grpcurl stdout for %s: %s", method, stdout_text)
-            return None
-
-    def _apply_details(self, details: dict[str, Any] | list[Any] | None) -> None:
-        if not isinstance(details, dict):
-            return
-
-        identity = details.get("minerIdentity") or {}
-        if isinstance(identity, dict):
-            model = identity.get("minerModel") or identity.get("miner_model") or identity.get("name")
-            if model:
-                self.info.model = str(model)
-
-        bos_version = details.get("bosVersion") or {}
-        if isinstance(bos_version, dict):
-            current = bos_version.get("current")
-            if current:
-                self.info.firmware_version = str(current)
-
-        if details.get("uid") and not self.info.serial_number:
-            self.info.serial_number = str(details.get("uid"))
-
-    def _apply_status(self, status_response: dict[str, Any] | list[Any] | None) -> None:
-        if not isinstance(status_response, dict):
-            return
-
-        status_value = str(
-            status_response.get("status")
-            or self._deep_find_value(status_response, {"status"})
-            or ""
-        ).upper()
-
-        mapping = {
-            "MINER_STATUS_NORMAL": ("running", True),
-            "MINER_STATUS_RESTRICTED": ("running", True),
-            "MINER_STATUS_PAUSED": ("paused", False),
-            "MINER_STATUS_NOT_STARTED": ("stopped", False),
-            "MINER_STATUS_SUSPENDED": ("fault", False),
-        }
-
-        runtime_state, is_active = mapping.get(status_value, ("unknown", False))
-        self.info.runtime_state = runtime_state
-        self.info.is_active = is_active
-
-    def _apply_stats(self, stats: dict[str, Any] | list[Any] | None) -> None:
-        power = self._find_first_number(
-            stats,
-            {
-                "powerConsumption",
-                "power_consumption",
-                "powerDraw",
-                "power_draw",
-                "estimatedPowerConsumption",
-                "estimated_power_consumption",
-                "power",
-                "consumption",
-            },
-        )
-        if power is not None:
-            self.info.power_w = power
-
-    def _apply_constraints(self, constraints: dict[str, Any] | list[Any] | None) -> None:
-        if not isinstance(constraints, dict):
-            return
-
-        tuner_constraints = constraints.get("tunerConstraints") or constraints.get("tuner_constraints")
-        if not isinstance(tuner_constraints, dict):
-            return
-
-        power_target = tuner_constraints.get("powerTarget") or tuner_constraints.get("power_target")
-        if not isinstance(power_target, dict):
-            return
-
-        self.info.power_target_min_w = self._extract_number(power_target.get("min"))
-        self.info.power_target_default_w = self._extract_number(power_target.get("default"))
-        self.info.power_target_max_w = self._extract_number(power_target.get("max"))
-
-    def _apply_tuner_state(self, tuner_state: dict[str, Any] | list[Any] | None) -> None:
-        if not isinstance(tuner_state, dict):
-            return
-
-        overall = str(tuner_state.get("overallTunerState") or "").upper()
-        if overall:
-            self.info.autotuning_enabled = overall != "TUNER_STATE_DISABLED"
-
-        if "powerTargetModeState" in tuner_state:
-            self.info.control_mode = "power_target"
-            current_target = self._find_first_number(
-                tuner_state["powerTargetModeState"],
-                {"currentTarget", "current_target", "target"},
+            constraints_msg = cfg_stub.GetConstraints(
+                configuration_pb2.GetConstraintsRequest(),
+                metadata=metadata,
+                timeout=self.timeout_s,
             )
-            if self.info.power_w <= 0 and current_target is not None:
-                self.info.power_w = current_target
-        elif "hashrateTargetModeState" in tuner_state:
-            self.info.control_mode = "hashrate_target"
+            constraints = self._msg_to_dict(constraints_msg)
 
-    def _apply_errors(self, errors: dict[str, Any] | list[Any] | None) -> None:
-        messages = self._collect_messages(errors)
-        if messages:
-            self.info.last_error = messages[0]
+            details_msg = miner_stub.GetMinerDetails(
+                miner_pb2.GetMinerDetailsRequest(),
+                metadata=metadata,
+                timeout=self.timeout_s,
+            )
+            details = self._msg_to_dict(details_msg)
 
-    def _format_api_version(self, response: dict[str, Any] | list[Any]) -> str | None:
-        if not isinstance(response, dict):
-            return None
-        parts = [
-            str(response.get("major") or "").strip(),
-            str(response.get("minor") or "").strip(),
-            str(response.get("patch") or "").strip(),
-        ]
-        if not all(parts):
-            return None
-        version = ".".join(parts)
-        pre = str(response.get("pre") or "").strip()
-        build = str(response.get("build") or "").strip()
-        if pre:
-            version = f"{version}-{pre}"
-        if build:
-            version = f"{version}+{build}"
-        return version
-
-    def _collect_messages(self, data: Any) -> list[str]:
-        messages: list[str] = []
-        if isinstance(data, dict):
-            for key, value in data.items():
-                if key in {"message", "reason", "hint"} and isinstance(value, str) and value.strip():
-                    messages.append(value.strip())
-                else:
-                    messages.extend(self._collect_messages(value))
-        elif isinstance(data, list):
-            for item in data:
-                messages.extend(self._collect_messages(item))
-        return messages
-
-    def _find_first_number(self, data: Any, keys: set[str]) -> float | None:
-        if isinstance(data, dict):
-            for key, value in data.items():
-                if key in keys:
-                    number = self._extract_number(value)
-                    if number is not None:
-                        return number
-                number = self._find_first_number(value, keys)
-                if number is not None:
-                    return number
-        elif isinstance(data, list):
-            for item in data:
-                number = self._find_first_number(item, keys)
-                if number is not None:
-                    return number
-        return None
-
-    def _deep_find_value(self, data: Any, keys: set[str]) -> Any | None:
-        if isinstance(data, dict):
-            for key, value in data.items():
-                if key in keys:
-                    return value
-                nested = self._deep_find_value(value, keys)
-                if nested is not None:
-                    return nested
-        elif isinstance(data, list):
-            for item in data:
-                nested = self._deep_find_value(item, keys)
-                if nested is not None:
-                    return nested
-        return None
-
-    def _extract_number(self, value: Any) -> float | None:
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
+            status_stream = miner_stub.GetMinerStatus(
+                miner_pb2.GetMinerStatusRequest(),
+                metadata=metadata,
+                timeout=self.timeout_s,
+            )
             try:
-                return float(value)
-            except ValueError:
-                return None
-        if isinstance(value, dict):
-            for nested in value.values():
-                number = self._extract_number(nested)
-                if number is not None:
-                    return number
-        if isinstance(value, list):
-            for nested in value:
-                number = self._extract_number(nested)
-                if number is not None:
-                    return number
+                first_status_msg = next(status_stream)
+                status_first = self._msg_to_dict(first_status_msg)
+            except StopIteration:
+                status_first = {}
+            finally:
+                try:
+                    status_stream.cancel()
+                except Exception:
+                    pass
+
+            stats_msg = miner_stub.GetMinerStats(
+                miner_pb2.GetMinerStatsRequest(),
+                metadata=metadata,
+                timeout=self.timeout_s,
+            )
+            stats = self._msg_to_dict(stats_msg)
+
+            errors_msg = miner_stub.GetErrors(
+                miner_pb2.GetErrorsRequest(),
+                metadata=metadata,
+                timeout=self.timeout_s,
+            )
+            errors = self._msg_to_dict(errors_msg)
+
+            tuner_state: dict[str, Any] = {}
+            try:
+                tuner_state_msg = perf_stub.GetTunerState(
+                    performance_pb2.GetTunerStateRequest(),
+                    metadata=metadata,
+                    timeout=self.timeout_s,
+                )
+                tuner_state = self._msg_to_dict(tuner_state_msg)
+            except Exception:
+                tuner_state = {}
+
+            return {
+                "reachable": True,
+                "api_version": api_version,
+                "constraints": constraints,
+                "details": details,
+                "status_first": status_first,
+                "stats": stats,
+                "errors": errors,
+                "tuner_state": tuner_state,
+            }
+        finally:
+            channel.close()
+
+    def _ensure_token_sync(
+        self,
+        auth_stub: authentication_pb2_grpc.AuthenticationServiceStub,
+    ) -> str:
+        now = time.monotonic()
+        if self._token and now < self._token_expires_monotonic:
+            return self._token
+
+        login_response = auth_stub.Login(
+            authentication_pb2.LoginRequest(
+                username=self.username,
+                password=self.password,
+            ),
+            timeout=self.timeout_s,
+        )
+        login_dict = self._msg_to_dict(login_response)
+
+        token = getattr(login_response, "token", "") or login_dict.get("token", "")
+        timeout_s = getattr(login_response, "timeout_s", 0) or login_dict.get("timeout_s", 0)
+
+        if not token:
+            raise RuntimeError("Login erfolgreich, aber kein Token erhalten")
+
+        try:
+            timeout_value = int(timeout_s)
+        except Exception:
+            timeout_value = 3600
+
+        self._token = str(token)
+        self._token_expires_monotonic = now + max(60, timeout_value - 30)
+        return self._token
+
+    def _apply_bundle(self, bundle: dict[str, Any]) -> None:
+        self._set_runtime_defaults()
+
+        self.info.last_seen = datetime.now(UTC)
+        self.info.reachable = bool(bundle.get("reachable", False))
+
+        api_version = bundle.get("api_version") or {}
+        constraints = bundle.get("constraints") or {}
+        details = bundle.get("details") or {}
+        status_first = bundle.get("status_first") or {}
+        errors = bundle.get("errors") or {}
+        tuner_state = bundle.get("tuner_state") or {}
+
+        self.info.api_version = self._format_api_version(api_version)
+
+        bos_version = details.get("bos_version") or {}
+        current_fw = bos_version.get("current")
+        if current_fw:
+            self.info.firmware_version = str(current_fw)
+
+        miner_identity = details.get("miner_identity") or {}
+        model_name = (
+            miner_identity.get("miner_model")
+            or miner_identity.get("name")
+            or details.get("hostname")
+            or self.info.model
+        )
+        if model_name:
+            self.info.model = str(model_name)
+
+        uid = details.get("uid")
+        if uid and not self.info.serial_number:
+            self.info.serial_number = str(uid)
+
+        tuner_constraints = constraints.get("tuner_constraints") or {}
+        power_target = tuner_constraints.get("power_target") or {}
+        self.info.power_target_min_w = self._extract_watt_constraint(power_target, "min")
+        self.info.power_target_default_w = self._extract_watt_constraint(power_target, "default")
+        self.info.power_target_max_w = self._extract_watt_constraint(power_target, "max")
+
+        self.info.control_mode = self._derive_control_mode(tuner_state, tuner_constraints)
+        self.info.autotuning_enabled = self._extract_autotuning_enabled(tuner_state)
+
+        current_target_w = self._extract_watt_from_tuner_state(tuner_state)
+        if current_target_w is not None:
+            self.info.power_w = current_target_w
+
+        runtime_state = self._derive_runtime_state(
+            details=details,
+            status_first=status_first,
+            current_target_w=current_target_w,
+        )
+        self.info.runtime_state = runtime_state
+        self.info.is_active = runtime_state in {"running", "starting"}
+
+        if runtime_state in {"paused", "stopped"}:
+            self.info.power_w = 0.0
+
+        last_error = self._extract_last_error(errors)
+        if last_error:
+            self.info.last_error = last_error
+
+    def _set_runtime_defaults(self) -> None:
+        self.info.reachable = False
+        self.info.runtime_state = "unknown"
+        self.info.api_version = None
+        self.info.control_mode = None
+        self.info.autotuning_enabled = None
+        self.info.power_target_min_w = None
+        self.info.power_target_default_w = None
+        self.info.power_target_max_w = None
+        self.info.last_error = None
+
+    def _mark_unreachable(self, message: str) -> None:
+        self._set_runtime_defaults()
+        self.info.reachable = False
+        self.info.runtime_state = "unreachable"
+        self.info.is_active = False
+        self.info.power_w = 0.0
+        self.info.last_error = str(message)
+        self.info.last_seen = datetime.now(UTC)
+
+    @staticmethod
+    def _msg_to_dict(message: Any) -> dict[str, Any]:
+        return MessageToDict(
+            message,
+            preserving_proto_field_name=True,
+            always_print_fields_with_no_presence=False,
+        )
+
+    @staticmethod
+    def _format_api_version(api_version: dict[str, Any]) -> str | None:
+        major = api_version.get("major")
+        minor = api_version.get("minor")
+        patch = api_version.get("patch")
+
+        parts = [str(x) for x in (major, minor, patch) if x not in (None, "", 0, "0")]
+        if not parts:
+            return None
+        return ".".join(parts)
+
+    @staticmethod
+    def _extract_watt_constraint(data: dict[str, Any], key: str) -> float | None:
+        node = data.get(key)
+        if not isinstance(node, dict):
+            return None
+        watt = node.get("watt")
+        if watt in (None, ""):
+            return None
+        try:
+            return float(watt)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_autotuning_enabled(tuner_state: dict[str, Any]) -> bool | None:
+        value = tuner_state.get("enabled")
+        if isinstance(value, bool):
+            return value
         return None
 
-    def _coerce_int(self, value: Any, *, default: int) -> int:
+    @staticmethod
+    def _extract_watt_from_tuner_state(tuner_state: dict[str, Any]) -> float | None:
+        power_target_mode_state = tuner_state.get("power_target_mode_state") or {}
+        current_target = power_target_mode_state.get("current_target") or {}
+        watt = current_target.get("watt")
+        if watt in (None, ""):
+            return None
         try:
-            return int(value)
+            return float(watt)
         except Exception:
-            return default
+            return None
 
-    def _looks_like_auth_error(self, text: str) -> bool:
-        lowered = text.lower()
-        return "unauth" in lowered or "permission denied" in lowered or "token" in lowered
+    @staticmethod
+    def _derive_control_mode(
+        tuner_state: dict[str, Any],
+        tuner_constraints: dict[str, Any],
+    ) -> str | None:
+        if "power_target_mode_state" in tuner_state:
+            return "power_target"
+        if "hashrate_target_mode_state" in tuner_state:
+            return "hashrate_target"
+
+        default_mode = str(tuner_constraints.get("default_mode") or "")
+        if default_mode == "TUNER_MODE_POWER_TARGET":
+            return "power_target"
+        if default_mode == "TUNER_MODE_HASHRATE_TARGET":
+            return "hashrate_target"
+        return None
+
+    @staticmethod
+    def _derive_runtime_state(
+        *,
+        details: dict[str, Any],
+        status_first: dict[str, Any],
+        current_target_w: float | None,
+    ) -> str:
+        """
+        Runtime-State bewusst NICHT aus GetErrors ableiten.
+
+        GetErrors enthält bei Braiins offenbar auch ältere / nicht-akute Meldungen.
+        Für den UI-Status werten wir deshalb nur den aktuellen Status aus:
+        - detail status
+        - erste Status-Stream-Nachricht
+        - aktuelles Target
+        """
+        detail_status = str(details.get("status") or "").upper()
+        status_text = str(status_first).upper()
+
+        if "PAUSE" in status_text:
+            return "paused"
+        if "STOP" in status_text:
+            return "stopped"
+        if "START" in status_text:
+            return "starting"
+        if "ERROR" in status_text:
+            return "fault"
+
+        if detail_status == "MINER_STATUS_NORMAL":
+            if current_target_w is not None and current_target_w <= 0:
+                return "paused"
+            return "running"
+
+        if "STOP" in detail_status:
+            return "stopped"
+        if "START" in detail_status:
+            return "starting"
+        if "ERROR" in detail_status:
+            return "fault"
+
+        return "unknown"
+
+    @staticmethod
+    def _extract_last_error(errors: dict[str, Any]) -> str | None:
+        if not errors:
+            return None
+
+        if isinstance(errors, dict):
+            if "errors" in errors and isinstance(errors["errors"], list) and errors["errors"]:
+                first = errors["errors"][0]
+                return str(first)
+            if "message" in errors:
+                return str(errors["message"])
+            if errors:
+                return str(errors)
+
+        if isinstance(errors, list) and errors:
+            return str(errors[0])
+
+        return None

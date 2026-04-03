@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import FastAPI, Form, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -73,8 +74,6 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
     }
 
 
-
-
 def _build_miner_settings(
     form,
     driver: str,
@@ -89,18 +88,19 @@ def _build_miner_settings(
     if driver == "braiins":
         username = str(form.get("username", existing.get("username") or "")).strip()
         password_raw = str(form.get("password", "")).strip()
-        grpcurl_bin = str(form.get("grpcurl_bin", existing.get("grpcurl_bin") or "grpcurl")).strip()
 
         if username:
             settings["username"] = username
+        elif existing.get("username"):
+            settings["username"] = existing["username"]
+
         if password_raw:
             settings["password"] = password_raw
         elif existing.get("password"):
             settings["password"] = existing["password"]
-        if grpcurl_bin:
-            settings["grpcurl_bin"] = grpcurl_bin
 
     return settings
+
 
 def _parse_profile_values(form, driver: str) -> dict[str, dict[str, int]]:
     _, default_floor, default_eco, default_mid, default_high = _driver_profile_defaults(driver)
@@ -516,7 +516,7 @@ async def api_status():
         "last_reload_at": state.last_reload_at.isoformat(),
         "source_debug": services.get_source_debug_info(),
     }
-    return JSONResponse(payload)
+    return JSONResponse(content=jsonable_encoder(payload))
 
 
 @app.get("/api/config")

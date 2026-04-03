@@ -1,0 +1,1 @@
+# Vendor package for bundled third-party/generated code.
