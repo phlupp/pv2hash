@@ -1,0 +1,98 @@
+name: Release
+
+run-name: Release ${{ inputs.version }} build ${{ github.run_number }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SemVer, z. B. 0.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION='${{ inputs.version }}'
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version muss wie 0.2.0 aussehen"
+            exit 1
+          fi
+
+      - name: Set release variables
+        shell: bash
+        run: |
+          echo "VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+          echo "BUILD=${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "FULL_VERSION=${{ inputs.version }}+build.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "TAG=v${{ inputs.version }}-build.${{ github.run_number }}" >> "$GITHUB_ENV"
+
+      - name: Update pv2hash/version.py
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          build = os.environ["BUILD"]
+
+          content = (
+              f'APP_VERSION = "{version}"\n'
+              f'APP_BUILD = "{build}"\n'
+              'APP_VERSION_FULL = f"{APP_VERSION}+build.{APP_BUILD}"\n'
+          )
+
+          Path("pv2hash/version.py").write_text(content, encoding="utf-8")
+          PY
+
+      - name: Check tag does not exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG existiert bereits"
+            exit 1
+          fi
+
+      - name: Commit version file
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pv2hash/version.py
+          git commit -m "Release $FULL_VERSION"
+
+      - name: Create tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git tag -a "$TAG" -m "PV2Hash $FULL_VERSION"
+
+      - name: Push commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin HEAD:main
+
+      - name: Push tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin "$TAG"
