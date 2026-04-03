@@ -8,6 +8,7 @@ from typing import Any
 import grpc
 from google.protobuf.json_format import MessageToDict
 
+from pv2hash.logging_ext.setup import get_logger
 from pv2hash.miners.base import MinerAdapter
 from pv2hash.models.miner import MinerInfo, MinerProfile, MinerProfiles
 from pv2hash.vendor.braiins_api_stubs_path import ensure_braiins_stubs_on_path
@@ -16,21 +17,27 @@ ensure_braiins_stubs_on_path()
 
 import bos.version_pb2 as version_pb2
 import bos.version_pb2_grpc as version_pb2_grpc
+import bos.v1.actions_pb2 as actions_pb2
+import bos.v1.actions_pb2_grpc as actions_pb2_grpc
 import bos.v1.authentication_pb2 as authentication_pb2
 import bos.v1.authentication_pb2_grpc as authentication_pb2_grpc
+import bos.v1.common_pb2 as common_pb2
 import bos.v1.configuration_pb2 as configuration_pb2
 import bos.v1.configuration_pb2_grpc as configuration_pb2_grpc
 import bos.v1.miner_pb2 as miner_pb2
 import bos.v1.miner_pb2_grpc as miner_pb2_grpc
 import bos.v1.performance_pb2 as performance_pb2
 import bos.v1.performance_pb2_grpc as performance_pb2_grpc
+import bos.v1.units_pb2 as units_pb2
+
+logger = get_logger("pv2hash.miners.braiins")
 
 
 class BraiinsMiner(MinerAdapter):
     """
-    Read-only Braiins implementation via native Python gRPC.
+    Native Braiins implementation via Python gRPC.
 
-    Current scope:
+    Read:
     - GetApiVersion
     - Login
     - GetConstraints
@@ -40,7 +47,16 @@ class BraiinsMiner(MinerAdapter):
     - GetErrors
     - GetTunerState
 
-    Write APIs like PauseMining / ResumeMining / SetPowerTarget come later.
+    Write:
+    - PauseMining
+    - ResumeMining
+    - Start
+    - SetPowerTarget
+
+    Semantics:
+    - profile == "off"           -> PauseMining
+    - profile power_w <= 0       -> PauseMining
+    - profile power_w > 0        -> Resume/Start if needed, then SetPowerTarget
     """
 
     def __init__(
@@ -66,7 +82,7 @@ class BraiinsMiner(MinerAdapter):
         self.password = password or ""
         self.timeout_s = float(timeout_s)
 
-        # Nur noch für Kompatibilität mit älterer Config/Factory vorhanden.
+        # Nur noch für Alt-Kompatibilität vorhanden.
         self.grpcurl_bin = grpcurl_bin
 
         self.target_profile = "off"
@@ -97,7 +113,7 @@ class BraiinsMiner(MinerAdapter):
             host=host,
             driver="braiins",
             enabled=enabled,
-            is_active=False,
+            is_active=enabled,
             priority=priority,
             serial_number=serial_number,
             model=model or "Unknown",
@@ -111,16 +127,41 @@ class BraiinsMiner(MinerAdapter):
 
     async def set_profile(self, profile: str) -> None:
         """
-        Read-only in this step.
-        Das gewünschte Profil wird nur lokal gemerkt.
+        Apply target profile to the real miner.
+
+        Write errors are kept in last_error/logs, but do not raise into the control loop.
         """
         self.target_profile = profile
         self.info.profile = profile
 
-        if profile == "off":
-            self.info.power_w = 0.0
-        else:
-            self.info.power_w = self.get_profile_power_w(profile)
+        desired_w = 0.0 if profile == "off" else self.get_profile_power_w(profile)
+
+        try:
+            await asyncio.to_thread(self._apply_profile_sync, profile, desired_w)
+            self.info.last_error = None
+
+            # Wichtig:
+            # paused/stopped Miner bleiben regelbar und damit aktiv im PV2Hash-Sinn.
+            self.info.is_active = bool(self.info.enabled)
+
+            if profile == "off" or desired_w <= 0:
+                self.info.power_w = 0.0
+                self.info.runtime_state = "paused"
+            else:
+                self.info.power_w = desired_w
+                if self.info.runtime_state in {"paused", "stopped", "unknown"}:
+                    self.info.runtime_state = "running"
+
+        except Exception as exc:
+            message = f"gRPC write failed: {exc}"
+            logger.warning(
+                "Braiins write failed for %s (%s:%s): %s",
+                self.info.name,
+                self.host,
+                self.port,
+                exc,
+            )
+            self.info.last_error = message
 
         self.info.last_seen = datetime.now(UTC)
 
@@ -133,6 +174,66 @@ class BraiinsMiner(MinerAdapter):
 
         self.info.last_seen = datetime.now(UTC)
         return self.info
+
+    def _apply_profile_sync(self, profile: str, desired_w: float) -> None:
+        target = f"{self.host}:{self.port}"
+        channel = grpc.insecure_channel(target)
+
+        try:
+            grpc.channel_ready_future(channel).result(timeout=self.timeout_s)
+
+            auth_stub = authentication_pb2_grpc.AuthenticationServiceStub(channel)
+            actions_stub = actions_pb2_grpc.ActionsServiceStub(channel)
+            perf_stub = performance_pb2_grpc.PerformanceServiceStub(channel)
+
+            token = self._ensure_token_sync(auth_stub)
+            metadata = [("authorization", token)]
+
+            if profile == "off" or desired_w <= 0:
+                if self.info.runtime_state not in {"paused", "stopped"}:
+                    logger.info("PauseMining: miner=%s profile=%s", self.info.name, profile)
+                    actions_stub.PauseMining(
+                        actions_pb2.PauseMiningRequest(),
+                        metadata=metadata,
+                        timeout=self.timeout_s,
+                    )
+                return
+
+            desired_w = self._validate_desired_power_or_raise(desired_w)
+
+            if self.info.runtime_state == "stopped":
+                logger.info("Start: miner=%s", self.info.name)
+                actions_stub.Start(
+                    actions_pb2.StartRequest(),
+                    metadata=metadata,
+                    timeout=self.timeout_s,
+                )
+
+            if self.info.runtime_state in {"paused", "unknown"}:
+                logger.info("ResumeMining: miner=%s", self.info.name)
+                actions_stub.ResumeMining(
+                    actions_pb2.ResumeMiningRequest(),
+                    metadata=metadata,
+                    timeout=self.timeout_s,
+                )
+
+            if self._needs_power_target_update(desired_w):
+                logger.info(
+                    "SetPowerTarget: miner=%s profile=%s desired_w=%.0f",
+                    self.info.name,
+                    profile,
+                    desired_w,
+                )
+                perf_stub.SetPowerTarget(
+                    performance_pb2.SetPowerTargetRequest(
+                        save_action=common_pb2.SAVE_ACTION_SAVE_AND_APPLY,
+                        power_target=units_pb2.Power(watt=int(round(desired_w))),
+                    ),
+                    metadata=metadata,
+                    timeout=self.timeout_s,
+                )
+        finally:
+            channel.close()
 
     def _fetch_bundle_sync(self) -> dict[str, Any]:
         target = f"{self.host}:{self.port}"
@@ -309,10 +410,22 @@ class BraiinsMiner(MinerAdapter):
             current_target_w=current_target_w,
         )
         self.info.runtime_state = runtime_state
-        self.info.is_active = runtime_state in {"running", "starting"}
+
+        # Wichtige Änderung:
+        # paused/stopped Miner bleiben für PV2Hash "aktiv", weil sie weiter geregelt werden können.
+        self.info.is_active = bool(
+            self.info.enabled and self.info.reachable and runtime_state in {"running", "starting", "paused", "stopped"}
+        )
 
         if runtime_state in {"paused", "stopped"}:
             self.info.power_w = 0.0
+
+        inferred_profile = self._infer_profile_from_runtime(
+            runtime_state=runtime_state,
+            current_target_w=current_target_w,
+        )
+        if inferred_profile:
+            self.info.profile = inferred_profile
 
         last_error = self._extract_last_error(errors)
         if last_error:
@@ -337,6 +450,67 @@ class BraiinsMiner(MinerAdapter):
         self.info.power_w = 0.0
         self.info.last_error = str(message)
         self.info.last_seen = datetime.now(UTC)
+
+    def _validate_desired_power_or_raise(self, desired_w: float) -> float:
+        min_w = self.info.power_target_min_w
+        max_w = self.info.power_target_max_w
+
+        if min_w is not None and desired_w < float(min_w):
+            raise RuntimeError(
+                f"Desired power {desired_w:.0f} W liegt unter dem Miner-Minimum {float(min_w):.0f} W"
+            )
+
+        if max_w is not None and desired_w > float(max_w):
+            raise RuntimeError(
+                f"Desired power {desired_w:.0f} W liegt über dem Miner-Maximum {float(max_w):.0f} W"
+            )
+
+        return float(desired_w)
+
+    def _needs_power_target_update(self, desired_w: float) -> bool:
+        if self.info.runtime_state in {"unknown", "unreachable", "paused", "stopped"}:
+            return True
+
+        current_w = self.info.power_w
+        if current_w is None:
+            return True
+
+        return abs(float(current_w) - float(desired_w)) >= 1.0
+
+    def _infer_profile_from_runtime(
+        self,
+        *,
+        runtime_state: str,
+        current_target_w: float | None,
+    ) -> str | None:
+        if runtime_state in {"paused", "stopped"}:
+            return "off"
+
+        if current_target_w is None or self.info.profiles is None:
+            return self.target_profile or self.info.profile
+
+        candidates = {
+            "floor": getattr(self.info.profiles, "floor", None),
+            "eco": getattr(self.info.profiles, "eco", None),
+            "mid": getattr(self.info.profiles, "mid", None),
+            "high": getattr(self.info.profiles, "high", None),
+        }
+
+        best_name: str | None = None
+        best_delta: float | None = None
+
+        for name, profile in candidates.items():
+            if profile is None:
+                continue
+            delta = abs(float(profile.power_w) - float(current_target_w))
+            if best_delta is None or delta < best_delta:
+                best_delta = delta
+                best_name = name
+
+        if best_name is not None and best_delta is not None and best_delta <= 75.0:
+            return best_name
+
+        return self.target_profile or self.info.profile
 
     @staticmethod
     def _msg_to_dict(message: Any) -> dict[str, Any]:
@@ -413,15 +587,6 @@ class BraiinsMiner(MinerAdapter):
         status_first: dict[str, Any],
         current_target_w: float | None,
     ) -> str:
-        """
-        Runtime-State bewusst NICHT aus GetErrors ableiten.
-
-        GetErrors enthält bei Braiins offenbar auch ältere / nicht-akute Meldungen.
-        Für den UI-Status werten wir deshalb nur den aktuellen Status aus:
-        - detail status
-        - erste Status-Stream-Nachricht
-        - aktuelles Target
-        """
         detail_status = str(details.get("status") or "").upper()
         status_text = str(status_first).upper()
 
