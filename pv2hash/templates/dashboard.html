@@ -139,14 +139,6 @@
 
                     <div class="kv">
                         <div class="kv-row">
-                            <span>PV-Leistung</span>
-                            <strong>{{ "%.0f"|format(snapshot.pv_power_w) if snapshot and snapshot.pv_power_w is not none else "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Hausverbrauch</span>
-                            <strong>{{ "%.0f"|format(snapshot.house_power_w) if snapshot and snapshot.house_power_w is not none else "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
                             <span>Batterie SOC</span>
                             <strong>
                                 {% if snapshot and snapshot.battery_soc_pct is not none %}

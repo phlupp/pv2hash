@@ -282,16 +282,15 @@ class SmaMeterProtocolSource(EnergySource):
 
         self._dump_obis_entries(entries)
 
-        grid_power_w = -(active_plus_w + active_minus_w)
-        pv_power_w = abs(grid_power_w) if grid_power_w < 0 else None
-
+        grid_power_w = active_plus_w - active_minus_w
+        
         self.debug_info["active_plus_w"] = active_plus_w
         self.debug_info["active_minus_w"] = active_minus_w
         self.debug_info["grid_power_w"] = grid_power_w
 
         return EnergySnapshot(
             grid_power_w=grid_power_w,
-            pv_power_w=pv_power_w,
+            pv_power_w=None,
             house_power_w=None,
             updated_at=datetime.now(UTC),
             source="sma_meter_protocol",
