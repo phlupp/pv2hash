@@ -44,7 +44,7 @@ DEFAULT_CONFIG = {
                 "port": 4028,
             },
             "profiles": {
-                "off": {"power_w": 0},
+                "floor": {"power_w": 0},
                 "eco": {"power_w": 900},
                 "mid": {"power_w": 1800},
                 "high": {"power_w": 3000},
@@ -64,7 +64,7 @@ DEFAULT_CONFIG = {
                 "port": 4028,
             },
             "profiles": {
-                "off": {"power_w": 0},
+                "floor": {"power_w": 0},
                 "eco": {"power_w": 900},
                 "mid": {"power_w": 1800},
                 "high": {"power_w": 3000},

@@ -31,13 +31,19 @@
             <header class="topbar">
                 <div>
                     <h1>Miner</h1>
-                    <p>Konfigurierte Miner verwalten</p>
+                    <p>Konfigurierte Miner verwalten und Runtime-Status prüfen</p>
                 </div>
             </header>
 
             {% if saved %}
             <section class="alert success">
                 Miner-Konfiguration gespeichert und Runtime neu geladen.
+            </section>
+            {% endif %}
+
+            {% if error_message %}
+            <section class="alert danger">
+                {{ error_message }}
             </section>
             {% endif %}
 
@@ -91,8 +97,9 @@
                     </label>
 
                     <label>
-                        <span>Off Leistung (W)</span>
-                        <input type="number" name="profile_off_power_w" value="0" min="0">
+                        <span>Floor Leistung (W)</span>
+                        <input type="number" name="profile_floor_power_w" value="0" min="0">
+                        <small class="help">0 W = Pause / aus. &gt; 0 W = minimale Dauerleistung.</small>
                     </label>
 
                     <label>
@@ -124,7 +131,85 @@
                         <span class="badge">{{ miner.id }}</span>
                     </div>
 
-                    <form method="post" action="/miners/update" class="form-grid">
+                    <div class="grid grid-2 top-gap">
+                        <article class="card soft-card">
+                            <div class="card-head">
+                                <h3>Runtime</h3>
+                            </div>
+                            <div class="form-grid compact">
+                                <div>
+                                    <span>Status</span>
+                                    <strong>{{ miner.runtime.runtime_state or 'unknown' }}</strong>
+                                </div>
+                                <div>
+                                    <span>Erreichbar</span>
+                                    <strong>{% if miner.runtime.reachable %}ja{% else %}nein{% endif %}</strong>
+                                </div>
+                                <div>
+                                    <span>Aktuelles Profil</span>
+                                    <strong>{{ miner.runtime.profile or 'off' }}</strong>
+                                </div>
+                                <div>
+                                    <span>Aktuelle Leistung</span>
+                                    <strong>{{ '%.0f'|format(miner.runtime.power_w|default(0, true)) }} W</strong>
+                                </div>
+                                <div>
+                                    <span>API Version</span>
+                                    <strong>{{ miner.runtime.api_version or '—' }}</strong>
+                                </div>
+                                <div>
+                                    <span>Autotuning</span>
+                                    <strong>
+                                        {% if miner.runtime.autotuning_enabled is sameas true %}an
+                                        {% elif miner.runtime.autotuning_enabled is sameas false %}aus
+                                        {% else %}—{% endif %}
+                                    </strong>
+                                </div>
+                                <div>
+                                    <span>Control Mode</span>
+                                    <strong>{{ miner.runtime.control_mode or '—' }}</strong>
+                                </div>
+                                <div>
+                                    <span>Letzter Fehler</span>
+                                    <strong>{{ miner.runtime.last_error or '—' }}</strong>
+                                </div>
+                            </div>
+                        </article>
+
+                        <article class="card soft-card">
+                            <div class="card-head">
+                                <h3>Leistungsgrenzen</h3>
+                            </div>
+                            {% if miner.runtime.power_target_min_w is not none or miner.runtime.power_target_max_w is not none %}
+                            <div class="form-grid compact">
+                                <div>
+                                    <span>Minimum</span>
+                                    <strong>{{ '%.0f'|format(miner.runtime.power_target_min_w|default(0, true)) }} W</strong>
+                                </div>
+                                <div>
+                                    <span>Default</span>
+                                    <strong>
+                                        {% if miner.runtime.power_target_default_w is not none %}
+                                            {{ '%.0f'|format(miner.runtime.power_target_default_w) }} W
+                                        {% else %}—{% endif %}
+                                    </strong>
+                                </div>
+                                <div>
+                                    <span>Maximum</span>
+                                    <strong>
+                                        {% if miner.runtime.power_target_max_w is not none %}
+                                            {{ '%.0f'|format(miner.runtime.power_target_max_w) }} W
+                                        {% else %}—{% endif %}
+                                    </strong>
+                                </div>
+                            </div>
+                            {% else %}
+                            <p class="muted">Noch keine Miner-Constraints gelesen.</p>
+                            {% endif %}
+                        </article>
+                    </div>
+
+                    <form method="post" action="/miners/update" class="form-grid top-gap">
                         <input type="hidden" name="miner_id" value="{{ miner.id }}">
 
                         <label>
@@ -171,13 +256,14 @@
                         </label>
 
                         <label>
-                            <span>Off Leistung (W)</span>
+                            <span>Floor Leistung (W)</span>
                             <input
                                 type="number"
-                                name="profile_off_power_w"
-                                value="{{ miner.profiles.off.power_w if miner.profiles and miner.profiles.off is defined else 0 }}"
+                                name="profile_floor_power_w"
+                                value="{{ miner.profiles.floor.power_w if miner.profiles and miner.profiles.floor is defined else 0 }}"
                                 min="0"
                             >
+                            <small class="help">0 W = Pause / aus. &gt; 0 W = minimale Dauerleistung.</small>
                         </label>
 
                         <label>

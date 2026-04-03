@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 
-
-PROFILE_ORDER = ("off", "eco", "mid", "high")
+PROFILE_ORDER = ("off", "floor", "eco", "mid", "high")
 PROFILE_INDEX = {name: idx for idx, name in enumerate(PROFILE_ORDER)}
 
 
@@ -25,8 +24,13 @@ def _next_profile(profile: str) -> str:
 
 
 def _prev_profile(profile: str) -> str:
-    idx = PROFILE_INDEX[_normalize_profile(profile)]
-    return PROFILE_ORDER[max(idx - 1, 0)]
+    normalized = _normalize_profile(profile)
+    if normalized == "off":
+        return "off"
+    if normalized == "floor":
+        return "floor"
+    idx = PROFILE_INDEX[normalized]
+    return PROFILE_ORDER[max(idx - 1, 1)]
 
 
 def get_current_profiles(miners: list) -> list[str]:
@@ -36,7 +40,6 @@ def get_current_profiles(miners: list) -> list[str]:
         if not miner.is_active_for_distribution():
             profiles.append("off")
             continue
-
         profiles.append(_normalize_profile(miner.get_current_profile()))
 
     return profiles
@@ -98,7 +101,6 @@ def get_step_up_plan(distribution_mode: str, miners: list) -> DistributionPlan:
 
             target = current.copy()
             target[idx] = next_profile
-
             delta = max(
                 0.0,
                 miners[idx].get_profile_power_w(next_profile)
@@ -179,7 +181,6 @@ def get_step_down_plan(distribution_mode: str, miners: list) -> DistributionPlan
 
             target = current.copy()
             target[idx] = prev_profile
-
             delta = max(
                 0.0,
                 miners[idx].get_profile_power_w(current_profile)

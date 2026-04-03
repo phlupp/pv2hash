@@ -13,7 +13,7 @@
     "auto_update_enabled": false
   },
   "source": {
-    "type": "simulator",
+    "type": "sma_meter_protocol",
     "name": "SMA EM 20",
     "enabled": true,
     "settings": {
@@ -72,7 +72,7 @@
       },
       "profiles": {
         "off": {
-          "power_w": 100
+          "power_w": 0
         },
         "eco": {
           "power_w": 900

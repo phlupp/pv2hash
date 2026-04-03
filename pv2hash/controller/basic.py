@@ -287,8 +287,8 @@ class BasicController:
             behavior.get("fallback_profile", "eco")
         ).strip().lower()
 
-        if fallback_profile not in ("off", "eco", "mid", "high"):
-            fallback_profile = "off"
+        if fallback_profile not in ("floor", "eco", "mid", "high"):
+            fallback_profile = "eco"
 
         hold_seconds_raw = behavior.get("hold_seconds", 0)
         hold_seconds = float(hold_seconds_raw or 0)
@@ -412,7 +412,7 @@ class BasicController:
         behavior = self.source_loss.get(quality)
         if isinstance(behavior, dict):
             return behavior
-        return {"mode": "off"}
+        return {"mode": "off_all"}
 
     def _normalize_quality(self, quality: str | None) -> str:
         if quality in ("live", "simulated"):

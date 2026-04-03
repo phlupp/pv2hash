@@ -1,0 +1,1018 @@
+Binary files pv2hash_orig/pv2hash/__pycache__/__init__.cpython-313.pyc and pv2hash_local/pv2hash/__pycache__/__init__.cpython-313.pyc differ
+Binary files pv2hash_orig/pv2hash/__pycache__/app.cpython-313.pyc and pv2hash_local/pv2hash/__pycache__/app.cpython-313.pyc differ
+Binary files pv2hash_orig/pv2hash/__pycache__/factory.cpython-313.pyc and pv2hash_local/pv2hash/__pycache__/factory.cpython-313.pyc differ
+diff -ruN pv2hash_orig/pv2hash/app.py pv2hash_local/pv2hash/app.py
+--- pv2hash_orig/pv2hash/app.py	2026-04-03 10:05:21.159935619 +0000
++++ pv2hash_local/pv2hash/app.py	2026-04-03 10:06:44.777077687 +0000
+@@ -1,4 +1,5 @@
+ import asyncio
++from copy import deepcopy
+ from dataclasses import asdict
+ from datetime import UTC, datetime
+ from uuid import uuid4
+@@ -35,6 +36,95 @@
+ services.reload_from_config()
+ 
+ 
++EDITABLE_PROFILE_NAMES = ("floor", "eco", "mid", "high")
++
++
++def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
++    if driver == "braiins":
++        return 4028, 0, 1200, 2200, 3200
++    return 4028, 0, 900, 1800, 3000
++
++
++def _get_runtime_miner_map() -> dict[str, dict]:
++    return {miner.id: asdict(miner) for miner in state.miners}
++
++
++def _build_miners_view() -> list[dict]:
++    runtime_map = _get_runtime_miner_map()
++    miner_views: list[dict] = []
++
++    for miner_cfg in state.config.get("miners", []):
++        merged = deepcopy(miner_cfg)
++        runtime = runtime_map.get(miner_cfg.get("id"), {})
++        merged["runtime"] = runtime
++        merged.setdefault("settings", {})
++        merged.setdefault("profiles", {})
++        miner_views.append(merged)
++
++    return miner_views
++
++
++def _miners_context(request: Request, *, error_message: str | None = None) -> dict:
++    return {
++        "request": request,
++        "miners": _build_miners_view(),
++        "saved": request.query_params.get("saved") == "1",
++        "error_message": error_message,
++    }
++
++
++def _parse_profile_values(form, driver: str) -> dict[str, dict[str, int]]:
++    _, default_floor, default_eco, default_mid, default_high = _driver_profile_defaults(driver)
++
++    return {
++        "floor": {"power_w": int(form.get("profile_floor_power_w", default_floor))},
++        "eco": {"power_w": int(form.get("profile_eco_power_w", default_eco))},
++        "mid": {"power_w": int(form.get("profile_mid_power_w", default_mid))},
++        "high": {"power_w": int(form.get("profile_high_power_w", default_high))},
++    }
++
++
++def _validate_profile_values(
++    *,
++    profile_values: dict[str, dict[str, int]],
++    runtime_constraints: dict | None = None,
++) -> str | None:
++    values = {name: int(profile_values[name]["power_w"]) for name in EDITABLE_PROFILE_NAMES}
++
++    for name, value in values.items():
++        if value < 0:
++            return f"Profil {name} darf nicht negativ sein."
++
++    if not (values["floor"] <= values["eco"] <= values["mid"] <= values["high"]):
++        return "Profile müssen in aufsteigender Reihenfolge liegen: floor ≤ eco ≤ mid ≤ high."
++
++    if runtime_constraints:
++        min_power = runtime_constraints.get("power_target_min_w")
++        max_power = runtime_constraints.get("power_target_max_w")
++
++        if min_power is not None and values["floor"] > 0 and values["floor"] < float(min_power):
++            return f"floor liegt unter dem vom Miner gemeldeten Minimum von {float(min_power):.0f} W."
++
++        if min_power is not None:
++            for name in ("eco", "mid", "high"):
++                if values[name] < float(min_power):
++                    return f"{name} liegt unter dem vom Miner gemeldeten Minimum von {float(min_power):.0f} W."
++
++        if max_power is not None:
++            for name in EDITABLE_PROFILE_NAMES:
++                if values[name] > float(max_power):
++                    return f"{name} liegt über dem vom Miner gemeldeten Maximum von {float(max_power):.0f} W."
++
++    return None
++
++
++def _normalize_fallback_profile(value: str | None, default: str = "eco") -> str:
++    normalized = str(value or default).strip().lower()
++    if normalized not in EDITABLE_PROFILE_NAMES:
++        return default
++    return normalized
++
++
+ async def control_loop() -> None:
+     logger.info("Control loop started")
+ 
+@@ -173,12 +263,12 @@
+     state.config["control"].setdefault("source_loss", {})
+     state.config["control"]["source_loss"]["stale"] = {
+         "mode": form.get("stale_mode", "hold_current"),
+-        "fallback_profile": form.get("stale_fallback_profile", "eco"),
++        "fallback_profile": _normalize_fallback_profile(form.get("stale_fallback_profile", "eco")),
+         "hold_seconds": int(form.get("stale_hold_seconds", 0)),
+     }
+     state.config["control"]["source_loss"]["offline"] = {
+         "mode": form.get("offline_mode", "off_all"),
+-        "fallback_profile": form.get("offline_fallback_profile", "eco"),
++        "fallback_profile": _normalize_fallback_profile(form.get("offline_fallback_profile", "eco")),
+         "hold_seconds": int(form.get("offline_hold_seconds", 0)),
+     }
+ 
+@@ -235,11 +325,7 @@
+ 
+ @app.get("/miners")
+ async def miners_page(request: Request):
+-    context = {
+-        "request": request,
+-        "miners": state.config.get("miners", []),
+-        "saved": request.query_params.get("saved") == "1",
+-    }
++    context = _miners_context(request)
+     return templates.TemplateResponse(
+         request=request,
+         name="miners.html",
+@@ -255,15 +341,17 @@
+     driver = form.get("driver", "simulator")
+     name = form.get("name", "Miner")
+     host = form.get("host", "")
++    default_port, _, _, _, _ = _driver_profile_defaults(driver)
++    profile_values = _parse_profile_values(form, driver)
+ 
+-    if driver == "braiins":
+-        default_eco = 1200
+-        default_mid = 2200
+-        default_high = 3200
+-    else:
+-        default_eco = 900
+-        default_mid = 1800
+-        default_high = 3000
++    validation_error = _validate_profile_values(profile_values=profile_values)
++    if validation_error:
++        return templates.TemplateResponse(
++            request=request,
++            name="miners.html",
++            context=_miners_context(request, error_message=validation_error),
++            status_code=400,
++        )
+ 
+     state.config.setdefault("miners", []).append(
+         {
+@@ -277,22 +365,9 @@
+             "model": form.get("model") or None,
+             "firmware_version": form.get("firmware_version") or None,
+             "settings": {
+-                "port": int(form.get("port", 4028)),
+-            },
+-            "profiles": {
+-                "off": {
+-                    "power_w": int(form.get("profile_off_power_w", 0)),
+-                },
+-                "eco": {
+-                    "power_w": int(form.get("profile_eco_power_w", default_eco)),
+-                },
+-                "mid": {
+-                    "power_w": int(form.get("profile_mid_power_w", default_mid)),
+-                },
+-                "high": {
+-                    "power_w": int(form.get("profile_high_power_w", default_high)),
+-                },
++                "port": int(form.get("port", default_port)),
+             },
++            "profiles": profile_values,
+         }
+     )
+ 
+@@ -307,19 +382,25 @@
+ async def update_miner(request: Request):
+     form = await request.form()
+     miner_id = form.get("miner_id")
++    runtime_map = _get_runtime_miner_map()
+ 
+     for miner in state.config.get("miners", []):
+         if miner["id"] == miner_id:
+             driver = form.get("driver", miner["driver"])
++            default_port, _, _, _, _ = _driver_profile_defaults(driver)
++            profile_values = _parse_profile_values(form, driver)
+ 
+-            if driver == "braiins":
+-                default_eco = 1200
+-                default_mid = 2200
+-                default_high = 3200
+-            else:
+-                default_eco = 900
+-                default_mid = 1800
+-                default_high = 3000
++            validation_error = _validate_profile_values(
++                profile_values=profile_values,
++                runtime_constraints=runtime_map.get(miner_id),
++            )
++            if validation_error:
++                return templates.TemplateResponse(
++                    request=request,
++                    name="miners.html",
++                    context=_miners_context(request, error_message=validation_error),
++                    status_code=400,
++                )
+ 
+             miner["name"] = form.get("name", miner["name"])
+             miner["host"] = form.get("host", miner["host"])
+@@ -331,42 +412,9 @@
+             miner["firmware_version"] = form.get("firmware_version") or None
+             miner.setdefault("settings", {})
+             miner["settings"]["port"] = int(
+-                form.get("port", miner["settings"].get("port", 4028))
++                form.get("port", miner["settings"].get("port", default_port))
+             )
+-
+-            miner.setdefault("profiles", {})
+-            miner["profiles"]["off"] = {
+-                "power_w": int(
+-                    form.get(
+-                        "profile_off_power_w",
+-                        miner.get("profiles", {}).get("off", {}).get("power_w", 0),
+-                    )
+-                )
+-            }
+-            miner["profiles"]["eco"] = {
+-                "power_w": int(
+-                    form.get(
+-                        "profile_eco_power_w",
+-                        miner.get("profiles", {}).get("eco", {}).get("power_w", default_eco),
+-                    )
+-                )
+-            }
+-            miner["profiles"]["mid"] = {
+-                "power_w": int(
+-                    form.get(
+-                        "profile_mid_power_w",
+-                        miner.get("profiles", {}).get("mid", {}).get("power_w", default_mid),
+-                    )
+-                )
+-            }
+-            miner["profiles"]["high"] = {
+-                "power_w": int(
+-                    form.get(
+-                        "profile_high_power_w",
+-                        miner.get("profiles", {}).get("high", {}).get("power_w", default_high),
+-                    )
+-                )
+-            }
++            miner["profiles"] = profile_values
+ 
+             logger.info(
+                 "Miner updated: id=%s name=%s driver=%s host=%s enabled=%s",
+Binary files pv2hash_orig/pv2hash/config/__pycache__/__init__.cpython-313.pyc and pv2hash_local/pv2hash/config/__pycache__/__init__.cpython-313.pyc differ
+Binary files pv2hash_orig/pv2hash/config/__pycache__/defaults.cpython-313.pyc and pv2hash_local/pv2hash/config/__pycache__/defaults.cpython-313.pyc differ
+Binary files pv2hash_orig/pv2hash/config/__pycache__/store.cpython-313.pyc and pv2hash_local/pv2hash/config/__pycache__/store.cpython-313.pyc differ
+diff -ruN pv2hash_orig/pv2hash/config/defaults.py pv2hash_local/pv2hash/config/defaults.py
+--- pv2hash_orig/pv2hash/config/defaults.py	2026-04-03 10:04:40.688082339 +0000
++++ pv2hash_local/pv2hash/config/defaults.py	2026-04-03 09:56:48.124456035 +0000
+@@ -44,7 +44,7 @@
+                 "port": 4028,
+             },
+             "profiles": {
+-                "off": {"power_w": 0},
++                "floor": {"power_w": 0},
+                 "eco": {"power_w": 900},
+                 "mid": {"power_w": 1800},
+                 "high": {"power_w": 3000},
+@@ -64,7 +64,7 @@
+                 "port": 4028,
+             },
+             "profiles": {
+-                "off": {"power_w": 0},
++                "floor": {"power_w": 0},
+                 "eco": {"power_w": 900},
+                 "mid": {"power_w": 1800},
+                 "high": {"power_w": 3000},
+@@ -92,4 +92,4 @@
+             },
+         },
+     },
+-}
+\ No newline at end of file
++}
+diff -ruN pv2hash_orig/pv2hash/config/store.py pv2hash_local/pv2hash/config/store.py
+--- pv2hash_orig/pv2hash/config/store.py	2026-04-03 10:04:48.343950952 +0000
++++ pv2hash_local/pv2hash/config/store.py	2026-04-03 09:56:48.124758326 +0000
+@@ -5,8 +5,9 @@
+ 
+ from pv2hash.config.defaults import DEFAULT_CONFIG
+ 
+-
+ CONFIG_PATH = Path("data/config.json")
++PROFILE_NAMES = ("floor", "eco", "mid", "high")
++FALLBACK_PROFILE_NAMES = ("floor", "eco", "mid", "high")
+ 
+ 
+ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+@@ -25,6 +26,44 @@
+     return result
+ 
+ 
++def _normalize_miner_profiles(config: dict[str, Any]) -> None:
++    for miner in config.get("miners", []):
++        profiles = miner.setdefault("profiles", {})
++
++        if "floor" not in profiles and "off" in profiles:
++            profiles["floor"] = deepcopy(profiles["off"])
++
++        profiles.pop("off", None)
++
++        default_profiles = DEFAULT_CONFIG["miners"][0]["profiles"]
++        for name in PROFILE_NAMES:
++            if name not in profiles:
++                profiles[name] = deepcopy(default_profiles[name])
++
++
++def _normalize_source_loss_profiles(config: dict[str, Any]) -> None:
++    source_loss = config.setdefault("control", {}).setdefault("source_loss", {})
++
++    for quality in ("stale", "offline"):
++        behavior = source_loss.setdefault(quality, {})
++        fallback_profile = str(behavior.get("fallback_profile", "eco")).strip().lower()
++
++        if fallback_profile == "off":
++            fallback_profile = "floor"
++
++        if fallback_profile not in FALLBACK_PROFILE_NAMES:
++            fallback_profile = "eco"
++
++        behavior["fallback_profile"] = fallback_profile
++
++
++def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
++    normalized = deepcopy(config)
++    _normalize_miner_profiles(normalized)
++    _normalize_source_loss_profiles(normalized)
++    return normalized
++
++
+ def ensure_config_exists() -> None:
+     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+ 
+@@ -38,18 +77,22 @@
+     with CONFIG_PATH.open("r", encoding="utf-8") as f:
+         user_config = json.load(f)
+ 
+-    return deep_merge(DEFAULT_CONFIG, user_config)
++    merged = deep_merge(DEFAULT_CONFIG, user_config)
++    return normalize_config(merged)
+ 
+ 
+ def save_config(config: dict[str, Any]) -> None:
+     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+ 
++    normalized = normalize_config(config)
++
+     with CONFIG_PATH.open("w", encoding="utf-8") as f:
+-        json.dump(config, f, indent=2, ensure_ascii=False)
++        json.dump(normalized, f, indent=2, ensure_ascii=False)
+ 
+ 
+ def update_config(patch: dict[str, Any]) -> dict[str, Any]:
+     current = load_config()
+     merged = deep_merge(current, patch)
+-    save_config(merged)
+-    return merged
++    normalized = normalize_config(merged)
++    save_config(normalized)
++    return normalized
+Binary files pv2hash_orig/pv2hash/controller/__pycache__/__init__.cpython-313.pyc and pv2hash_local/pv2hash/controller/__pycache__/__init__.cpython-313.pyc differ
+Binary files pv2hash_orig/pv2hash/controller/__pycache__/basic.cpython-313.pyc and pv2hash_local/pv2hash/controller/__pycache__/basic.cpython-313.pyc differ
+Binary files pv2hash_orig/pv2hash/controller/__pycache__/distribution.cpython-313.pyc and pv2hash_local/pv2hash/controller/__pycache__/distribution.cpython-313.pyc differ
+diff -ruN pv2hash_orig/pv2hash/controller/basic.py pv2hash_local/pv2hash/controller/basic.py
+--- pv2hash_orig/pv2hash/controller/basic.py	2026-04-03 10:05:00.788965980 +0000
++++ pv2hash_local/pv2hash/controller/basic.py	2026-04-03 09:56:48.125760921 +0000
+@@ -287,8 +287,8 @@
+             behavior.get("fallback_profile", "eco")
+         ).strip().lower()
+ 
+-        if fallback_profile not in ("off", "eco", "mid", "high"):
+-            fallback_profile = "off"
++        if fallback_profile not in ("floor", "eco", "mid", "high"):
++            fallback_profile = "eco"
+ 
+         hold_seconds_raw = behavior.get("hold_seconds", 0)
+         hold_seconds = float(hold_seconds_raw or 0)
+@@ -412,7 +412,7 @@
+         behavior = self.source_loss.get(quality)
+         if isinstance(behavior, dict):
+             return behavior
+-        return {"mode": "off"}
++        return {"mode": "off_all"}
+ 
+     def _normalize_quality(self, quality: str | None) -> str:
+         if quality in ("live", "simulated"):
+diff -ruN pv2hash_orig/pv2hash/controller/distribution.py pv2hash_local/pv2hash/controller/distribution.py
+--- pv2hash_orig/pv2hash/controller/distribution.py	2026-04-03 10:04:54.277870501 +0000
++++ pv2hash_local/pv2hash/controller/distribution.py	2026-04-03 09:56:48.125031610 +0000
+@@ -1,7 +1,6 @@
+ from dataclasses import dataclass
+ 
+-
+-PROFILE_ORDER = ("off", "eco", "mid", "high")
++PROFILE_ORDER = ("off", "floor", "eco", "mid", "high")
+ PROFILE_INDEX = {name: idx for idx, name in enumerate(PROFILE_ORDER)}
+ 
+ 
+@@ -25,8 +24,13 @@
+ 
+ 
+ def _prev_profile(profile: str) -> str:
+-    idx = PROFILE_INDEX[_normalize_profile(profile)]
+-    return PROFILE_ORDER[max(idx - 1, 0)]
++    normalized = _normalize_profile(profile)
++    if normalized == "off":
++        return "off"
++    if normalized == "floor":
++        return "floor"
++    idx = PROFILE_INDEX[normalized]
++    return PROFILE_ORDER[max(idx - 1, 1)]
+ 
+ 
+ def get_current_profiles(miners: list) -> list[str]:
+@@ -36,7 +40,6 @@
+         if not miner.is_active_for_distribution():
+             profiles.append("off")
+             continue
+-
+         profiles.append(_normalize_profile(miner.get_current_profile()))
+ 
+     return profiles
+@@ -98,7 +101,6 @@
+ 
+             target = current.copy()
+             target[idx] = next_profile
+-
+             delta = max(
+                 0.0,
+                 miners[idx].get_profile_power_w(next_profile)
+@@ -179,7 +181,6 @@
+ 
+             target = current.copy()
+             target[idx] = prev_profile
+-
+             delta = max(
+                 0.0,
+                 miners[idx].get_profile_power_w(current_profile)
+@@ -205,4 +206,4 @@
+         delta_power_w=0.0,
+         changed=False,
+         reason="unknown_distribution_mode",
+-    )
+\ No newline at end of file
++    )
+diff -ruN pv2hash_orig/pv2hash/factory.py pv2hash_local/pv2hash/factory.py
+--- pv2hash_orig/pv2hash/factory.py	2026-04-03 10:05:05.239498493 +0000
++++ pv2hash_local/pv2hash/factory.py	2026-04-03 10:06:44.783460308 +0000
+@@ -6,21 +6,20 @@
+ from pv2hash.sources.simulator import SimulatorSource
+ from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
+ 
+-
+ logger = get_logger("pv2hash.factory")
+ 
+ 
+ def _default_profiles_for_driver(driver: str) -> dict:
+     if driver == "braiins":
+         return {
+-            "off": {"power_w": 0},
++            "floor": {"power_w": 0},
+             "eco": {"power_w": 1200},
+             "mid": {"power_w": 2200},
+             "high": {"power_w": 3200},
+         }
+ 
+     return {
+-        "off": {"power_w": 0},
++        "floor": {"power_w": 0},
+         "eco": {"power_w": 900},
+         "mid": {"power_w": 1800},
+         "high": {"power_w": 3000},
+@@ -120,4 +119,4 @@
+ 
+         raise ValueError(f"Unsupported miner driver: {driver}")
+ 
+-    return miner_adapters
+\ No newline at end of file
++    return miner_adapters
+Binary files pv2hash_orig/pv2hash/miners/__pycache__/__init__.cpython-313.pyc and pv2hash_local/pv2hash/miners/__pycache__/__init__.cpython-313.pyc differ
+Binary files pv2hash_orig/pv2hash/miners/__pycache__/base.cpython-313.pyc and pv2hash_local/pv2hash/miners/__pycache__/base.cpython-313.pyc differ
+Binary files pv2hash_orig/pv2hash/miners/__pycache__/braiins.cpython-313.pyc and pv2hash_local/pv2hash/miners/__pycache__/braiins.cpython-313.pyc differ
+Binary files pv2hash_orig/pv2hash/miners/__pycache__/simulator.cpython-313.pyc and pv2hash_local/pv2hash/miners/__pycache__/simulator.cpython-313.pyc differ
+diff -ruN pv2hash_orig/pv2hash/miners/braiins.py pv2hash_local/pv2hash/miners/braiins.py
+--- pv2hash_orig/pv2hash/miners/braiins.py	2026-04-03 10:05:17.422460616 +0000
++++ pv2hash_local/pv2hash/miners/braiins.py	2026-04-03 10:06:44.784075202 +0000
+@@ -9,9 +9,10 @@
+ class BraiinsMiner(MinerAdapter):
+     """
+     Erste vorsichtige Braiins-Implementierung:
+-    - liest Status über BOSminer/CGMiner-kompatiblen API-Call
++    - liest Status aktuell noch über BOSminer/CGMiner-kompatiblen API-Call
+     - set_profile() ist vorerst noch eine lokale Zielvorgabe
+-    Später ersetzen wir das durch echte schreibende API-Calls.
++
++    Die eigentliche gRPC-API und echte Power-Targets folgen im nächsten Schritt.
+     """
+ 
+     def __init__(
+@@ -32,14 +33,14 @@
+         self.target_profile = "off"
+ 
+         profile_cfg = profiles or {
+-            "off": {"power_w": 0},
++            "floor": {"power_w": 0},
+             "eco": {"power_w": 1200},
+             "mid": {"power_w": 2200},
+             "high": {"power_w": 3200},
+         }
+ 
+         miner_profiles = MinerProfiles(
+-            off=MinerProfile(power_w=float(profile_cfg["off"]["power_w"])),
++            floor=MinerProfile(power_w=float(profile_cfg["floor"]["power_w"])),
+             eco=MinerProfile(power_w=float(profile_cfg["eco"]["power_w"])),
+             mid=MinerProfile(power_w=float(profile_cfg["mid"]["power_w"])),
+             high=MinerProfile(power_w=float(profile_cfg["high"]["power_w"])),
+@@ -59,12 +60,28 @@
+             profile="off",
+             power_w=0.0,
+             profiles=miner_profiles,
++            reachable=False,
++            runtime_state="unknown",
++            control_mode="power_target",
+         )
+ 
+     async def set_profile(self, profile: str) -> None:
+         self.target_profile = profile
+         self.info.profile = profile
+-        self.info.power_w = self.get_profile_power_w(profile)
++
++        if profile == "off":
++            self.info.power_w = 0.0
++            self.info.runtime_state = "paused"
++        else:
++            desired_w = self.get_profile_power_w(profile)
++            if desired_w <= 0:
++                self.info.power_w = 0.0
++                self.info.runtime_state = "paused"
++            else:
++                self.info.power_w = desired_w
++                self.info.runtime_state = "running"
++
++        self.info.last_error = None
+         self.info.last_seen = datetime.now(UTC)
+ 
+     async def get_status(self) -> MinerInfo:
+@@ -74,6 +91,9 @@
+             summary = self._extract_summary(response)
+             if summary:
+                 self.info.is_active = True
++                self.info.reachable = True
++                self.info.runtime_state = "running"
++                self.info.last_error = None
+ 
+                 power = self._pick_float(
+                     summary,
+@@ -90,10 +110,16 @@
+                     self.info.firmware_version = firmware
+             else:
+                 self.info.is_active = False
++                self.info.reachable = False
++                self.info.runtime_state = "unreachable"
+                 self.info.power_w = 0.0
++                self.info.last_error = "summary missing in response"
+         else:
+             self.info.is_active = False
++            self.info.reachable = False
++            self.info.runtime_state = "unreachable"
+             self.info.power_w = 0.0
++            self.info.last_error = "miner not reachable via legacy summary API"
+ 
+         self.info.last_seen = datetime.now(UTC)
+         return self.info
+@@ -146,4 +172,4 @@
+         for key in keys:
+             if key in data and data[key] is not None:
+                 return str(data[key])
+-        return None
+\ No newline at end of file
++        return None
+diff -ruN pv2hash_orig/pv2hash/miners/simulator.py pv2hash_local/pv2hash/miners/simulator.py
+--- pv2hash_orig/pv2hash/miners/simulator.py	2026-04-03 10:05:11.130242727 +0000
++++ pv2hash_local/pv2hash/miners/simulator.py	2026-04-03 09:56:48.126517499 +0000
+@@ -18,14 +18,14 @@
+         profiles: dict | None = None,
+     ) -> None:
+         profile_cfg = profiles or {
+-            "off": {"power_w": 0},
++            "floor": {"power_w": 0},
+             "eco": {"power_w": 900},
+             "mid": {"power_w": 1800},
+             "high": {"power_w": 3000},
+         }
+ 
+         miner_profiles = MinerProfiles(
+-            off=MinerProfile(power_w=float(profile_cfg["off"]["power_w"])),
++            floor=MinerProfile(power_w=float(profile_cfg["floor"]["power_w"])),
+             eco=MinerProfile(power_w=float(profile_cfg["eco"]["power_w"])),
+             mid=MinerProfile(power_w=float(profile_cfg["mid"]["power_w"])),
+             high=MinerProfile(power_w=float(profile_cfg["high"]["power_w"])),
+@@ -45,14 +45,35 @@
+             profile="off",
+             power_w=0.0,
+             profiles=miner_profiles,
++            reachable=True,
++            runtime_state="paused",
++            control_mode="power_target",
++            autotuning_enabled=True,
++            power_target_min_w=0.0,
++            power_target_default_w=float(profile_cfg["mid"]["power_w"]),
++            power_target_max_w=float(profile_cfg["high"]["power_w"]),
+         )
+ 
+     async def set_profile(self, profile: str) -> None:
+         self.info.profile = profile
+-        self.info.power_w = self.get_profile_power_w(profile)
++
++        if profile == "off":
++            self.info.power_w = 0.0
++            self.info.runtime_state = "paused"
++        else:
++            desired_w = self.get_profile_power_w(profile)
++            if desired_w <= 0:
++                self.info.power_w = 0.0
++                self.info.runtime_state = "paused"
++            else:
++                self.info.power_w = desired_w
++                self.info.runtime_state = "running"
++
++        self.info.last_error = None
+         self.info.last_seen = datetime.now(UTC)
+ 
+     async def get_status(self) -> MinerInfo:
+         self.info.is_active = True
++        self.info.reachable = True
+         self.info.last_seen = datetime.now(UTC)
+-        return self.info
+\ No newline at end of file
++        return self.info
+Binary files pv2hash_orig/pv2hash/models/__pycache__/__init__.cpython-313.pyc and pv2hash_local/pv2hash/models/__pycache__/__init__.cpython-313.pyc differ
+Binary files pv2hash_orig/pv2hash/models/__pycache__/miner.cpython-313.pyc and pv2hash_local/pv2hash/models/__pycache__/miner.cpython-313.pyc differ
+diff -ruN pv2hash_orig/pv2hash/models/miner.py pv2hash_local/pv2hash/models/miner.py
+--- pv2hash_orig/pv2hash/models/miner.py	2026-04-03 10:04:36.637068482 +0000
++++ pv2hash_local/pv2hash/models/miner.py	2026-04-03 09:56:48.123896089 +0000
+@@ -9,7 +9,7 @@
+ 
+ @dataclass
+ class MinerProfiles:
+-    off: MinerProfile
++    floor: MinerProfile
+     eco: MinerProfile
+     mid: MinerProfile
+     high: MinerProfile
+@@ -21,17 +21,32 @@
+     name: str
+     host: str
+     driver: str
+-
+     enabled: bool = True
+     is_active: bool = True
+     priority: int = 100
+-
+     serial_number: str | None = None
+     model: str | None = None
+     firmware_version: str | None = None
+-
+     profile: str = "off"
+     power_w: float = 0.0
+     profiles: MinerProfiles | None = None
++    reachable: bool = False
++    runtime_state: str = "unknown"
++    api_version: str | None = None
++    control_mode: str | None = None
++    autotuning_enabled: bool | None = None
++    power_target_min_w: float | None = None
++    power_target_default_w: float | None = None
++    power_target_max_w: float | None = None
++    last_error: str | None = None
++    last_seen: datetime = field(default_factory=lambda: datetime.now(UTC))
++
++    def has_power_constraints(self) -> bool:
++        return (
++            self.power_target_min_w is not None
++            and self.power_target_default_w is not None
++            and self.power_target_max_w is not None
++        )
+ 
+-    last_seen: datetime = field(default_factory=lambda: datetime.now(UTC))
+\ No newline at end of file
++    def is_paused_like(self) -> bool:
++        return self.runtime_state in {"paused", "stopped"}
+diff -ruN pv2hash_orig/pv2hash/templates/miners.html pv2hash_local/pv2hash/templates/miners.html
+--- pv2hash_orig/pv2hash/templates/miners.html	2026-04-03 10:05:24.628010648 +0000
++++ pv2hash_local/pv2hash/templates/miners.html	2026-04-03 10:06:44.784638824 +0000
+@@ -31,7 +31,7 @@
+             <header class="topbar">
+                 <div>
+                     <h1>Miner</h1>
+-                    <p>Konfigurierte Miner verwalten</p>
++                    <p>Konfigurierte Miner verwalten und Runtime-Status prüfen</p>
+                 </div>
+             </header>
+ 
+@@ -41,6 +41,12 @@
+             </section>
+             {% endif %}
+ 
++            {% if error_message %}
++            <section class="alert danger">
++                {{ error_message }}
++            </section>
++            {% endif %}
++
+             <section class="card">
+                 <div class="card-head">
+                     <h2>Miner hinzufügen</h2>
+@@ -91,8 +97,9 @@
+                     </label>
+ 
+                     <label>
+-                        <span>Off Leistung (W)</span>
+-                        <input type="number" name="profile_off_power_w" value="0" min="0">
++                        <span>Floor Leistung (W)</span>
++                        <input type="number" name="profile_floor_power_w" value="0" min="0">
++                        <small class="help">0 W = Pause / aus. &gt; 0 W = minimale Dauerleistung.</small>
+                     </label>
+ 
+                     <label>
+@@ -124,7 +131,85 @@
+                         <span class="badge">{{ miner.id }}</span>
+                     </div>
+ 
+-                    <form method="post" action="/miners/update" class="form-grid">
++                    <div class="grid grid-2 top-gap">
++                        <article class="card soft-card">
++                            <div class="card-head">
++                                <h3>Runtime</h3>
++                            </div>
++                            <div class="form-grid compact">
++                                <div>
++                                    <span>Status</span>
++                                    <strong>{{ miner.runtime.runtime_state or 'unknown' }}</strong>
++                                </div>
++                                <div>
++                                    <span>Erreichbar</span>
++                                    <strong>{% if miner.runtime.reachable %}ja{% else %}nein{% endif %}</strong>
++                                </div>
++                                <div>
++                                    <span>Aktuelles Profil</span>
++                                    <strong>{{ miner.runtime.profile or 'off' }}</strong>
++                                </div>
++                                <div>
++                                    <span>Aktuelle Leistung</span>
++                                    <strong>{{ '%.0f'|format(miner.runtime.power_w|default(0, true)) }} W</strong>
++                                </div>
++                                <div>
++                                    <span>API Version</span>
++                                    <strong>{{ miner.runtime.api_version or '—' }}</strong>
++                                </div>
++                                <div>
++                                    <span>Autotuning</span>
++                                    <strong>
++                                        {% if miner.runtime.autotuning_enabled is sameas true %}an
++                                        {% elif miner.runtime.autotuning_enabled is sameas false %}aus
++                                        {% else %}—{% endif %}
++                                    </strong>
++                                </div>
++                                <div>
++                                    <span>Control Mode</span>
++                                    <strong>{{ miner.runtime.control_mode or '—' }}</strong>
++                                </div>
++                                <div>
++                                    <span>Letzter Fehler</span>
++                                    <strong>{{ miner.runtime.last_error or '—' }}</strong>
++                                </div>
++                            </div>
++                        </article>
++
++                        <article class="card soft-card">
++                            <div class="card-head">
++                                <h3>Leistungsgrenzen</h3>
++                            </div>
++                            {% if miner.runtime.power_target_min_w is not none or miner.runtime.power_target_max_w is not none %}
++                            <div class="form-grid compact">
++                                <div>
++                                    <span>Minimum</span>
++                                    <strong>{{ '%.0f'|format(miner.runtime.power_target_min_w|default(0, true)) }} W</strong>
++                                </div>
++                                <div>
++                                    <span>Default</span>
++                                    <strong>
++                                        {% if miner.runtime.power_target_default_w is not none %}
++                                            {{ '%.0f'|format(miner.runtime.power_target_default_w) }} W
++                                        {% else %}—{% endif %}
++                                    </strong>
++                                </div>
++                                <div>
++                                    <span>Maximum</span>
++                                    <strong>
++                                        {% if miner.runtime.power_target_max_w is not none %}
++                                            {{ '%.0f'|format(miner.runtime.power_target_max_w) }} W
++                                        {% else %}—{% endif %}
++                                    </strong>
++                                </div>
++                            </div>
++                            {% else %}
++                            <p class="muted">Noch keine Miner-Constraints gelesen.</p>
++                            {% endif %}
++                        </article>
++                    </div>
++
++                    <form method="post" action="/miners/update" class="form-grid top-gap">
+                         <input type="hidden" name="miner_id" value="{{ miner.id }}">
+ 
+                         <label>
+@@ -171,13 +256,14 @@
+                         </label>
+ 
+                         <label>
+-                            <span>Off Leistung (W)</span>
++                            <span>Floor Leistung (W)</span>
+                             <input
+                                 type="number"
+-                                name="profile_off_power_w"
+-                                value="{{ miner.profiles.off.power_w if miner.profiles and miner.profiles.off is defined else 0 }}"
++                                name="profile_floor_power_w"
++                                value="{{ miner.profiles.floor.power_w if miner.profiles and miner.profiles.floor is defined else 0 }}"
+                                 min="0"
+                             >
++                            <small class="help">0 W = Pause / aus. &gt; 0 W = minimale Dauerleistung.</small>
+                         </label>
+ 
+                         <label>
+@@ -236,4 +322,4 @@
+         </main>
+     </div>
+ </body>
+-</html>
+\ No newline at end of file
++</html>
+diff -ruN pv2hash_orig/pv2hash/templates/settings.html pv2hash_local/pv2hash/templates/settings.html
+--- pv2hash_orig/pv2hash/templates/settings.html	2026-04-03 10:05:30.220781562 +0000
++++ pv2hash_local/pv2hash/templates/settings.html	2026-04-03 10:03:17.694962160 +0000
+@@ -128,74 +128,76 @@
+                             </label>
+                         </div>
+                     </article>
+-					
+-					<article class="card">
+-						<div class="card-head">
+-							<h2>Quellen-Fallback</h2>
+-						</div>
+-
+-						<div class="form-grid">
+-							<label>
+-								<span>Bei stale</span>
+-								<select name="stale_mode">
+-									<option value="hold_current" {% if config.control.source_loss.stale.mode == "hold_current" %}selected{% endif %}>hold_current</option>
+-									<option value="off_all" {% if config.control.source_loss.stale.mode == "off_all" %}selected{% endif %}>off_all</option>
+-									<option value="force_profile" {% if config.control.source_loss.stale.mode == "force_profile" %}selected{% endif %}>force_profile</option>
+-								</select>
+-							</label>
+-
+-							<label>
+-								<span>Stale Fallback-Profil</span>
+-								<select name="stale_fallback_profile">
+-									<option value="off" {% if config.control.source_loss.stale.fallback_profile == "off" %}selected{% endif %}>off</option>
+-									<option value="eco" {% if config.control.source_loss.stale.fallback_profile == "eco" %}selected{% endif %}>eco</option>
+-									<option value="mid" {% if config.control.source_loss.stale.fallback_profile == "mid" %}selected{% endif %}>mid</option>
+-									<option value="high" {% if config.control.source_loss.stale.fallback_profile == "high" %}selected{% endif %}>high</option>
+-								</select>
+-							</label>
+-
+-							<label>
+-								<span>Stale halten (Sekunden)</span>
+-								<input
+-									type="number"
+-									name="stale_hold_seconds"
+-									value="{{ config.control.source_loss.stale.hold_seconds if config.control.source_loss.stale.hold_seconds is defined else 0 }}"
+-									min="0"
+-								>
+-								<small class="help">0 = unbegrenzt halten bis Verbindung zurückkehrt.</small>
+-							</label>
+-
+-							<label>
+-								<span>Bei offline</span>
+-								<select name="offline_mode">
+-									<option value="hold_current" {% if config.control.source_loss.offline.mode == "hold_current" %}selected{% endif %}>hold_current</option>
+-									<option value="off_all" {% if config.control.source_loss.offline.mode == "off_all" %}selected{% endif %}>off_all</option>
+-									<option value="force_profile" {% if config.control.source_loss.offline.mode == "force_profile" %}selected{% endif %}>force_profile</option>
+-								</select>
+-							</label>
+-
+-							<label>
+-								<span>Offline Fallback-Profil</span>
+-								<select name="offline_fallback_profile">
+-									<option value="off" {% if config.control.source_loss.offline.fallback_profile == "off" %}selected{% endif %}>off</option>
+-									<option value="eco" {% if config.control.source_loss.offline.fallback_profile == "eco" %}selected{% endif %}>eco</option>
+-									<option value="mid" {% if config.control.source_loss.offline.fallback_profile == "mid" %}selected{% endif %}>mid</option>
+-									<option value="high" {% if config.control.source_loss.offline.fallback_profile == "high" %}selected{% endif %}>high</option>
+-								</select>
+-							</label>
+-
+-							<label>
+-								<span>Offline halten (Sekunden)</span>
+-								<input
+-									type="number"
+-									name="offline_hold_seconds"
+-									value="{{ config.control.source_loss.offline.hold_seconds if config.control.source_loss.offline.hold_seconds is defined else 0 }}"
+-									min="0"
+-								>
+-								<small class="help">0 = unbegrenzt halten bis Verbindung zurückkehrt.</small>
+-							</label>
+-						</div>
+-					</article>
++
++                    <article class="card">
++                        <div class="card-head">
++                            <h2>Quellen-Fallback</h2>
++                        </div>
++
++                        <div class="form-grid">
++                            <label>
++                                <span>Bei stale</span>
++                                <select name="stale_mode">
++                                    <option value="hold_current" {% if config.control.source_loss.stale.mode == "hold_current" %}selected{% endif %}>hold_current</option>
++                                    <option value="off_all" {% if config.control.source_loss.stale.mode == "off_all" %}selected{% endif %}>off_all</option>
++                                    <option value="force_profile" {% if config.control.source_loss.stale.mode == "force_profile" %}selected{% endif %}>force_profile</option>
++                                </select>
++                            </label>
++
++                            <label>
++                                <span>Stale Fallback-Profil</span>
++                                <select name="stale_fallback_profile">
++                                    <option value="floor" {% if config.control.source_loss.stale.fallback_profile == "floor" %}selected{% endif %}>floor</option>
++                                    <option value="eco" {% if config.control.source_loss.stale.fallback_profile == "eco" %}selected{% endif %}>eco</option>
++                                    <option value="mid" {% if config.control.source_loss.stale.fallback_profile == "mid" %}selected{% endif %}>mid</option>
++                                    <option value="high" {% if config.control.source_loss.stale.fallback_profile == "high" %}selected{% endif %}>high</option>
++                                </select>
++                                <small class="help">off_all bleibt echter Aus-Fallback. force_profile=floor ist das niedrigste Regelprofil.</small>
++                            </label>
++
++                            <label>
++                                <span>Stale halten (Sekunden)</span>
++                                <input
++                                    type="number"
++                                    name="stale_hold_seconds"
++                                    value="{{ config.control.source_loss.stale.hold_seconds if config.control.source_loss.stale.hold_seconds is defined else 0 }}"
++                                    min="0"
++                                >
++                                <small class="help">0 = unbegrenzt halten bis Verbindung zurückkehrt.</small>
++                            </label>
++
++                            <label>
++                                <span>Bei offline</span>
++                                <select name="offline_mode">
++                                    <option value="hold_current" {% if config.control.source_loss.offline.mode == "hold_current" %}selected{% endif %}>hold_current</option>
++                                    <option value="off_all" {% if config.control.source_loss.offline.mode == "off_all" %}selected{% endif %}>off_all</option>
++                                    <option value="force_profile" {% if config.control.source_loss.offline.mode == "force_profile" %}selected{% endif %}>force_profile</option>
++                                </select>
++                            </label>
++
++                            <label>
++                                <span>Offline Fallback-Profil</span>
++                                <select name="offline_fallback_profile">
++                                    <option value="floor" {% if config.control.source_loss.offline.fallback_profile == "floor" %}selected{% endif %}>floor</option>
++                                    <option value="eco" {% if config.control.source_loss.offline.fallback_profile == "eco" %}selected{% endif %}>eco</option>
++                                    <option value="mid" {% if config.control.source_loss.offline.fallback_profile == "mid" %}selected{% endif %}>mid</option>
++                                    <option value="high" {% if config.control.source_loss.offline.fallback_profile == "high" %}selected{% endif %}>high</option>
++                                </select>
++                                <small class="help">off_all bleibt echter Aus-Fallback. force_profile=floor ist das niedrigste Regelprofil.</small>
++                            </label>
++
++                            <label>
++                                <span>Offline halten (Sekunden)</span>
++                                <input
++                                    type="number"
++                                    name="offline_hold_seconds"
++                                    value="{{ config.control.source_loss.offline.hold_seconds if config.control.source_loss.offline.hold_seconds is defined else 0 }}"
++                                    min="0"
++                                >
++                                <small class="help">0 = unbegrenzt halten bis Verbindung zurückkehrt.</small>
++                            </label>
++                        </div>
++                    </article>
+                 </section>
+ 
+                 <section class="card">
+@@ -207,4 +209,4 @@
+         </main>
+     </div>
+ </body>
+-</html>
+\ No newline at end of file
++</html>

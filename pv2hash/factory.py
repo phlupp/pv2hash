@@ -6,21 +6,20 @@ from pv2hash.sources.base import EnergySource
 from pv2hash.sources.simulator import SimulatorSource
 from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
 
-
 logger = get_logger("pv2hash.factory")
 
 
 def _default_profiles_for_driver(driver: str) -> dict:
     if driver == "braiins":
         return {
-            "off": {"power_w": 0},
+            "floor": {"power_w": 0},
             "eco": {"power_w": 1200},
             "mid": {"power_w": 2200},
             "high": {"power_w": 3200},
         }
 
     return {
-        "off": {"power_w": 0},
+        "floor": {"power_w": 0},
         "eco": {"power_w": 900},
         "mid": {"power_w": 1800},
         "high": {"power_w": 3000},

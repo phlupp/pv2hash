@@ -1,4 +1,5 @@
 import asyncio
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -33,6 +34,95 @@ templates = Jinja2Templates(directory="pv2hash/templates")
 state = AppState(config=initial_config)
 services = RuntimeServices(state)
 services.reload_from_config()
+
+
+EDITABLE_PROFILE_NAMES = ("floor", "eco", "mid", "high")
+
+
+def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
+    if driver == "braiins":
+        return 4028, 0, 1200, 2200, 3200
+    return 4028, 0, 900, 1800, 3000
+
+
+def _get_runtime_miner_map() -> dict[str, dict]:
+    return {miner.id: asdict(miner) for miner in state.miners}
+
+
+def _build_miners_view() -> list[dict]:
+    runtime_map = _get_runtime_miner_map()
+    miner_views: list[dict] = []
+
+    for miner_cfg in state.config.get("miners", []):
+        merged = deepcopy(miner_cfg)
+        runtime = runtime_map.get(miner_cfg.get("id"), {})
+        merged["runtime"] = runtime
+        merged.setdefault("settings", {})
+        merged.setdefault("profiles", {})
+        miner_views.append(merged)
+
+    return miner_views
+
+
+def _miners_context(request: Request, *, error_message: str | None = None) -> dict:
+    return {
+        "request": request,
+        "miners": _build_miners_view(),
+        "saved": request.query_params.get("saved") == "1",
+        "error_message": error_message,
+    }
+
+
+def _parse_profile_values(form, driver: str) -> dict[str, dict[str, int]]:
+    _, default_floor, default_eco, default_mid, default_high = _driver_profile_defaults(driver)
+
+    return {
+        "floor": {"power_w": int(form.get("profile_floor_power_w", default_floor))},
+        "eco": {"power_w": int(form.get("profile_eco_power_w", default_eco))},
+        "mid": {"power_w": int(form.get("profile_mid_power_w", default_mid))},
+        "high": {"power_w": int(form.get("profile_high_power_w", default_high))},
+    }
+
+
+def _validate_profile_values(
+    *,
+    profile_values: dict[str, dict[str, int]],
+    runtime_constraints: dict | None = None,
+) -> str | None:
+    values = {name: int(profile_values[name]["power_w"]) for name in EDITABLE_PROFILE_NAMES}
+
+    for name, value in values.items():
+        if value < 0:
+            return f"Profil {name} darf nicht negativ sein."
+
+    if not (values["floor"] <= values["eco"] <= values["mid"] <= values["high"]):
+        return "Profile müssen in aufsteigender Reihenfolge liegen: floor ≤ eco ≤ mid ≤ high."
+
+    if runtime_constraints:
+        min_power = runtime_constraints.get("power_target_min_w")
+        max_power = runtime_constraints.get("power_target_max_w")
+
+        if min_power is not None and values["floor"] > 0 and values["floor"] < float(min_power):
+            return f"floor liegt unter dem vom Miner gemeldeten Minimum von {float(min_power):.0f} W."
+
+        if min_power is not None:
+            for name in ("eco", "mid", "high"):
+                if values[name] < float(min_power):
+                    return f"{name} liegt unter dem vom Miner gemeldeten Minimum von {float(min_power):.0f} W."
+
+        if max_power is not None:
+            for name in EDITABLE_PROFILE_NAMES:
+                if values[name] > float(max_power):
+                    return f"{name} liegt über dem vom Miner gemeldeten Maximum von {float(max_power):.0f} W."
+
+    return None
+
+
+def _normalize_fallback_profile(value: str | None, default: str = "eco") -> str:
+    normalized = str(value or default).strip().lower()
+    if normalized not in EDITABLE_PROFILE_NAMES:
+        return default
+    return normalized
 
 
 async def control_loop() -> None:
@@ -173,12 +263,12 @@ async def save_settings(request: Request):
     state.config["control"].setdefault("source_loss", {})
     state.config["control"]["source_loss"]["stale"] = {
         "mode": form.get("stale_mode", "hold_current"),
-        "fallback_profile": form.get("stale_fallback_profile", "eco"),
+        "fallback_profile": _normalize_fallback_profile(form.get("stale_fallback_profile", "eco")),
         "hold_seconds": int(form.get("stale_hold_seconds", 0)),
     }
     state.config["control"]["source_loss"]["offline"] = {
         "mode": form.get("offline_mode", "off_all"),
-        "fallback_profile": form.get("offline_fallback_profile", "eco"),
+        "fallback_profile": _normalize_fallback_profile(form.get("offline_fallback_profile", "eco")),
         "hold_seconds": int(form.get("offline_hold_seconds", 0)),
     }
 
@@ -235,11 +325,7 @@ async def save_source(request: Request):
 
 @app.get("/miners")
 async def miners_page(request: Request):
-    context = {
-        "request": request,
-        "miners": state.config.get("miners", []),
-        "saved": request.query_params.get("saved") == "1",
-    }
+    context = _miners_context(request)
     return templates.TemplateResponse(
         request=request,
         name="miners.html",
@@ -255,15 +341,17 @@ async def add_miner(request: Request):
     driver = form.get("driver", "simulator")
     name = form.get("name", "Miner")
     host = form.get("host", "")
+    default_port, _, _, _, _ = _driver_profile_defaults(driver)
+    profile_values = _parse_profile_values(form, driver)
 
-    if driver == "braiins":
-        default_eco = 1200
-        default_mid = 2200
-        default_high = 3200
-    else:
-        default_eco = 900
-        default_mid = 1800
-        default_high = 3000
+    validation_error = _validate_profile_values(profile_values=profile_values)
+    if validation_error:
+        return templates.TemplateResponse(
+            request=request,
+            name="miners.html",
+            context=_miners_context(request, error_message=validation_error),
+            status_code=400,
+        )
 
     state.config.setdefault("miners", []).append(
         {
@@ -277,22 +365,9 @@ async def add_miner(request: Request):
             "model": form.get("model") or None,
             "firmware_version": form.get("firmware_version") or None,
             "settings": {
-                "port": int(form.get("port", 4028)),
+                "port": int(form.get("port", default_port)),
             },
-            "profiles": {
-                "off": {
-                    "power_w": int(form.get("profile_off_power_w", 0)),
-                },
-                "eco": {
-                    "power_w": int(form.get("profile_eco_power_w", default_eco)),
-                },
-                "mid": {
-                    "power_w": int(form.get("profile_mid_power_w", default_mid)),
-                },
-                "high": {
-                    "power_w": int(form.get("profile_high_power_w", default_high)),
-                },
-            },
+            "profiles": profile_values,
         }
     )
 
@@ -307,19 +382,25 @@ async def add_miner(request: Request):
 async def update_miner(request: Request):
     form = await request.form()
     miner_id = form.get("miner_id")
+    runtime_map = _get_runtime_miner_map()
 
     for miner in state.config.get("miners", []):
         if miner["id"] == miner_id:
             driver = form.get("driver", miner["driver"])
+            default_port, _, _, _, _ = _driver_profile_defaults(driver)
+            profile_values = _parse_profile_values(form, driver)
 
-            if driver == "braiins":
-                default_eco = 1200
-                default_mid = 2200
-                default_high = 3200
-            else:
-                default_eco = 900
-                default_mid = 1800
-                default_high = 3000
+            validation_error = _validate_profile_values(
+                profile_values=profile_values,
+                runtime_constraints=runtime_map.get(miner_id),
+            )
+            if validation_error:
+                return templates.TemplateResponse(
+                    request=request,
+                    name="miners.html",
+                    context=_miners_context(request, error_message=validation_error),
+                    status_code=400,
+                )
 
             miner["name"] = form.get("name", miner["name"])
             miner["host"] = form.get("host", miner["host"])
@@ -331,42 +412,9 @@ async def update_miner(request: Request):
             miner["firmware_version"] = form.get("firmware_version") or None
             miner.setdefault("settings", {})
             miner["settings"]["port"] = int(
-                form.get("port", miner["settings"].get("port", 4028))
+                form.get("port", miner["settings"].get("port", default_port))
             )
-
-            miner.setdefault("profiles", {})
-            miner["profiles"]["off"] = {
-                "power_w": int(
-                    form.get(
-                        "profile_off_power_w",
-                        miner.get("profiles", {}).get("off", {}).get("power_w", 0),
-                    )
-                )
-            }
-            miner["profiles"]["eco"] = {
-                "power_w": int(
-                    form.get(
-                        "profile_eco_power_w",
-                        miner.get("profiles", {}).get("eco", {}).get("power_w", default_eco),
-                    )
-                )
-            }
-            miner["profiles"]["mid"] = {
-                "power_w": int(
-                    form.get(
-                        "profile_mid_power_w",
-                        miner.get("profiles", {}).get("mid", {}).get("power_w", default_mid),
-                    )
-                )
-            }
-            miner["profiles"]["high"] = {
-                "power_w": int(
-                    form.get(
-                        "profile_high_power_w",
-                        miner.get("profiles", {}).get("high", {}).get("power_w", default_high),
-                    )
-                )
-            }
+            miner["profiles"] = profile_values
 
             logger.info(
                 "Miner updated: id=%s name=%s driver=%s host=%s enabled=%s",

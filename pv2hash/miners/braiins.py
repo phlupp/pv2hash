@@ -9,9 +9,10 @@ from pv2hash.models.miner import MinerInfo, MinerProfile, MinerProfiles
 class BraiinsMiner(MinerAdapter):
     """
     Erste vorsichtige Braiins-Implementierung:
-    - liest Status über BOSminer/CGMiner-kompatiblen API-Call
+    - liest Status aktuell noch über BOSminer/CGMiner-kompatiblen API-Call
     - set_profile() ist vorerst noch eine lokale Zielvorgabe
-    Später ersetzen wir das durch echte schreibende API-Calls.
+
+    Die eigentliche gRPC-API und echte Power-Targets folgen im nächsten Schritt.
     """
 
     def __init__(
@@ -32,14 +33,14 @@ class BraiinsMiner(MinerAdapter):
         self.target_profile = "off"
 
         profile_cfg = profiles or {
-            "off": {"power_w": 0},
+            "floor": {"power_w": 0},
             "eco": {"power_w": 1200},
             "mid": {"power_w": 2200},
             "high": {"power_w": 3200},
         }
 
         miner_profiles = MinerProfiles(
-            off=MinerProfile(power_w=float(profile_cfg["off"]["power_w"])),
+            floor=MinerProfile(power_w=float(profile_cfg["floor"]["power_w"])),
             eco=MinerProfile(power_w=float(profile_cfg["eco"]["power_w"])),
             mid=MinerProfile(power_w=float(profile_cfg["mid"]["power_w"])),
             high=MinerProfile(power_w=float(profile_cfg["high"]["power_w"])),
@@ -59,12 +60,28 @@ class BraiinsMiner(MinerAdapter):
             profile="off",
             power_w=0.0,
             profiles=miner_profiles,
+            reachable=False,
+            runtime_state="unknown",
+            control_mode="power_target",
         )
 
     async def set_profile(self, profile: str) -> None:
         self.target_profile = profile
         self.info.profile = profile
-        self.info.power_w = self.get_profile_power_w(profile)
+
+        if profile == "off":
+            self.info.power_w = 0.0
+            self.info.runtime_state = "paused"
+        else:
+            desired_w = self.get_profile_power_w(profile)
+            if desired_w <= 0:
+                self.info.power_w = 0.0
+                self.info.runtime_state = "paused"
+            else:
+                self.info.power_w = desired_w
+                self.info.runtime_state = "running"
+
+        self.info.last_error = None
         self.info.last_seen = datetime.now(UTC)
 
     async def get_status(self) -> MinerInfo:
@@ -74,6 +91,9 @@ class BraiinsMiner(MinerAdapter):
             summary = self._extract_summary(response)
             if summary:
                 self.info.is_active = True
+                self.info.reachable = True
+                self.info.runtime_state = "running"
+                self.info.last_error = None
 
                 power = self._pick_float(
                     summary,
@@ -90,10 +110,16 @@ class BraiinsMiner(MinerAdapter):
                     self.info.firmware_version = firmware
             else:
                 self.info.is_active = False
+                self.info.reachable = False
+                self.info.runtime_state = "unreachable"
                 self.info.power_w = 0.0
+                self.info.last_error = "summary missing in response"
         else:
             self.info.is_active = False
+            self.info.reachable = False
+            self.info.runtime_state = "unreachable"
             self.info.power_w = 0.0
+            self.info.last_error = "miner not reachable via legacy summary API"
 
         self.info.last_seen = datetime.now(UTC)
         return self.info
