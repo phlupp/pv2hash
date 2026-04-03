@@ -261,15 +261,15 @@ extract_release() {
 
     chown -R "${APP_USER}:${APP_GROUP}" "${TMP_RELEASE_DIR}"
 
-    runuser -u "${APP_USER}" -- python3 -m venv "${TMP_RELEASE_DIR}/venv"
-    runuser -u "${APP_USER}" -- "${TMP_RELEASE_DIR}/venv/bin/pip" install --upgrade pip wheel
-    runuser -u "${APP_USER}" -- "${TMP_RELEASE_DIR}/venv/bin/pip" install -r "${TMP_RELEASE_DIR}/requirements.txt"
-
     rm -rf "${TMP_RELEASE_DIR}/data"
     ln -s "${APP_DATA_DIR}" "${TMP_RELEASE_DIR}/data"
 
     mv "${TMP_RELEASE_DIR}" "${RELEASE_DIR}"
     chown -h "${APP_USER}:${APP_GROUP}" "${RELEASE_DIR}/data"
+
+    runuser -u "${APP_USER}" -- python3 -m venv "${RELEASE_DIR}/venv"
+    runuser -u "${APP_USER}" -- "${RELEASE_DIR}/venv/bin/pip" install --upgrade pip wheel
+    runuser -u "${APP_USER}" -- "${RELEASE_DIR}/venv/bin/pip" install -r "${RELEASE_DIR}/requirements.txt"
 }
 
 write_install_info() {
