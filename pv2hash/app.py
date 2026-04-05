@@ -250,6 +250,8 @@ def reload_runtime() -> None:
 
 @app.get("/")
 async def dashboard(request: Request):
+    asyncio.create_task(update_checker.refresh_if_stale())
+
     total_miner_power = sum(m.power_w for m in state.miners) if state.miners else 0.0
     miner_count = len(state.miners)
 
@@ -268,6 +270,8 @@ async def dashboard(request: Request):
         "source_reloaded_at": state.source_reloaded_at,
         "last_live_packet_at": state.last_live_packet_at,
         "source_debug": services.get_source_debug_info(),
+        "app_version_full": APP_VERSION_FULL,
+        "update_check": update_checker.snapshot(),
     }
 
     return templates.TemplateResponse(

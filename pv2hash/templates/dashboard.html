@@ -48,6 +48,16 @@
                 <div class="badge-row">
                     <span class="badge">{{ policy_mode }}</span>
                     <span class="badge">{{ distribution_mode }}</span>
+                    {% set update_status = update_check.status if update_check else "idle" %}
+                    {% set update_available = update_status == "update_available" %}
+                    {% if update_available %}
+                        <a class="badge badge-link badge-version badge-version-alert" href="/system" title="Update verfügbar – zur Systemseite wechseln">
+                            <span>Version {{ app_version_full }}</span>
+                            <span class="badge-update-indicator" aria-label="Update verfügbar"></span>
+                        </a>
+                    {% else %}
+                        <span class="badge badge-version">Version {{ app_version_full }}</span>
+                    {% endif %}
                 </div>
             </header>
 
