@@ -46,18 +46,18 @@
                             <span>Instanz</span>
                             <strong>{{ instance_name }}</strong>
                         </div>
-						<div class="kv-row">
-							<span>Version</span>
-							<strong>{{ app_version }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Build</span>
-							<strong>{{ app_build }}</strong>
-						</div>
-						<div class="kv-row">
-							<span>Version vollständig</span>
-							<strong>{{ app_version_full }}</strong>
-						</div>
+                        <div class="kv-row">
+                            <span>Version</span>
+                            <strong>{{ app_version }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Build</span>
+                            <strong>{{ app_build }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Version vollständig</span>
+                            <strong>{{ app_version_full }}</strong>
+                        </div>
                         <div class="kv-row">
                             <span>Log-Level</span>
                             <strong>{{ log_level }}</strong>
@@ -87,7 +87,7 @@
 
                 <article class="card">
                     <div class="card-head">
-                        <h2>Aktionen</h2>
+                        <h2>Updates &amp; Aktionen</h2>
                     </div>
 
                     <div class="actions start wrap">
@@ -95,7 +95,53 @@
                             <button class="btn" type="submit">Runtime neu laden</button>
                         </form>
 
+                        <button id="checkUpdatesBtn" class="btn btn-secondary" type="button">Jetzt auf Updates prüfen</button>
                         <a class="btn btn-info" href="/api/logs/download">Log herunterladen</a>
+                    </div>
+
+                    <div class="update-panel top-gap">
+                        <div class="update-head">
+                            <div>
+                                <div class="update-title">Release-Stand</div>
+                                <div class="update-subtitle">GitHub Releases (Latest)</div>
+                            </div>
+                            <span id="updateStateBadge" class="status-pill">Prüfe …</span>
+                        </div>
+
+                        <div class="kv update-kv">
+                            <div class="kv-row">
+                                <span>Lokale Version</span>
+                                <strong id="updateLocalVersion">{{ update_status.local_version_full or app_version_full }}</strong>
+                            </div>
+                            <div class="kv-row">
+                                <span>Release-Version</span>
+                                <strong id="updateReleaseVersion">{{ update_status.release_version_full or "—" }}</strong>
+                            </div>
+                            <div class="kv-row">
+                                <span>Release-Tag</span>
+                                <strong id="updateReleaseTag">{{ update_status.release_tag or "—" }}</strong>
+                            </div>
+                            <div class="kv-row">
+                                <span>Geprüft am</span>
+                                <strong id="updateCheckedAt">{{ update_status.checked_at or "—" }}</strong>
+                            </div>
+                            <div class="kv-row">
+                                <span>Veröffentlicht am</span>
+                                <strong id="updatePublishedAt">{{ update_status.release_published_at or "—" }}</strong>
+                            </div>
+                        </div>
+
+                        <div id="updateMessage" class="update-message">Lade Update-Status …</div>
+                        <div id="updateError" class="update-error" hidden></div>
+
+                        <div class="update-links">
+                            <a id="updateReleaseLink" class="link-muted" href="#" target="_blank" rel="noopener" hidden>Release auf GitHub öffnen</a>
+                        </div>
+
+                        <div id="updateCommandWrap" class="update-command-wrap" hidden>
+                            <div class="update-command-label">Installationsbefehl für dieses Release</div>
+                            <code id="updateCommand" class="update-command"></code>
+                        </div>
                     </div>
                 </article>
             </section>
@@ -125,100 +171,230 @@
         </main>
     </div>
 
-	<script>
-		const logConsole = document.getElementById("logConsole");
-		const logFilterInput = document.getElementById("logFilterInput");
-		const toggleConsoleBtn = document.getElementById("toggleConsoleBtn");
-		const toggleScrollBtn = document.getElementById("toggleScrollBtn");
-		const clearFilterBtn = document.getElementById("clearFilterBtn");
-		const consoleWrap = document.getElementById("consoleWrap");
+    <script>
+        const logConsole = document.getElementById("logConsole");
+        const logFilterInput = document.getElementById("logFilterInput");
+        const toggleConsoleBtn = document.getElementById("toggleConsoleBtn");
+        const toggleScrollBtn = document.getElementById("toggleScrollBtn");
+        const clearFilterBtn = document.getElementById("clearFilterBtn");
+        const consoleWrap = document.getElementById("consoleWrap");
+        const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
+        const updateStateBadge = document.getElementById("updateStateBadge");
+        const updateLocalVersion = document.getElementById("updateLocalVersion");
+        const updateReleaseVersion = document.getElementById("updateReleaseVersion");
+        const updateReleaseTag = document.getElementById("updateReleaseTag");
+        const updateCheckedAt = document.getElementById("updateCheckedAt");
+        const updatePublishedAt = document.getElementById("updatePublishedAt");
+        const updateMessage = document.getElementById("updateMessage");
+        const updateError = document.getElementById("updateError");
+        const updateReleaseLink = document.getElementById("updateReleaseLink");
+        const updateCommandWrap = document.getElementById("updateCommandWrap");
+        const updateCommand = document.getElementById("updateCommand");
 
-		let autoScroll = true;
-		let consoleVisible = true;
-		let allLines = [];
+        let autoScroll = true;
+        let consoleVisible = true;
+        let allLines = [];
 
-		function escapeHtml(text) {
-			const div = document.createElement("div");
-			div.textContent = text;
-			return div.innerHTML;
-		}
+        function escapeHtml(text) {
+            const div = document.createElement("div");
+            div.textContent = text;
+            return div.innerHTML;
+        }
 
-		function renderLevel(line) {
-			const parts = line.split(" | ");
-			if (parts.length < 4) {
-				return `<div class="log-row"><div class="log-message-full">${escapeHtml(line)}</div></div>`;
-			}
+        function formatDate(value) {
+            if (!value) {
+                return "—";
+            }
 
-			const timestamp = parts[0];
-			const level = parts[1].trim();
-			const logger = parts[2];
-			const message = parts.slice(3).join(" | ");
+            const parsed = new Date(value);
+            if (Number.isNaN(parsed.getTime())) {
+                return value;
+            }
 
-			const levelClass = {
-				"ERROR": "log-level-error",
-				"WARNING": "log-level-warning",
-				"INFO": "log-level-info",
-				"DEBUG": "log-level-debug"
-			}[level] || "";
+            return parsed.toLocaleString("de-DE");
+        }
 
-			return `
-				<div class="log-row">
-					<div class="log-col-time">${escapeHtml(timestamp)}</div>
-					<div class="log-col-level"><span class="log-level ${levelClass}">${escapeHtml(level)}</span></div>
-					<div class="log-col-logger">${escapeHtml(logger)}</div>
-					<div class="log-col-message">${escapeHtml(message)}</div>
-				</div>
-			`;
-		}
+        function renderUpdateStatus(data) {
+            const status = data && data.status ? data.status : "unknown";
+            const badgeMap = {
+                disabled: { label: "Deaktiviert", className: "status-neutral" },
+                checking: { label: "Prüfe …", className: "status-info" },
+                up_to_date: { label: "Aktuell", className: "status-good" },
+                update_available: { label: "Update verfügbar", className: "status-warn" },
+                ahead_of_release: { label: "Lokaler Stand neuer", className: "status-info" },
+                error: { label: "Fehler", className: "status-bad" },
+                idle: { label: "Unbekannt", className: "status-neutral" }
+            };
+            const badge = badgeMap[status] || { label: status, className: "status-neutral" };
 
-		async function fetchLogs() {
-			try {
-				const response = await fetch("/api/logs", { cache: "no-store" });
-				const data = await response.json();
-				allLines = Array.isArray(data.lines) ? data.lines : [];
-				renderLogs();
-			} catch (err) {
-				logConsole.innerHTML = `<div class="log-row"><div class="log-message-full">Fehler beim Laden der Logs.</div></div>`;
-			}
-		}
+            updateStateBadge.textContent = badge.label;
+            updateStateBadge.className = `status-pill ${badge.className}`;
+            updateLocalVersion.textContent = data.local_version_full || "—";
+            updateReleaseVersion.textContent = data.release_version_full || "—";
+            updateReleaseTag.textContent = data.release_tag || "—";
+            updateCheckedAt.textContent = formatDate(data.checked_at);
+            updatePublishedAt.textContent = formatDate(data.release_published_at);
 
-		function renderLogs() {
-			const filter = logFilterInput.value.trim().toLowerCase();
+            updateError.hidden = true;
+            updateError.textContent = "";
+            updateReleaseLink.hidden = !data.release_url;
+            if (data.release_url) {
+                updateReleaseLink.href = data.release_url;
+            }
 
-			const filtered = !filter
-				? allLines
-				: allLines.filter(line => line.toLowerCase().includes(filter));
+            updateCommandWrap.hidden = !data.release_tag;
+            if (data.release_tag) {
+                updateCommand.textContent = `curl -fsSL https://raw.githubusercontent.com/phlupp/pv2hash/main/scripts/install_release.sh | sudo env TAG=${data.release_tag} bash`;
+            } else {
+                updateCommand.textContent = "";
+            }
 
-			logConsole.innerHTML = filtered.map(renderLevel).join("");
+            if (status === "disabled") {
+                updateMessage.textContent = "Update-Prüfung ist in der Konfiguration deaktiviert.";
+                return;
+            }
 
-			if (autoScroll) {
-				consoleWrap.scrollTop = consoleWrap.scrollHeight;
-			}
-		}
+            if (status === "checking") {
+                updateMessage.textContent = "GitHub Releases werden gerade geprüft …";
+                return;
+            }
 
-		toggleConsoleBtn.addEventListener("click", () => {
-			consoleVisible = !consoleVisible;
-			consoleWrap.style.display = consoleVisible ? "block" : "none";
-			toggleConsoleBtn.textContent = consoleVisible ? "AUSBLENDEN LOGS" : "EINBLENDEN LOGS";
-		});
+            if (status === "up_to_date") {
+                updateMessage.textContent = "Diese Instanz läuft bereits auf dem neuesten veröffentlichten Release.";
+                return;
+            }
 
-		toggleScrollBtn.addEventListener("click", () => {
-			autoScroll = !autoScroll;
-			toggleScrollBtn.textContent = autoScroll ? "STOPPEN SCROLLING" : "STARTEN SCROLLING";
-			if (autoScroll) {
-				consoleWrap.scrollTop = consoleWrap.scrollHeight;
-			}
-		});
+            if (status === "update_available") {
+                updateMessage.textContent = "Es ist ein neueres veröffentlichtes Release verfügbar.";
+                return;
+            }
 
-		clearFilterBtn.addEventListener("click", () => {
-			logFilterInput.value = "";
-			renderLogs();
-		});
+            if (status === "ahead_of_release") {
+                updateMessage.textContent = "Der lokale Stand ist neuer als das aktuell gemeldete Latest-Release.";
+                return;
+            }
 
-		logFilterInput.addEventListener("input", renderLogs);
+            if (status === "error") {
+                updateMessage.textContent = "Die Update-Prüfung konnte nicht erfolgreich abgeschlossen werden.";
+                if (data.error) {
+                    updateError.hidden = false;
+                    updateError.textContent = data.error;
+                }
+                return;
+            }
 
-		fetchLogs();
-		setInterval(fetchLogs, 2000);
-	</script>
+            updateMessage.textContent = "Noch keine Update-Information vorhanden.";
+        }
+
+        async function fetchUpdateStatus() {
+            try {
+                const response = await fetch("/api/system/update-status", { cache: "no-store" });
+                const data = await response.json();
+                renderUpdateStatus(data);
+            } catch (err) {
+                renderUpdateStatus({ status: "error", error: "Update-Status konnte nicht geladen werden." });
+            }
+        }
+
+        async function triggerUpdateCheck() {
+            const previousText = checkUpdatesBtn.textContent;
+            checkUpdatesBtn.disabled = true;
+            checkUpdatesBtn.textContent = "PRÜFE …";
+            renderUpdateStatus({ status: "checking", local_version_full: updateLocalVersion.textContent });
+
+            try {
+                const response = await fetch("/api/system/update-check", {
+                    method: "POST",
+                    cache: "no-store"
+                });
+                const data = await response.json();
+                renderUpdateStatus(data);
+            } catch (err) {
+                renderUpdateStatus({ status: "error", error: "Update-Prüfung konnte nicht gestartet werden." });
+            } finally {
+                checkUpdatesBtn.disabled = false;
+                checkUpdatesBtn.textContent = previousText;
+            }
+        }
+
+        function renderLevel(line) {
+            const parts = line.split(" | ");
+            if (parts.length < 4) {
+                return `<div class="log-row"><div class="log-message-full">${escapeHtml(line)}</div></div>`;
+            }
+
+            const timestamp = parts[0];
+            const level = parts[1].trim();
+            const logger = parts[2];
+            const message = parts.slice(3).join(" | ");
+
+            const levelClass = {
+                "ERROR": "log-level-error",
+                "WARNING": "log-level-warning",
+                "INFO": "log-level-info",
+                "DEBUG": "log-level-debug"
+            }[level] || "";
+
+            return `
+                <div class="log-row">
+                    <div class="log-col-time">${escapeHtml(timestamp)}</div>
+                    <div class="log-col-level"><span class="log-level ${levelClass}">${escapeHtml(level)}</span></div>
+                    <div class="log-col-logger">${escapeHtml(logger)}</div>
+                    <div class="log-col-message">${escapeHtml(message)}</div>
+                </div>
+            `;
+        }
+
+        async function fetchLogs() {
+            try {
+                const response = await fetch("/api/logs", { cache: "no-store" });
+                const data = await response.json();
+                allLines = Array.isArray(data.lines) ? data.lines : [];
+                renderLogs();
+            } catch (err) {
+                logConsole.innerHTML = `<div class="log-row"><div class="log-message-full">Fehler beim Laden der Logs.</div></div>`;
+            }
+        }
+
+        function renderLogs() {
+            const filter = logFilterInput.value.trim().toLowerCase();
+
+            const filtered = !filter
+                ? allLines
+                : allLines.filter(line => line.toLowerCase().includes(filter));
+
+            logConsole.innerHTML = filtered.map(renderLevel).join("");
+
+            if (autoScroll) {
+                consoleWrap.scrollTop = consoleWrap.scrollHeight;
+            }
+        }
+
+        toggleConsoleBtn.addEventListener("click", () => {
+            consoleVisible = !consoleVisible;
+            consoleWrap.style.display = consoleVisible ? "block" : "none";
+            toggleConsoleBtn.textContent = consoleVisible ? "AUSBLENDEN LOGS" : "EINBLENDEN LOGS";
+        });
+
+        toggleScrollBtn.addEventListener("click", () => {
+            autoScroll = !autoScroll;
+            toggleScrollBtn.textContent = autoScroll ? "STOPPEN SCROLLING" : "STARTEN SCROLLING";
+            if (autoScroll) {
+                consoleWrap.scrollTop = consoleWrap.scrollHeight;
+            }
+        });
+
+        clearFilterBtn.addEventListener("click", () => {
+            logFilterInput.value = "";
+            renderLogs();
+        });
+
+        logFilterInput.addEventListener("input", renderLogs);
+        checkUpdatesBtn.addEventListener("click", triggerUpdateCheck);
+
+        fetchLogs();
+        fetchUpdateStatus();
+        setInterval(fetchLogs, 2000);
+    </script>
 </body>
 </html>

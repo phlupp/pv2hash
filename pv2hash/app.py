@@ -21,6 +21,7 @@ from pv2hash.logging_ext.setup import (
 )
 from pv2hash.runtime import AppState
 from pv2hash.services import RuntimeServices
+from pv2hash.update_check import UpdateChecker
 from pv2hash.version import APP_BUILD, APP_VERSION, APP_VERSION_FULL
 
 initial_config = load_config()
@@ -34,6 +35,11 @@ templates = Jinja2Templates(directory="pv2hash/templates")
 state = AppState(config=initial_config)
 services = RuntimeServices(state)
 services.reload_from_config()
+update_checker = UpdateChecker(
+    state,
+    current_version=APP_VERSION,
+    current_build=APP_BUILD,
+)
 
 EDITABLE_PROFILE_NAMES = ("p1", "p2", "p3", "p4")
 ALL_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
@@ -224,6 +230,7 @@ async def control_loop() -> None:
 async def startup_event() -> None:
     logger.info("Application startup complete")
     asyncio.create_task(control_loop())
+    asyncio.create_task(update_checker.refresh_if_stale())
 
 
 def reload_runtime() -> None:
@@ -512,6 +519,7 @@ async def system_page(request: Request):
         "app_version": APP_VERSION,
         "app_build": APP_BUILD,
         "app_version_full": APP_VERSION_FULL,
+        "update_status": update_checker.snapshot(),
     }
     return templates.TemplateResponse(
         request=request,
@@ -525,6 +533,17 @@ async def system_reload():
     logger.info("Manual system reload triggered from UI")
     reload_runtime()
     return RedirectResponse(url="/", status_code=303)
+
+
+@app.get("/api/system/update-status")
+async def api_system_update_status():
+    return JSONResponse(content=jsonable_encoder(update_checker.snapshot()))
+
+
+@app.post("/api/system/update-check")
+async def api_system_update_check():
+    payload = await update_checker.refresh()
+    return JSONResponse(content=jsonable_encoder(payload))
 
 
 @app.get("/api/status")
