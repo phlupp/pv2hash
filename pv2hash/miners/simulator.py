@@ -16,19 +16,26 @@ class SimulatorMiner(MinerAdapter):
         model: str | None = None,
         firmware_version: str | None = None,
         profiles: dict | None = None,
+        min_regulated_profile: str = "off",
     ) -> None:
         profile_cfg = profiles or {
-            "floor": {"power_w": 0},
-            "eco": {"power_w": 900},
-            "mid": {"power_w": 1800},
-            "high": {"power_w": 3000},
+            "p1": {"power_w": 900},
+            "p2": {"power_w": 1800},
+            "p3": {"power_w": 3000},
+            "p4": {"power_w": 4200},
         }
 
         miner_profiles = MinerProfiles(
-            floor=MinerProfile(power_w=float(profile_cfg["floor"]["power_w"])),
-            eco=MinerProfile(power_w=float(profile_cfg["eco"]["power_w"])),
-            mid=MinerProfile(power_w=float(profile_cfg["mid"]["power_w"])),
-            high=MinerProfile(power_w=float(profile_cfg["high"]["power_w"])),
+            p1=MinerProfile(power_w=float(profile_cfg["p1"]["power_w"])),
+            p2=MinerProfile(power_w=float(profile_cfg["p2"]["power_w"])),
+            p3=MinerProfile(power_w=float(profile_cfg["p3"]["power_w"])),
+            p4=MinerProfile(power_w=float(profile_cfg["p4"]["power_w"])),
+        )
+
+        normalized_min_regulated_profile = (
+            min_regulated_profile
+            if min_regulated_profile in {"off", "p1", "p2", "p3", "p4"}
+            else "off"
         )
 
         self.info = MinerInfo(
@@ -45,13 +52,14 @@ class SimulatorMiner(MinerAdapter):
             profile="off",
             power_w=0.0,
             profiles=miner_profiles,
+            min_regulated_profile=normalized_min_regulated_profile,
             reachable=True,
             runtime_state="paused",
             control_mode="power_target",
             autotuning_enabled=True,
-            power_target_min_w=0.0,
-            power_target_default_w=float(profile_cfg["mid"]["power_w"]),
-            power_target_max_w=float(profile_cfg["high"]["power_w"]),
+            power_target_min_w=float(profile_cfg["p1"]["power_w"]),
+            power_target_default_w=float(profile_cfg["p2"]["power_w"]),
+            power_target_max_w=float(profile_cfg["p4"]["power_w"]),
         )
 
     async def set_profile(self, profile: str) -> None:

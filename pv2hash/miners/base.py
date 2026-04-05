@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 
 from pv2hash.models.miner import MinerInfo
 
+PROFILE_ORDER = ("off", "p1", "p2", "p3", "p4")
+
 
 class MinerAdapter(ABC):
     info: MinerInfo
@@ -26,6 +28,15 @@ class MinerAdapter(ABC):
             return 0.0
 
         return float(profile_obj.power_w)
+
+    def get_min_regulated_profile(self) -> str:
+        profile = getattr(self.info, "min_regulated_profile", "off")
+        if profile in PROFILE_ORDER:
+            return profile
+        return "off"
+
+    def allows_regulated_off(self) -> bool:
+        return self.get_min_regulated_profile() == "off"
 
     def is_active_for_distribution(self) -> bool:
         return bool(self.info.enabled and self.info.is_active)

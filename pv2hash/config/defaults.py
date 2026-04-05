@@ -44,11 +44,12 @@ DEFAULT_CONFIG = {
                 "port": 4028,
             },
             "profiles": {
-                "floor": {"power_w": 0},
-                "eco": {"power_w": 900},
-                "mid": {"power_w": 1800},
-                "high": {"power_w": 3000},
+                "p1": {"power_w": 900},
+                "p2": {"power_w": 1800},
+                "p3": {"power_w": 3000},
+                "p4": {"power_w": 4200},
             },
+            "min_regulated_profile": "off",
         },
         {
             "id": "m2",
@@ -64,11 +65,12 @@ DEFAULT_CONFIG = {
                 "port": 4028,
             },
             "profiles": {
-                "floor": {"power_w": 0},
-                "eco": {"power_w": 900},
-                "mid": {"power_w": 1800},
-                "high": {"power_w": 3000},
+                "p1": {"power_w": 900},
+                "p2": {"power_w": 1800},
+                "p3": {"power_w": 3000},
+                "p4": {"power_w": 4200},
             },
+            "min_regulated_profile": "off",
         },
     ],
     "control": {
@@ -82,12 +84,12 @@ DEFAULT_CONFIG = {
         "source_loss": {
             "stale": {
                 "mode": "hold_current",
-                "fallback_profile": "eco",
+                "fallback_profile": "p1",
                 "hold_seconds": 0,
             },
             "offline": {
                 "mode": "off_all",
-                "fallback_profile": "eco",
+                "fallback_profile": "p1",
                 "hold_seconds": 0,
             },
         },

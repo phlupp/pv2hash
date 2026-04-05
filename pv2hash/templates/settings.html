@@ -106,14 +106,13 @@
                             </label>
 
                             <label>
-                                <span>Max. Netzbezug (W)</span>
+                                <span>Grenzwert Netzleistung (W)</span>
                                 <input
                                     type="number"
                                     name="max_import_w"
                                     value="{{ config.control.max_import_w if config.control.max_import_w is defined else 200 }}"
-                                    min="0"
                                 >
-                                <small class="help">Ab diesem Bezug beginnt die Rückregel-Überwachung.</small>
+                                <small class="help">Positiv = erlaubter Bezug, negativ = gewünschte Rest-Einspeisung.</small>
                             </label>
 
                             <label>
@@ -147,12 +146,13 @@
                             <label>
                                 <span>Stale Fallback-Profil</span>
                                 <select name="stale_fallback_profile">
-                                    <option value="floor" {% if config.control.source_loss.stale.fallback_profile == "floor" %}selected{% endif %}>floor</option>
-                                    <option value="eco" {% if config.control.source_loss.stale.fallback_profile == "eco" %}selected{% endif %}>eco</option>
-                                    <option value="mid" {% if config.control.source_loss.stale.fallback_profile == "mid" %}selected{% endif %}>mid</option>
-                                    <option value="high" {% if config.control.source_loss.stale.fallback_profile == "high" %}selected{% endif %}>high</option>
+                                    <option value="off" {% if config.control.source_loss.stale.fallback_profile == "off" %}selected{% endif %}>off</option>
+                                    <option value="p1" {% if config.control.source_loss.stale.fallback_profile == "p1" %}selected{% endif %}>p1</option>
+                                    <option value="p2" {% if config.control.source_loss.stale.fallback_profile == "p2" %}selected{% endif %}>p2</option>
+                                    <option value="p3" {% if config.control.source_loss.stale.fallback_profile == "p3" %}selected{% endif %}>p3</option>
+                                    <option value="p4" {% if config.control.source_loss.stale.fallback_profile == "p4" %}selected{% endif %}>p4</option>
                                 </select>
-                                <small class="help">off_all bleibt echter Aus-Fallback. force_profile=floor ist das niedrigste Regelprofil.</small>
+                                <small class="help">off_all bleibt echter Aus-Fallback. force_profile=p1 ist die kleinste echte Leistungsstufe.</small>
                             </label>
 
                             <label>
@@ -178,12 +178,13 @@
                             <label>
                                 <span>Offline Fallback-Profil</span>
                                 <select name="offline_fallback_profile">
-                                    <option value="floor" {% if config.control.source_loss.offline.fallback_profile == "floor" %}selected{% endif %}>floor</option>
-                                    <option value="eco" {% if config.control.source_loss.offline.fallback_profile == "eco" %}selected{% endif %}>eco</option>
-                                    <option value="mid" {% if config.control.source_loss.offline.fallback_profile == "mid" %}selected{% endif %}>mid</option>
-                                    <option value="high" {% if config.control.source_loss.offline.fallback_profile == "high" %}selected{% endif %}>high</option>
+                                    <option value="off" {% if config.control.source_loss.offline.fallback_profile == "off" %}selected{% endif %}>off</option>
+                                    <option value="p1" {% if config.control.source_loss.offline.fallback_profile == "p1" %}selected{% endif %}>p1</option>
+                                    <option value="p2" {% if config.control.source_loss.offline.fallback_profile == "p2" %}selected{% endif %}>p2</option>
+                                    <option value="p3" {% if config.control.source_loss.offline.fallback_profile == "p3" %}selected{% endif %}>p3</option>
+                                    <option value="p4" {% if config.control.source_loss.offline.fallback_profile == "p4" %}selected{% endif %}>p4</option>
                                 </select>
-                                <small class="help">off_all bleibt echter Aus-Fallback. force_profile=floor ist das niedrigste Regelprofil.</small>
+                                <small class="help">off_all bleibt echter Aus-Fallback. force_profile=p1 ist die kleinste echte Leistungsstufe.</small>
                             </label>
 
                             <label>

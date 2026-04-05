@@ -12,31 +12,26 @@ logger = get_logger("pv2hash.factory")
 def _default_profiles_for_driver(driver: str) -> dict:
     if driver == "braiins":
         return {
-            "floor": {"power_w": 0},
-            "eco": {"power_w": 1200},
-            "mid": {"power_w": 2200},
-            "high": {"power_w": 3200},
+            "p1": {"power_w": 1200},
+            "p2": {"power_w": 2200},
+            "p3": {"power_w": 3200},
+            "p4": {"power_w": 4200},
         }
 
     return {
-        "floor": {"power_w": 0},
-        "eco": {"power_w": 900},
-        "mid": {"power_w": 1800},
-        "high": {"power_w": 3000},
+        "p1": {"power_w": 900},
+        "p2": {"power_w": 1800},
+        "p3": {"power_w": 3000},
+        "p4": {"power_w": 4200},
     }
 
 
 def _normalize_profiles(driver: str, profiles: dict | None) -> dict:
     normalized = dict(profiles or {})
-
-    # Altbestand migrieren: off -> floor
-    if "floor" not in normalized and "off" in normalized:
-        normalized["floor"] = normalized["off"]
-
     defaults = _default_profiles_for_driver(driver)
 
     result: dict = {}
-    for name in ("floor", "eco", "mid", "high"):
+    for name in ("p1", "p2", "p3", "p4"):
         value = normalized.get(name, defaults[name])
 
         if isinstance(value, dict):
@@ -50,6 +45,12 @@ def _normalize_profiles(driver: str, profiles: dict | None) -> dict:
             result[name] = {"power_w": float(defaults[name]["power_w"])}
 
     return result
+
+
+def _normalize_min_regulated_profile(value: str | None) -> str:
+    if value in {"off", "p1", "p2", "p3", "p4"}:
+        return str(value)
+    return "off"
 
 
 def build_source(config: dict) -> EnergySource:
@@ -101,6 +102,9 @@ def build_miners(config: dict) -> list[MinerAdapter]:
         driver = miner_cfg.get("driver", "simulator")
         settings = miner_cfg.get("settings", {})
         profiles = _normalize_profiles(driver, miner_cfg.get("profiles"))
+        min_regulated_profile = _normalize_min_regulated_profile(
+            miner_cfg.get("min_regulated_profile", "off")
+        )
 
         logger.info(
             "Building miner adapter: id=%s name=%s driver=%s host=%s",
@@ -122,6 +126,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     model=miner_cfg.get("model"),
                     firmware_version=miner_cfg.get("firmware_version"),
                     profiles=profiles,
+                    min_regulated_profile=min_regulated_profile,
                 )
             )
             continue
@@ -141,6 +146,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     model=miner_cfg.get("model"),
                     firmware_version=miner_cfg.get("firmware_version"),
                     profiles=profiles,
+                    min_regulated_profile=min_regulated_profile,
                     timeout_s=float(settings.get("timeout_s", 8.0)),
                 )
             )

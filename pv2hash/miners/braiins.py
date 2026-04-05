@@ -54,9 +54,9 @@ class BraiinsMiner(MinerAdapter):
     - SetPowerTarget
 
     Semantics:
-    - profile == "off"           -> PauseMining
-    - profile power_w <= 0       -> PauseMining
-    - profile power_w > 0        -> Resume/Start if needed, then SetPowerTarget
+    - profile == "off"        -> PauseMining
+    - profile power_w <= 0    -> PauseMining
+    - profile p1/p2/p3/p4 > 0 -> Resume/Start if needed, then SetPowerTarget
     """
 
     def __init__(
@@ -71,6 +71,7 @@ class BraiinsMiner(MinerAdapter):
         model: str | None = None,
         firmware_version: str | None = None,
         profiles: dict[str, Any] | None = None,
+        min_regulated_profile: str = "off",
         username: str = "root",
         password: str = "",
         timeout_s: float = 8.0,
@@ -90,21 +91,23 @@ class BraiinsMiner(MinerAdapter):
         self._token_expires_monotonic: float = 0.0
 
         profile_cfg = profiles or {
-            "floor": {"power_w": 0},
-            "eco": {"power_w": 1200},
-            "mid": {"power_w": 2200},
-            "high": {"power_w": 3200},
+            "p1": {"power_w": 1200},
+            "p2": {"power_w": 2200},
+            "p3": {"power_w": 3200},
+            "p4": {"power_w": 4200},
         }
 
-        if "floor" not in profile_cfg and "off" in profile_cfg:
-            profile_cfg = dict(profile_cfg)
-            profile_cfg["floor"] = profile_cfg["off"]
-
         miner_profiles = MinerProfiles(
-            floor=MinerProfile(power_w=float(profile_cfg["floor"]["power_w"])),
-            eco=MinerProfile(power_w=float(profile_cfg["eco"]["power_w"])),
-            mid=MinerProfile(power_w=float(profile_cfg["mid"]["power_w"])),
-            high=MinerProfile(power_w=float(profile_cfg["high"]["power_w"])),
+            p1=MinerProfile(power_w=float(profile_cfg["p1"]["power_w"])),
+            p2=MinerProfile(power_w=float(profile_cfg["p2"]["power_w"])),
+            p3=MinerProfile(power_w=float(profile_cfg["p3"]["power_w"])),
+            p4=MinerProfile(power_w=float(profile_cfg["p4"]["power_w"])),
+        )
+
+        normalized_min_regulated_profile = (
+            min_regulated_profile
+            if min_regulated_profile in {"off", "p1", "p2", "p3", "p4"}
+            else "off"
         )
 
         self.info = MinerInfo(
@@ -121,6 +124,7 @@ class BraiinsMiner(MinerAdapter):
             profile="off",
             power_w=0.0,
             profiles=miner_profiles,
+            min_regulated_profile=normalized_min_regulated_profile,
         )
 
         self._set_runtime_defaults()
@@ -140,7 +144,6 @@ class BraiinsMiner(MinerAdapter):
             await asyncio.to_thread(self._apply_profile_sync, profile, desired_w)
             self.info.last_error = None
 
-            # Wichtig:
             # paused/stopped Miner bleiben regelbar und damit aktiv im PV2Hash-Sinn.
             self.info.is_active = bool(self.info.enabled)
 
@@ -411,10 +414,10 @@ class BraiinsMiner(MinerAdapter):
         )
         self.info.runtime_state = runtime_state
 
-        # Wichtige Änderung:
-        # paused/stopped Miner bleiben für PV2Hash "aktiv", weil sie weiter geregelt werden können.
         self.info.is_active = bool(
-            self.info.enabled and self.info.reachable and runtime_state in {"running", "starting", "paused", "stopped"}
+            self.info.enabled
+            and self.info.reachable
+            and runtime_state in {"running", "starting", "paused", "stopped"}
         )
 
         if runtime_state in {"paused", "stopped"}:
@@ -483,22 +486,17 @@ class BraiinsMiner(MinerAdapter):
         runtime_state: str,
         current_target_w: float | None,
     ) -> str | None:
-        if runtime_state == "stopped":
+        if runtime_state in {"paused", "stopped"}:
             return "off"
-
-        if runtime_state == "paused":
-            if self.target_profile == "off":
-                return "off"
-            return "floor"
 
         if current_target_w is None or self.info.profiles is None:
             return self.target_profile or self.info.profile
 
         candidates = {
-            "floor": getattr(self.info.profiles, "floor", None),
-            "eco": getattr(self.info.profiles, "eco", None),
-            "mid": getattr(self.info.profiles, "mid", None),
-            "high": getattr(self.info.profiles, "high", None),
+            "p1": getattr(self.info.profiles, "p1", None),
+            "p2": getattr(self.info.profiles, "p2", None),
+            "p3": getattr(self.info.profiles, "p3", None),
+            "p4": getattr(self.info.profiles, "p4", None),
         }
 
         best_name: str | None = None

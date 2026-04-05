@@ -29,14 +29,14 @@
         </aside>
 
         <main class="content">
-            {% set ns = namespace(active_count=0, max_high_power=0.0) %}
+            {% set ns = namespace(active_count=0, max_p4_power=0.0) %}
             {% for miner in miners %}
                 {% if miner.is_active|default(true) %}
                     {% set ns.active_count = ns.active_count + 1 %}
                 {% endif %}
 
-                {% if miner.profiles is defined and miner.profiles and miner.profiles.high is defined and miner.profiles.high.power_w is defined %}
-                    {% set ns.max_high_power = ns.max_high_power + miner.profiles.high.power_w %}
+                {% if miner.profiles is defined and miner.profiles and miner.profiles.p4 is defined and miner.profiles.p4.power_w is defined %}
+                    {% set ns.max_p4_power = ns.max_p4_power + miner.profiles.p4.power_w %}
                 {% endif %}
             {% endfor %}
 
@@ -73,7 +73,7 @@
                 <article class="card stat">
                     <span class="label">Miner gesamt</span>
                     <strong>{{ "%.0f"|format(total_miner_power) }} W</strong>
-                    <small>{{ ns.active_count }} Miner aktiv (max. {{ "%.0f"|format(ns.max_high_power) }} W)</small>
+                    <small>{{ ns.active_count }} Miner aktiv (max. {{ "%.0f"|format(ns.max_p4_power) }} W)</small>
                 </article>
 
                 <article class="card stat">

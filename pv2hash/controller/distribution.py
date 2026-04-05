@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-PROFILE_ORDER = ("off", "floor", "eco", "mid", "high")
+PROFILE_ORDER = ("off", "p1", "p2", "p3", "p4")
 PROFILE_INDEX = {name: idx for idx, name in enumerate(PROFILE_ORDER)}
 
 
@@ -23,14 +23,17 @@ def _next_profile(profile: str) -> str:
     return PROFILE_ORDER[min(idx + 1, len(PROFILE_ORDER) - 1)]
 
 
-def _prev_profile(profile: str) -> str:
+def _prev_profile(profile: str, min_profile: str = "off") -> str:
     normalized = _normalize_profile(profile)
-    if normalized == "off":
-        return "off"
-    if normalized == "floor":
-        return "floor"
-    idx = PROFILE_INDEX[normalized]
-    return PROFILE_ORDER[max(idx - 1, 1)]
+    normalized_min = _normalize_profile(min_profile)
+
+    current_idx = PROFILE_INDEX[normalized]
+    min_idx = PROFILE_INDEX[normalized_min]
+
+    if current_idx <= min_idx:
+        return normalized
+
+    return PROFILE_ORDER[current_idx - 1]
 
 
 def get_current_profiles(miners: list) -> list[str]:
@@ -40,6 +43,7 @@ def get_current_profiles(miners: list) -> list[str]:
         if not miner.is_active_for_distribution():
             profiles.append("off")
             continue
+
         profiles.append(_normalize_profile(miner.get_current_profile()))
 
     return profiles
@@ -62,10 +66,26 @@ def get_step_up_plan(distribution_mode: str, miners: list) -> DistributionPlan:
         )
 
     if distribution_mode == "equal":
-        current_profile = _normalize_profile(current[active[0]])
-        next_profile = _next_profile(current_profile)
+        target = current.copy()
+        delta = 0.0
+        changed = False
 
-        if next_profile == current_profile:
+        for idx in active:
+            current_profile = _normalize_profile(current[idx])
+            next_profile = _next_profile(current_profile)
+
+            if next_profile == current_profile:
+                continue
+
+            delta += max(
+                0.0,
+                miners[idx].get_profile_power_w(next_profile)
+                - miners[idx].get_profile_power_w(current_profile),
+            )
+            target[idx] = next_profile
+            changed = True
+
+        if not changed:
             return DistributionPlan(
                 profiles=current,
                 delta_power_w=0.0,
@@ -73,22 +93,11 @@ def get_step_up_plan(distribution_mode: str, miners: list) -> DistributionPlan:
                 reason="already_at_top",
             )
 
-        target = current.copy()
-        delta = 0.0
-
-        for idx in active:
-            delta += max(
-                0.0,
-                miners[idx].get_profile_power_w(next_profile)
-                - miners[idx].get_profile_power_w(current[idx]),
-            )
-            target[idx] = next_profile
-
         return DistributionPlan(
             profiles=target,
             delta_power_w=delta,
-            changed=target != current,
-            reason=f"equal:{current_profile}->{next_profile}",
+            changed=True,
+            reason="equal:step_up",
         )
 
     if distribution_mode == "cascade":
@@ -101,6 +110,7 @@ def get_step_up_plan(distribution_mode: str, miners: list) -> DistributionPlan:
 
             target = current.copy()
             target[idx] = next_profile
+
             delta = max(
                 0.0,
                 miners[idx].get_profile_power_w(next_profile)
@@ -142,10 +152,27 @@ def get_step_down_plan(distribution_mode: str, miners: list) -> DistributionPlan
         )
 
     if distribution_mode == "equal":
-        current_profile = _normalize_profile(current[active[0]])
-        prev_profile = _prev_profile(current_profile)
+        target = current.copy()
+        delta = 0.0
+        changed = False
 
-        if prev_profile == current_profile:
+        for idx in active:
+            current_profile = _normalize_profile(current[idx])
+            min_profile = miners[idx].get_min_regulated_profile()
+            prev_profile = _prev_profile(current_profile, min_profile)
+
+            if prev_profile == current_profile:
+                continue
+
+            delta += max(
+                0.0,
+                miners[idx].get_profile_power_w(current_profile)
+                - miners[idx].get_profile_power_w(prev_profile),
+            )
+            target[idx] = prev_profile
+            changed = True
+
+        if not changed:
             return DistributionPlan(
                 profiles=current,
                 delta_power_w=0.0,
@@ -153,34 +180,25 @@ def get_step_down_plan(distribution_mode: str, miners: list) -> DistributionPlan
                 reason="already_at_bottom",
             )
 
-        target = current.copy()
-        delta = 0.0
-
-        for idx in active:
-            delta += max(
-                0.0,
-                miners[idx].get_profile_power_w(current[idx])
-                - miners[idx].get_profile_power_w(prev_profile),
-            )
-            target[idx] = prev_profile
-
         return DistributionPlan(
             profiles=target,
             delta_power_w=delta,
-            changed=target != current,
-            reason=f"equal:{current_profile}->{prev_profile}",
+            changed=True,
+            reason="equal:step_down",
         )
 
     if distribution_mode == "cascade":
         for idx in reversed(active):
             current_profile = _normalize_profile(current[idx])
-            prev_profile = _prev_profile(current_profile)
+            min_profile = miners[idx].get_min_regulated_profile()
+            prev_profile = _prev_profile(current_profile, min_profile)
 
             if prev_profile == current_profile:
                 continue
 
             target = current.copy()
             target[idx] = prev_profile
+
             delta = max(
                 0.0,
                 miners[idx].get_profile_power_w(current_profile)

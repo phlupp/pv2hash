@@ -11,7 +11,6 @@ from pv2hash.controller.distribution import (
 from pv2hash.logging_ext.setup import get_logger
 from pv2hash.models.energy import EnergySnapshot
 
-
 logger = get_logger("pv2hash.controller.basic")
 
 
@@ -26,12 +25,9 @@ class ControlDecision:
 class ControllerState:
     last_live_profiles: list[str] | None = None
     live_profiles_since_monotonic: float | None = None
-
     degraded_quality: str | None = None
     degraded_since_monotonic: float | None = None
-
     import_exceeded_since_monotonic: float | None = None
-
     last_fallback_log_key: str | None = None
     last_live_hold_log_key: str | None = None
     last_import_log_key: str | None = None
@@ -42,16 +38,9 @@ class BasicController:
         self.min_switch_interval_seconds = float(
             control_config.get("min_switch_interval_seconds", 0)
         )
-        self.switch_hysteresis_w = float(
-            control_config.get("switch_hysteresis_w", 0)
-        )
-        self.max_import_w = float(
-            control_config.get("max_import_w", 200)
-        )
-        self.import_hold_seconds = float(
-            control_config.get("import_hold_seconds", 15)
-        )
-
+        self.switch_hysteresis_w = float(control_config.get("switch_hysteresis_w", 0))
+        self.max_import_w = float(control_config.get("max_import_w", 200))
+        self.import_hold_seconds = float(control_config.get("import_hold_seconds", 15))
         self.source_loss = control_config.get("source_loss", {})
         self.state = ControllerState()
 
@@ -70,7 +59,6 @@ class BasicController:
                     "Source recovered: %s -> live",
                     self.state.degraded_quality,
                 )
-
             self.state.degraded_quality = None
             self.state.degraded_since_monotonic = None
             self.state.last_fallback_log_key = None
@@ -80,6 +68,7 @@ class BasicController:
                 miners=miners,
                 distribution_mode=distribution_mode,
             )
+
         return self._decide_degraded(
             quality=quality,
             miners=miners,
@@ -113,6 +102,7 @@ class BasicController:
             current_profiles=current_profiles,
         ):
             down_plan = get_step_down_plan(distribution_mode, miners)
+
             if down_plan.changed:
                 candidate_profiles = down_plan.profiles
                 action = "step_down"
@@ -233,7 +223,6 @@ class BasicController:
             return False
 
         elapsed = now_monotonic - self.state.import_exceeded_since_monotonic
-
         if elapsed >= self.import_hold_seconds:
             self._log_import_once(
                 "step_down",
@@ -284,11 +273,11 @@ class BasicController:
         behavior = self._get_source_loss_behavior(quality)
         mode = str(behavior.get("mode", "off_all")).strip().lower()
         fallback_profile = str(
-            behavior.get("fallback_profile", "eco")
+            behavior.get("fallback_profile", "p1")
         ).strip().lower()
 
-        if fallback_profile not in ("floor", "eco", "mid", "high"):
-            fallback_profile = "eco"
+        if fallback_profile not in ("off", "p1", "p2", "p3", "p4"):
+            fallback_profile = "p1"
 
         hold_seconds_raw = behavior.get("hold_seconds", 0)
         hold_seconds = float(hold_seconds_raw or 0)
@@ -324,7 +313,10 @@ class BasicController:
             if hold_expired():
                 self._log_fallback_once(
                     f"{quality}:hold_current:expired",
-                    "Fallback expired: quality=%s mode=hold_current hold_seconds=%.1f -> off_all",
+                    (
+                        "Fallback expired: quality=%s mode=hold_current "
+                        "hold_seconds=%.1f -> off_all"
+                    ),
                     quality,
                     hold_seconds,
                 )
@@ -363,7 +355,10 @@ class BasicController:
             if hold_expired():
                 self._log_fallback_once(
                     f"{quality}:force_profile:{fallback_profile}:expired",
-                    "Fallback expired: quality=%s mode=force_profile profile=%s hold_seconds=%.1f -> off_all",
+                    (
+                        "Fallback expired: quality=%s mode=force_profile "
+                        "profile=%s hold_seconds=%.1f -> off_all"
+                    ),
                     quality,
                     fallback_profile,
                     hold_seconds,
@@ -377,7 +372,10 @@ class BasicController:
             if hold_seconds > 0:
                 self._log_fallback_once(
                     f"{quality}:force_profile:{fallback_profile}:timed",
-                    "Fallback active: quality=%s mode=force_profile profile=%s remaining=%.1fs",
+                    (
+                        "Fallback active: quality=%s mode=force_profile "
+                        "profile=%s remaining=%.1fs"
+                    ),
                     quality,
                     fallback_profile,
                     remaining_seconds(),
@@ -439,7 +437,6 @@ class BasicController:
     ) -> None:
         if self.state.last_fallback_log_key == key:
             return
-
         self.state.last_fallback_log_key = key
         logger.warning(msg, *args)
 
@@ -451,7 +448,6 @@ class BasicController:
     ) -> None:
         if self.state.last_live_hold_log_key == key:
             return
-
         self.state.last_live_hold_log_key = key
         logger.info(msg, *args)
 
@@ -463,6 +459,5 @@ class BasicController:
     ) -> None:
         if self.state.last_import_log_key == key:
             return
-
         self.state.last_import_log_key = key
         logger.info(msg, *args)

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 from copy import deepcopy
 from dataclasses import asdict
@@ -21,14 +23,11 @@ from pv2hash.runtime import AppState
 from pv2hash.services import RuntimeServices
 from pv2hash.version import APP_BUILD, APP_VERSION, APP_VERSION_FULL
 
-
 initial_config = load_config()
 setup_logging(initial_config.get("system", {}).get("log_level", "INFO"))
-
 logger = get_logger("pv2hash.app")
 
 app = FastAPI(title="PV2Hash", version=APP_VERSION_FULL)
-
 app.mount("/static", StaticFiles(directory="pv2hash/static"), name="static")
 templates = Jinja2Templates(directory="pv2hash/templates")
 
@@ -36,14 +35,29 @@ state = AppState(config=initial_config)
 services = RuntimeServices(state)
 services.reload_from_config()
 
-
-EDITABLE_PROFILE_NAMES = ("floor", "eco", "mid", "high")
+EDITABLE_PROFILE_NAMES = ("p1", "p2", "p3", "p4")
+ALL_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
+EDITABLE_MIN_REGULATED_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
 
 
 def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
     if driver == "braiins":
-        return 50051, 0, 1200, 2200, 3200
-    return 4028, 0, 900, 1800, 3000
+        return 50051, 1200, 2200, 3200, 4200
+    return 4028, 900, 1800, 3000, 4200
+
+
+def _normalize_min_regulated_profile(value: str | None, default: str = "off") -> str:
+    normalized = str(value or default).strip().lower()
+    if normalized not in EDITABLE_MIN_REGULATED_PROFILE_NAMES:
+        return default
+    return normalized
+
+
+def _normalize_fallback_profile(value: str | None, default: str = "p1") -> str:
+    normalized = str(value or default).strip().lower()
+    if normalized not in ALL_PROFILE_NAMES:
+        return default
+    return normalized
 
 
 def _get_runtime_miner_map() -> dict[str, dict]:
@@ -60,6 +74,7 @@ def _build_miners_view() -> list[dict]:
         merged["runtime"] = runtime
         merged.setdefault("settings", {})
         merged.setdefault("profiles", {})
+        merged.setdefault("min_regulated_profile", "off")
         miner_views.append(merged)
 
     return miner_views
@@ -81,6 +96,7 @@ def _build_miner_settings(
     existing: dict | None = None,
 ) -> dict:
     existing = existing or {}
+
     settings = {
         "port": int(form.get("port", existing.get("port", default_port))),
     }
@@ -101,57 +117,51 @@ def _build_miner_settings(
 
     return settings
 
-
-def _parse_profile_values(form, driver: str) -> dict[str, dict[str, int]]:
-    _, default_floor, default_eco, default_mid, default_high = _driver_profile_defaults(driver)
+def _parse_profile_values(form, driver: str) -> dict[str, dict[str, float]]:
+    _, default_p1, default_p2, default_p3, default_p4 = _driver_profile_defaults(driver)
 
     return {
-        "floor": {"power_w": int(form.get("profile_floor_power_w", default_floor))},
-        "eco": {"power_w": int(form.get("profile_eco_power_w", default_eco))},
-        "mid": {"power_w": int(form.get("profile_mid_power_w", default_mid))},
-        "high": {"power_w": int(form.get("profile_high_power_w", default_high))},
+        "p1": {"power_w": float(form.get("profile_p1_power_w", default_p1))},
+        "p2": {"power_w": float(form.get("profile_p2_power_w", default_p2))},
+        "p3": {"power_w": float(form.get("profile_p3_power_w", default_p3))},
+        "p4": {"power_w": float(form.get("profile_p4_power_w", default_p4))},
     }
-
 
 def _validate_profile_values(
     *,
-    profile_values: dict[str, dict[str, int]],
+    profile_values: dict[str, dict[str, float]],
     runtime_constraints: dict | None = None,
 ) -> str | None:
-    values = {name: int(profile_values[name]["power_w"]) for name in EDITABLE_PROFILE_NAMES}
+    values = {name: float(profile_values[name]["power_w"]) for name in EDITABLE_PROFILE_NAMES}
 
     for name, value in values.items():
-        if value < 0:
-            return f"Profil {name} darf nicht negativ sein."
+        if value <= 0:
+            return f"Profil {name} muss größer als 0 W sein."
 
-    if not (values["floor"] <= values["eco"] <= values["mid"] <= values["high"]):
-        return "Profile müssen in aufsteigender Reihenfolge liegen: floor ≤ eco ≤ mid ≤ high."
+    if not (values["p1"] <= values["p2"] <= values["p3"] <= values["p4"]):
+        return "Profile müssen in aufsteigender Reihenfolge liegen: p1 ≤ p2 ≤ p3 ≤ p4."
 
     if runtime_constraints:
         min_power = runtime_constraints.get("power_target_min_w")
         max_power = runtime_constraints.get("power_target_max_w")
 
-        if min_power is not None and values["floor"] > 0 and values["floor"] < float(min_power):
-            return f"floor liegt unter dem vom Miner gemeldeten Minimum von {float(min_power):.0f} W."
-
         if min_power is not None:
-            for name in ("eco", "mid", "high"):
+            for name in EDITABLE_PROFILE_NAMES:
                 if values[name] < float(min_power):
-                    return f"{name} liegt unter dem vom Miner gemeldeten Minimum von {float(min_power):.0f} W."
+                    return (
+                        f"{name} liegt unter dem vom Miner gemeldeten Minimum "
+                        f"von {float(min_power):.0f} W."
+                    )
 
         if max_power is not None:
             for name in EDITABLE_PROFILE_NAMES:
                 if values[name] > float(max_power):
-                    return f"{name} liegt über dem vom Miner gemeldeten Maximum von {float(max_power):.0f} W."
+                    return (
+                        f"{name} liegt über dem vom Miner gemeldeten Maximum "
+                        f"von {float(max_power):.0f} W."
+                    )
 
     return None
-
-
-def _normalize_fallback_profile(value: str | None, default: str = "eco") -> str:
-    normalized = str(value or default).strip().lower()
-    if normalized not in EDITABLE_PROFILE_NAMES:
-        return default
-    return normalized
 
 
 async def control_loop() -> None:
@@ -277,34 +287,32 @@ async def save_settings(request: Request):
     state.config["app"]["refresh_seconds"] = int(form.get("refresh_seconds", 5))
     state.config["control"]["policy_mode"] = form.get("policy_mode", "coarse")
     state.config["control"]["distribution_mode"] = form.get("distribution_mode", "equal")
-    state.config["control"]["switch_hysteresis_w"] = int(
-        form.get("switch_hysteresis_w", 100)
-    )
+    state.config["control"]["switch_hysteresis_w"] = int(form.get("switch_hysteresis_w", 100))
     state.config["control"]["min_switch_interval_seconds"] = int(
         form.get("min_switch_interval_seconds", 60)
     )
-    state.config["control"]["max_import_w"] = int(
-        form.get("max_import_w", 200)
-    )
-    state.config["control"]["import_hold_seconds"] = int(
-        form.get("import_hold_seconds", 15)
-    )
+    state.config["control"]["max_import_w"] = int(form.get("max_import_w", 200))
+    state.config["control"]["import_hold_seconds"] = int(form.get("import_hold_seconds", 15))
+
     state.config["control"].setdefault("source_loss", {})
     state.config["control"]["source_loss"]["stale"] = {
         "mode": form.get("stale_mode", "hold_current"),
-        "fallback_profile": _normalize_fallback_profile(form.get("stale_fallback_profile", "eco")),
+        "fallback_profile": _normalize_fallback_profile(
+            form.get("stale_fallback_profile", "p1")
+        ),
         "hold_seconds": int(form.get("stale_hold_seconds", 0)),
     }
     state.config["control"]["source_loss"]["offline"] = {
         "mode": form.get("offline_mode", "off_all"),
-        "fallback_profile": _normalize_fallback_profile(form.get("offline_fallback_profile", "eco")),
+        "fallback_profile": _normalize_fallback_profile(
+            form.get("offline_fallback_profile", "p1")
+        ),
         "hold_seconds": int(form.get("offline_hold_seconds", 0)),
     }
 
     save_config(state.config)
     logger.info("Settings saved")
     reload_runtime()
-
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 
@@ -337,18 +345,27 @@ async def save_source(request: Request):
     state.config["source"]["name"] = source_name
     state.config["source"]["enabled"] = source_enabled
     state.config["source"].setdefault("settings", {})
-    state.config["source"]["settings"]["multicast_ip"] = form.get("multicast_ip", "239.12.255.254")
+    state.config["source"]["settings"]["multicast_ip"] = form.get(
+        "multicast_ip", "239.12.255.254"
+    )
     state.config["source"]["settings"]["bind_port"] = int(form.get("bind_port", 9522))
-    state.config["source"]["settings"]["interface_ip"] = form.get("interface_ip", "0.0.0.0").strip() or "0.0.0.0"
-    state.config["source"]["settings"]["packet_timeout_seconds"] = float(form.get("packet_timeout_seconds", 1.0))
-    state.config["source"]["settings"]["stale_after_seconds"] = float(form.get("stale_after_seconds", 8.0))
-    state.config["source"]["settings"]["offline_after_seconds"] = float(form.get("offline_after_seconds", 30.0))
+    state.config["source"]["settings"]["interface_ip"] = (
+        form.get("interface_ip", "0.0.0.0").strip() or "0.0.0.0"
+    )
+    state.config["source"]["settings"]["packet_timeout_seconds"] = float(
+        form.get("packet_timeout_seconds", 1.0)
+    )
+    state.config["source"]["settings"]["stale_after_seconds"] = float(
+        form.get("stale_after_seconds", 8.0)
+    )
+    state.config["source"]["settings"]["offline_after_seconds"] = float(
+        form.get("offline_after_seconds", 30.0)
+    )
     state.config["source"]["settings"]["device_ip"] = form.get("device_ip", "").strip()
 
     save_config(state.config)
     logger.info("Source settings saved: type=%s name=%s", source_type, source_name)
     reload_runtime()
-
     return RedirectResponse(url="/sources?saved=1", status_code=303)
 
 
@@ -370,6 +387,10 @@ async def add_miner(request: Request):
     driver = form.get("driver", "simulator")
     name = form.get("name", "Miner")
     host = form.get("host", "")
+    min_regulated_profile = _normalize_min_regulated_profile(
+        form.get("min_regulated_profile", "off")
+    )
+
     default_port, _, _, _, _ = _driver_profile_defaults(driver)
     profile_values = _parse_profile_values(form, driver)
 
@@ -395,13 +416,13 @@ async def add_miner(request: Request):
             "firmware_version": form.get("firmware_version") or None,
             "settings": _build_miner_settings(form, driver, default_port),
             "profiles": profile_values,
+            "min_regulated_profile": min_regulated_profile,
         }
     )
 
     save_config(state.config)
     logger.info("Miner added: id=%s name=%s driver=%s host=%s", miner_id, name, driver, host)
     reload_runtime()
-
     return RedirectResponse(url="/miners?saved=1", status_code=303)
 
 
@@ -414,6 +435,10 @@ async def update_miner(request: Request):
     for miner in state.config.get("miners", []):
         if miner["id"] == miner_id:
             driver = form.get("driver", miner["driver"])
+            min_regulated_profile = _normalize_min_regulated_profile(
+                form.get("min_regulated_profile", miner.get("min_regulated_profile", "off"))
+            )
+
             default_port, _, _, _, _ = _driver_profile_defaults(driver)
             profile_values = _parse_profile_values(form, driver)
 
@@ -444,35 +469,32 @@ async def update_miner(request: Request):
                 existing=miner.get("settings", {}),
             )
             miner["profiles"] = profile_values
+            miner["min_regulated_profile"] = min_regulated_profile
 
             logger.info(
-                "Miner updated: id=%s name=%s driver=%s host=%s enabled=%s",
+                "Miner updated: id=%s name=%s driver=%s host=%s enabled=%s min_regulated_profile=%s",
                 miner["id"],
                 miner["name"],
                 miner["driver"],
                 miner["host"],
                 miner["enabled"],
+                miner["min_regulated_profile"],
             )
             break
 
     save_config(state.config)
     reload_runtime()
-
     return RedirectResponse(url="/miners?saved=1", status_code=303)
 
 
 @app.post("/miners/delete")
 async def delete_miner(miner_id: str = Form(...)):
     logger.info("Deleting miner: id=%s", miner_id)
-
     state.config["miners"] = [
-        miner for miner in state.config.get("miners", [])
-        if miner["id"] != miner_id
+        miner for miner in state.config.get("miners", []) if miner["id"] != miner_id
     ]
-
     save_config(state.config)
     reload_runtime()
-
     return RedirectResponse(url="/miners?saved=1", status_code=303)
 
 

@@ -6,8 +6,10 @@ from typing import Any
 from pv2hash.config.defaults import DEFAULT_CONFIG
 
 CONFIG_PATH = Path("data/config.json")
-PROFILE_NAMES = ("floor", "eco", "mid", "high")
-FALLBACK_PROFILE_NAMES = ("floor", "eco", "mid", "high")
+
+PROFILE_NAMES = ("p1", "p2", "p3", "p4")
+FALLBACK_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
+MIN_REGULATED_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -27,18 +29,41 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
 
 
 def _normalize_miner_profiles(config: dict[str, Any]) -> None:
+    default_profiles = DEFAULT_CONFIG["miners"][0]["profiles"]
+
     for miner in config.get("miners", []):
         profiles = miner.setdefault("profiles", {})
+        normalized_profiles: dict[str, dict[str, float]] = {}
 
-        if "floor" not in profiles and "off" in profiles:
-            profiles["floor"] = deepcopy(profiles["off"])
-
-        profiles.pop("off", None)
-
-        default_profiles = DEFAULT_CONFIG["miners"][0]["profiles"]
         for name in PROFILE_NAMES:
-            if name not in profiles:
-                profiles[name] = deepcopy(default_profiles[name])
+            raw_profile = profiles.get(name, {})
+            default_power = default_profiles[name]["power_w"]
+
+            if isinstance(raw_profile, dict):
+                raw_power = raw_profile.get("power_w", default_power)
+            else:
+                raw_power = default_power
+
+            try:
+                power_w = float(raw_power)
+            except Exception:
+                power_w = float(default_power)
+
+            if power_w <= 0:
+                power_w = float(default_power)
+
+            normalized_profiles[name] = {"power_w": power_w}
+
+        miner["profiles"] = normalized_profiles
+
+        min_regulated_profile = str(
+            miner.get("min_regulated_profile", "off")
+        ).strip().lower()
+
+        if min_regulated_profile not in MIN_REGULATED_PROFILE_NAMES:
+            min_regulated_profile = "off"
+
+        miner["min_regulated_profile"] = min_regulated_profile
 
 
 def _normalize_source_loss_profiles(config: dict[str, Any]) -> None:
@@ -46,13 +71,13 @@ def _normalize_source_loss_profiles(config: dict[str, Any]) -> None:
 
     for quality in ("stale", "offline"):
         behavior = source_loss.setdefault(quality, {})
-        fallback_profile = str(behavior.get("fallback_profile", "eco")).strip().lower()
 
-        if fallback_profile == "off":
-            fallback_profile = "floor"
+        fallback_profile = str(
+            behavior.get("fallback_profile", "p1")
+        ).strip().lower()
 
         if fallback_profile not in FALLBACK_PROFILE_NAMES:
-            fallback_profile = "eco"
+            fallback_profile = "p1"
 
         behavior["fallback_profile"] = fallback_profile
 
@@ -83,7 +108,6 @@ def load_config() -> dict[str, Any]:
 
 def save_config(config: dict[str, Any]) -> None:
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-
     normalized = normalize_config(config)
 
     with CONFIG_PATH.open("w", encoding="utf-8") as f:

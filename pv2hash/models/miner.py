@@ -9,10 +9,10 @@ class MinerProfile:
 
 @dataclass
 class MinerProfiles:
-    floor: MinerProfile
-    eco: MinerProfile
-    mid: MinerProfile
-    high: MinerProfile
+    p1: MinerProfile
+    p2: MinerProfile
+    p3: MinerProfile
+    p4: MinerProfile
 
 
 @dataclass
@@ -21,23 +21,32 @@ class MinerInfo:
     name: str
     host: str
     driver: str
+
     enabled: bool = True
     is_active: bool = True
     priority: int = 100
+
     serial_number: str | None = None
     model: str | None = None
     firmware_version: str | None = None
+
     profile: str = "off"
     power_w: float = 0.0
     profiles: MinerProfiles | None = None
+
+    min_regulated_profile: str = "off"
+
     reachable: bool = False
     runtime_state: str = "unknown"
+
     api_version: str | None = None
     control_mode: str | None = None
     autotuning_enabled: bool | None = None
+
     power_target_min_w: float | None = None
     power_target_default_w: float | None = None
     power_target_max_w: float | None = None
+
     last_error: str | None = None
     last_seen: datetime = field(default_factory=lambda: datetime.now(UTC))
 

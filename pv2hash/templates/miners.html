@@ -83,6 +83,18 @@
                     </label>
 
                     <label>
+                        <span>Min. Regelprofil</span>
+                        <select name="min_regulated_profile">
+                            <option value="off" selected>off</option>
+                            <option value="p1">p1</option>
+                            <option value="p2">p2</option>
+                            <option value="p3">p3</option>
+                            <option value="p4">p4</option>
+                        </select>
+                        <small class="help">Wie weit der Regler diesen Miner automatisch herunterstufen darf.</small>
+                    </label>
+
+                    <label>
                         <span>Seriennummer</span>
                         <input type="text" name="serial_number">
                     </label>
@@ -108,24 +120,24 @@
                     </label>
 
                     <label>
-                        <span>Floor Leistung (W)</span>
-                        <input type="number" name="profile_floor_power_w" value="0" min="0">
-                        <small class="help">0 W = PauseMining, &gt; 0 W = minimale Dauerleistung.</small>
+                        <span>P1 Leistung (W)</span>
+                        <input type="number" name="profile_p1_power_w" value="1200" min="1">
+                        <small class="help">Kleinste echte Leistungsstufe.</small>
                     </label>
 
                     <label>
-                        <span>Eco Leistung (W)</span>
-                        <input type="number" name="profile_eco_power_w" value="1200" min="0">
+                        <span>P2 Leistung (W)</span>
+                        <input type="number" name="profile_p2_power_w" value="2200" min="1">
                     </label>
 
                     <label>
-                        <span>Mid Leistung (W)</span>
-                        <input type="number" name="profile_mid_power_w" value="2200" min="0">
+                        <span>P3 Leistung (W)</span>
+                        <input type="number" name="profile_p3_power_w" value="3200" min="1">
                     </label>
 
                     <label>
-                        <span>High Leistung (W)</span>
-                        <input type="number" name="profile_high_power_w" value="3200" min="0">
+                        <span>P4 Leistung (W)</span>
+                        <input type="number" name="profile_p4_power_w" value="4200" min="1">
                     </label>
 
                     <div class="actions">
@@ -188,6 +200,19 @@
                         </label>
 
                         <label>
+                            <span>Min. Regelprofil</span>
+                            {% set current_min_regulated_profile = miner.min_regulated_profile if miner.min_regulated_profile is defined else 'off' %}
+                            <select name="min_regulated_profile">
+                                <option value="off" {% if current_min_regulated_profile == "off" %}selected{% endif %}>off</option>
+                                <option value="p1" {% if current_min_regulated_profile == "p1" %}selected{% endif %}>p1</option>
+                                <option value="p2" {% if current_min_regulated_profile == "p2" %}selected{% endif %}>p2</option>
+                                <option value="p3" {% if current_min_regulated_profile == "p3" %}selected{% endif %}>p3</option>
+                                <option value="p4" {% if current_min_regulated_profile == "p4" %}selected{% endif %}>p4</option>
+                            </select>
+                            <small class="help">Wie weit der Regler diesen Miner automatisch herunterstufen darf.</small>
+                        </label>
+
+                        <label>
                             <span>Seriennummer</span>
                             <input type="text" name="serial_number" value="{{ miner.serial_number or '' }}">
                         </label>
@@ -209,47 +234,48 @@
 
                         <label>
                             <span>Braiins Passwort</span>
-                            <input type="password" name="password" value="{{ miner.settings.password if miner.settings and miner.settings.password is defined else '' }}">
+                            <input type="password" name="password" value="">
+                            <small class="help">Leer = unverändert.</small>
                         </label>
 
                         <label>
-                            <span>Floor Leistung (W)</span>
+                            <span>P1 Leistung (W)</span>
                             <input
                                 type="number"
-                                name="profile_floor_power_w"
-                                value="{{ miner.profiles.floor.power_w if miner.profiles and miner.profiles.floor is defined else 0 }}"
-                                min="0"
+                                name="profile_p1_power_w"
+                                value="{{ miner.profiles.p1.power_w if miner.profiles and miner.profiles.p1 is defined else (1200 if miner.driver == 'braiins' else 900) }}"
+                                min="1"
                             >
-                            <small class="help">0 W = PauseMining, &gt; 0 W = minimale Dauerleistung.</small>
+                            <small class="help">Kleinste echte Leistungsstufe.</small>
                         </label>
 
                         <label>
-                            <span>Eco Leistung (W)</span>
+                            <span>P2 Leistung (W)</span>
                             <input
                                 type="number"
-                                name="profile_eco_power_w"
-                                value="{{ miner.profiles.eco.power_w if miner.profiles and miner.profiles.eco is defined else (1200 if miner.driver == 'braiins' else 900) }}"
-                                min="0"
-                            >
-                        </label>
-
-                        <label>
-                            <span>Mid Leistung (W)</span>
-                            <input
-                                type="number"
-                                name="profile_mid_power_w"
-                                value="{{ miner.profiles.mid.power_w if miner.profiles and miner.profiles.mid is defined else (2200 if miner.driver == 'braiins' else 1800) }}"
-                                min="0"
+                                name="profile_p2_power_w"
+                                value="{{ miner.profiles.p2.power_w if miner.profiles and miner.profiles.p2 is defined else (2200 if miner.driver == 'braiins' else 1800) }}"
+                                min="1"
                             >
                         </label>
 
                         <label>
-                            <span>High Leistung (W)</span>
+                            <span>P3 Leistung (W)</span>
                             <input
                                 type="number"
-                                name="profile_high_power_w"
-                                value="{{ miner.profiles.high.power_w if miner.profiles and miner.profiles.high is defined else (3200 if miner.driver == 'braiins' else 3000) }}"
-                                min="0"
+                                name="profile_p3_power_w"
+                                value="{{ miner.profiles.p3.power_w if miner.profiles and miner.profiles.p3 is defined else (3200 if miner.driver == 'braiins' else 3000) }}"
+                                min="1"
+                            >
+                        </label>
+
+                        <label>
+                            <span>P4 Leistung (W)</span>
+                            <input
+                                type="number"
+                                name="profile_p4_power_w"
+                                value="{{ miner.profiles.p4.power_w if miner.profiles and miner.profiles.p4 is defined else (4200 if miner.driver == 'braiins' else 4200) }}"
+                                min="1"
                             >
                         </label>
 
