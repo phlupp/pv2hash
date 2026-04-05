@@ -37,6 +37,7 @@ parse_install_info() {
     LOG_DIR="${DATA_ROOT}/logs"
     STATE_FILE="${DATA_DIR}/self_update_status.json"
     LOCK_DIR="${DATA_DIR}/self_update.lock"
+    LOCK_PID_FILE="${LOCK_DIR}/pid"
     APP_USER_NAME="${PV2HASH_APP_USER:-pv2hash}"
     APP_GROUP_NAME="${PV2HASH_APP_GROUP:-pv2hash}"
     INSTALL_SCRIPT="${APP_ROOT}/current/scripts/install_release.sh"
@@ -109,6 +110,35 @@ PY
     chown "${APP_USER_NAME}:${APP_GROUP_NAME}" "${STATE_FILE}" || true
 }
 
+cleanup_stale_lock() {
+    [[ -d "${LOCK_DIR}" ]] || return 0
+
+    local pid=""
+    if [[ -f "${LOCK_PID_FILE}" ]]; then
+        pid="$(cat "${LOCK_PID_FILE}" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+        fail "Es läuft bereits ein Self-Update."
+    fi
+
+    rm -rf "${LOCK_DIR}"
+}
+
+acquire_lock() {
+    cleanup_stale_lock
+
+    if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+        fail "Es läuft bereits ein Self-Update."
+    fi
+
+    printf '%s\n' "$$" > "${LOCK_PID_FILE}"
+}
+
+release_lock() {
+    rm -rf "${LOCK_DIR}" 2>/dev/null || true
+}
+
 main() {
     require_root
     require_command python3
@@ -123,10 +153,8 @@ main() {
 
     STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-    if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
-        fail "Es läuft bereits ein Self-Update."
-    fi
-    trap 'rmdir "${LOCK_DIR}" 2>/dev/null || true' EXIT
+    acquire_lock
+    trap release_lock EXIT
 
     write_state "running" "Self-Update auf $(tag_to_version_full "${TAG}") läuft …" "" "" ""
 

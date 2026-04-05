@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,9 @@ from pv2hash.logging_ext.setup import get_logger
 DEFAULT_INSTALL_INFO_FILE = Path("/etc/pv2hash/install.env")
 DEFAULT_HELPER_PATH = Path("/usr/local/libexec/pv2hash-self-update")
 DEFAULT_STATE_FILE = Path("data/self_update_status.json")
+DEFAULT_LOCK_DIR = Path("data/self_update.lock")
+STARTING_TIMEOUT_SECONDS = 20.0
+LAUNCH_CONFIRM_TIMEOUT_SECONDS = 3.0
 _RELEASE_TAG_RE = re.compile(r"^v?(?P<version>\d+\.\d+\.\d+)-build\.(?P<build>\d+)$")
 
 logger = get_logger("pv2hash.self_update")
@@ -32,6 +36,7 @@ class SelfUpdateManager:
         install_info_file: Path = DEFAULT_INSTALL_INFO_FILE,
         helper_path: Path = DEFAULT_HELPER_PATH,
         state_file: Path = DEFAULT_STATE_FILE,
+        lock_dir: Path = DEFAULT_LOCK_DIR,
     ) -> None:
         self.current_version = current_version
         self.current_build = current_build
@@ -39,6 +44,7 @@ class SelfUpdateManager:
         self.install_info_file = install_info_file
         self.helper_path = helper_path
         self.state_file = state_file
+        self.lock_dir = lock_dir
 
     def _now_iso(self) -> str:
         return datetime.now(UTC).isoformat()
@@ -111,6 +117,28 @@ class SelfUpdateManager:
             encoding="utf-8",
         )
 
+    def _write_error_state(
+        self,
+        *,
+        message: str,
+        last_error: str,
+        target_tag: str | None = None,
+        target_version_full: str | None = None,
+        started_at: str | None = None,
+        log_file: str | None = None,
+    ) -> None:
+        self._write_state(
+            status="error",
+            message=message,
+            target_tag=target_tag,
+            target_version_full=target_version_full,
+            started_at=started_at,
+            finished_at=self._now_iso(),
+            last_error=last_error,
+            helper_path=str(self.helper_path),
+            log_file=log_file,
+        )
+
     def _probe_command(self) -> list[str]:
         if os.geteuid() == 0:
             return [str(self.helper_path), "--probe"]
@@ -152,44 +180,103 @@ class SelfUpdateManager:
                 details = "Helper-Probe fehlgeschlagen. sudo / Installationsrechte prüfen."
             raise SelfUpdateError(details)
 
-    def _repair_stale_running_state(self, file_state: dict[str, Any]) -> dict[str, Any]:
+    def _lock_exists(self) -> bool:
+        return self.lock_dir.exists()
+
+    def _parse_iso(self, value: Any) -> datetime | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+
+    def _seconds_since(self, value: Any) -> float | None:
+        parsed = self._parse_iso(value)
+        if parsed is None:
+            return None
+        return max(0.0, (datetime.now(UTC) - parsed).total_seconds())
+
+    def _recover_state(self, file_state: dict[str, Any]) -> dict[str, Any]:
         base_status = str(file_state.get("status") or "idle")
         target_version_full = str(file_state.get("target_version_full") or "").strip()
 
         if base_status not in {"starting", "running"}:
             return file_state
 
-        if not target_version_full or target_version_full != self.current_version_full:
-            return file_state
-
-        finished_at = str(file_state.get("finished_at") or "").strip() or self._now_iso()
         started_at = file_state.get("started_at")
         target_tag = file_state.get("target_tag")
         helper_path = str(file_state.get("helper_path") or self.helper_path)
         log_file = file_state.get("log_file")
-        message = (
-            f"Update auf {self.current_version_full} erfolgreich abgeschlossen. "
-            "Dienst wurde neu gestartet."
-        )
 
-        self._write_state(
-            status="success",
-            message=message,
-            target_tag=target_tag,
-            target_version_full=target_version_full,
-            started_at=started_at,
-            finished_at=finished_at,
-            last_error=None,
-            updated_version_full=self.current_version_full,
-            helper_path=helper_path,
-            log_file=log_file,
-        )
-        logger.info(
-            "Recovered stale self-update state after restart: target=%s current=%s",
-            target_version_full,
-            self.current_version_full,
-        )
-        return self._read_state()
+        if target_version_full and target_version_full == self.current_version_full:
+            finished_at = str(file_state.get("finished_at") or "").strip() or self._now_iso()
+            self._write_state(
+                status="success",
+                message=(
+                    f"Update auf {self.current_version_full} erfolgreich abgeschlossen. "
+                    "Dienst wurde neu gestartet."
+                ),
+                target_tag=target_tag,
+                target_version_full=target_version_full,
+                started_at=started_at,
+                finished_at=finished_at,
+                last_error=None,
+                updated_version_full=self.current_version_full,
+                helper_path=helper_path,
+                log_file=log_file,
+            )
+            logger.info(
+                "Recovered stale self-update state after restart: target=%s current=%s",
+                target_version_full,
+                self.current_version_full,
+            )
+            return self._read_state()
+
+        lock_exists = self._lock_exists()
+        started_age = self._seconds_since(started_at)
+
+        if (
+            base_status == "starting"
+            and not lock_exists
+            and started_age is not None
+            and started_age >= STARTING_TIMEOUT_SECONDS
+        ):
+            self._write_error_state(
+                message="Self-Update konnte nicht sauber gestartet werden.",
+                last_error="Helper-Start wurde nicht bestätigt. Bitte Self-Update erneut starten.",
+                target_tag=target_tag,
+                target_version_full=target_version_full or None,
+                started_at=started_at,
+                log_file=log_file,
+            )
+            logger.warning(
+                "Recovered stale self-update starting state without lock: target=%s age=%.1fs",
+                target_version_full,
+                started_age,
+            )
+            return self._read_state()
+
+        if base_status == "running" and not lock_exists:
+            self._write_error_state(
+                message="Self-Update ist nicht mehr aktiv. Bitte erneut starten.",
+                last_error="Kein aktiver Self-Update-Prozess mehr gefunden.",
+                target_tag=target_tag,
+                target_version_full=target_version_full or None,
+                started_at=started_at,
+                log_file=log_file,
+            )
+            logger.warning(
+                "Recovered stale self-update running state without lock: target=%s",
+                target_version_full,
+            )
+            return self._read_state()
+
+        return file_state
 
     def snapshot(
         self,
@@ -198,7 +285,7 @@ class SelfUpdateManager:
         update_status: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         install_info = self._read_install_info()
-        file_state = self._repair_stale_running_state(self._read_state())
+        file_state = self._recover_state(self._read_state())
         is_release_install = install_info.get("PV2HASH_INSTALL_MODE") == "release"
         helper_exists = self.helper_path.exists() and os.access(self.helper_path, os.X_OK)
         helper_configured = is_release_install and helper_exists
@@ -206,6 +293,7 @@ class SelfUpdateManager:
         update_status_value = str((update_status or {}).get("status") or "idle")
         available_release_tag = (update_status or {}).get("release_tag")
         available_release_version_full = (update_status or {}).get("release_version_full")
+        lock_exists = self._lock_exists()
         running = base_status in {"starting", "running"}
 
         if not auto_update_enabled:
@@ -223,7 +311,7 @@ class SelfUpdateManager:
         elif base_status in {"starting", "running", "success", "error"}:
             status = base_status
             message = str(file_state.get("message") or "—")
-            if base_status in {"success", "error"} and update_status_value == "update_available":
+            if base_status == "success" and update_status_value == "update_available":
                 status = "idle"
                 message = f"Update auf {available_release_version_full or available_release_tag} ist bereit."
         else:
@@ -271,7 +359,35 @@ class SelfUpdateManager:
             "last_error": file_state.get("last_error"),
             "updated_version_full": file_state.get("updated_version_full"),
             "log_file": file_state.get("log_file"),
+            "lock_exists": lock_exists,
+            "lock_path": str(self.lock_dir),
         }
+
+    def _confirm_launch(self, process: subprocess.Popen[bytes], *, target_tag: str) -> None:
+        deadline = time.monotonic() + LAUNCH_CONFIRM_TIMEOUT_SECONDS
+
+        while time.monotonic() < deadline:
+            time.sleep(0.25)
+            state = self._read_state()
+            status = str(state.get("status") or "")
+            state_target = str(state.get("target_tag") or "").strip()
+
+            if status == "error":
+                raise SelfUpdateError(
+                    str(state.get("last_error") or state.get("message") or "Helper-Start fehlgeschlagen.")
+                )
+
+            if state_target == target_tag and status in {"running", "success"}:
+                return
+
+            if state_target == target_tag and self._lock_exists():
+                return
+
+            returncode = process.poll()
+            if returncode is not None:
+                raise SelfUpdateError(f"Helper wurde vorzeitig beendet (Exitcode {returncode}).")
+
+        raise SelfUpdateError("Helper hat den Laufzustand nicht rechtzeitig bestätigt.")
 
     def start_latest(
         self,
@@ -285,12 +401,9 @@ class SelfUpdateManager:
         )
 
         if not auto_update_enabled:
-            self._write_state(
-                status="error",
+            self._write_error_state(
                 message="Self-Update ist deaktiviert.",
-                finished_at=self._now_iso(),
                 last_error="Self-Update ist deaktiviert.",
-                helper_path=str(self.helper_path),
             )
             return (
                 self.snapshot(auto_update_enabled=auto_update_enabled, update_status=update_status),
@@ -301,12 +414,9 @@ class SelfUpdateManager:
             return snapshot, 409
 
         if update_status.get("status") != "update_available":
-            self._write_state(
-                status="error",
+            self._write_error_state(
                 message="Es ist aktuell kein neueres Release für ein Self-Update verfügbar.",
-                finished_at=self._now_iso(),
                 last_error="Kein Update verfügbar.",
-                helper_path=str(self.helper_path),
             )
             return (
                 self.snapshot(auto_update_enabled=auto_update_enabled, update_status=update_status),
@@ -315,12 +425,9 @@ class SelfUpdateManager:
 
         target_tag_raw = str(update_status.get("release_tag") or "").strip()
         if not target_tag_raw:
-            self._write_state(
-                status="error",
+            self._write_error_state(
                 message="Release-Tag fehlt im Update-Status.",
-                finished_at=self._now_iso(),
                 last_error="Release-Tag fehlt.",
-                helper_path=str(self.helper_path),
             )
             return (
                 self.snapshot(auto_update_enabled=auto_update_enabled, update_status=update_status),
@@ -328,6 +435,7 @@ class SelfUpdateManager:
             )
 
         target_tag, target_version_full = self._parse_release_tag(target_tag_raw)
+        started_at = self._now_iso()
 
         try:
             self._verify_helper_ready()
@@ -336,7 +444,7 @@ class SelfUpdateManager:
                 message=f"Self-Update auf {target_version_full} wird gestartet …",
                 target_tag=target_tag,
                 target_version_full=target_version_full,
-                started_at=self._now_iso(),
+                started_at=started_at,
                 finished_at=None,
                 last_error=None,
                 updated_version_full=None,
@@ -345,7 +453,7 @@ class SelfUpdateManager:
             )
 
             command = self._launch_command(target_tag)
-            subprocess.Popen(
+            process = subprocess.Popen(
                 command,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
@@ -353,19 +461,16 @@ class SelfUpdateManager:
                 start_new_session=True,
                 close_fds=True,
             )
+            self._confirm_launch(process, target_tag=target_tag)
             logger.info("Self-update launched: target=%s", target_tag)
         except Exception as exc:
             logger.warning("Self-update launch failed: %s", exc)
-            self._write_state(
-                status="error",
+            self._write_error_state(
                 message=f"Self-Update konnte nicht gestartet werden: {exc}",
+                last_error=str(exc),
                 target_tag=target_tag,
                 target_version_full=target_version_full,
-                started_at=self._now_iso(),
-                finished_at=self._now_iso(),
-                last_error=str(exc),
-                helper_path=str(self.helper_path),
-                log_file=None,
+                started_at=started_at,
             )
             return (
                 self.snapshot(auto_update_enabled=auto_update_enabled, update_status=update_status),
