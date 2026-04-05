@@ -20,6 +20,8 @@ INSTALL_INFO_FILE="${CONFIG_DIR}/install.env"
 
 SERVICE_NAME="pv2hash"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+SELF_UPDATE_HELPER_PATH="/usr/local/libexec/pv2hash-self-update"
+SELF_UPDATE_SUDOERS_FILE="/etc/sudoers.d/pv2hash-self-update"
 
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"
@@ -58,6 +60,7 @@ install_system_packages() {
     apt-get install -y \
         ca-certificates \
         curl \
+        sudo \
         tar \
         python3 \
         python3-venv \
@@ -69,8 +72,10 @@ ensure_system_requirements() {
     require_command tar
     require_command python3
     require_command sha256sum
+    require_command sudo
     require_command systemctl
     require_command runuser
+    require_command visudo
 }
 
 ensure_user_and_dirs() {
@@ -273,7 +278,7 @@ extract_release() {
 }
 
 write_install_info() {
-    cat > "${INSTALL_INFO_FILE}" <<EOF
+    cat > "${INSTALL_INFO_FILE}" <<EOF_INFO
 PV2HASH_INSTALL_MODE=release
 PV2HASH_REPO=${REPO}
 PV2HASH_TAG=${TAG_NAME}
@@ -285,12 +290,34 @@ PV2HASH_APP_ROOT=${APP_ROOT}
 PV2HASH_DATA_DIR=${APP_DATA_DIR}
 PV2HASH_HOST=${HOST}
 PV2HASH_PORT=${PORT}
+PV2HASH_APP_USER=${APP_USER}
+PV2HASH_APP_GROUP=${APP_GROUP}
 PV2HASH_INSTALLED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-EOF
+EOF_INFO
+}
+
+install_self_update_helper() {
+    local helper_source="${RELEASE_DIR}/scripts/pv2hash-self-update"
+
+    if [[ ! -f "${helper_source}" ]]; then
+        echo "Fehler: Self-Update-Helper im Release nicht gefunden: ${helper_source}"
+        exit 1
+    fi
+
+    install -d -m 0755 /usr/local/libexec
+    install -m 0755 "${helper_source}" "${SELF_UPDATE_HELPER_PATH}"
+
+    cat > "${SELF_UPDATE_SUDOERS_FILE}" <<EOF_SUDOERS
+Cmnd_Alias PV2HASH_SELF_UPDATE = ${SELF_UPDATE_HELPER_PATH}, ${SELF_UPDATE_HELPER_PATH} *
+${APP_USER} ALL=(root) NOPASSWD: PV2HASH_SELF_UPDATE
+EOF_SUDOERS
+
+    chmod 0440 "${SELF_UPDATE_SUDOERS_FILE}"
+    visudo -cf "${SELF_UPDATE_SUDOERS_FILE}" >/dev/null
 }
 
 write_systemd_unit() {
-    cat > "${SERVICE_FILE}" <<EOF
+    cat > "${SERVICE_FILE}" <<EOF_SERVICE
 [Unit]
 Description=PV2Hash
 After=network-online.target
@@ -310,7 +337,7 @@ TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target
-EOF
+EOF_SERVICE
 }
 
 activate_release() {
@@ -343,6 +370,7 @@ show_result() {
     echo "Current:      ${CURRENT_LINK}"
     echo "Data dir:     ${APP_DATA_DIR}"
     echo "Service:      ${SERVICE_NAME}.service"
+    echo "Self-Update:  ${SELF_UPDATE_HELPER_PATH}"
     echo "URL:          http://$(hostname -I | awk '{print $1}'):${PORT}/"
     echo
     echo "Status:       systemctl status ${SERVICE_NAME}"
@@ -362,6 +390,7 @@ main() {
     fetch_release_metadata
     download_and_verify_assets
     extract_release
+    install_self_update_helper
     activate_release
     write_install_info
     write_systemd_unit

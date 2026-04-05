@@ -31,7 +31,7 @@
             <header class="topbar">
                 <div>
                     <h1>System</h1>
-                    <p>Status, Runtime und Live-Konsole</p>
+                    <p>Status, Runtime, Updates und Live-Konsole</p>
                 </div>
             </header>
 
@@ -96,6 +96,7 @@
                         </form>
 
                         <button id="checkUpdatesBtn" class="btn btn-secondary" type="button">Jetzt auf Updates prüfen</button>
+                        <button id="selfUpdateBtn" class="btn btn-warning" type="button">Self-Update starten</button>
                         <a class="btn btn-info" href="/api/logs/download">Log herunterladen</a>
                     </div>
 
@@ -143,6 +144,50 @@
                             <code id="updateCommand" class="update-command"></code>
                         </div>
                     </div>
+
+                    <div class="update-panel top-gap update-divider">
+                        <div class="update-head">
+                            <div>
+                                <div class="update-title">Self-Update</div>
+                                <div class="update-subtitle">Manuelles In-App-Update über den Release-Installer</div>
+                            </div>
+                            <span id="selfUpdateStateBadge" class="status-pill">Prüfe …</span>
+                        </div>
+
+                        <div class="kv update-kv">
+                            <div class="kv-row">
+                                <span>Self-Update aktiviert</span>
+                                <strong id="selfUpdateEnabled">{{ "ja" if self_update_status.enabled else "nein" }}</strong>
+                            </div>
+                            <div class="kv-row">
+                                <span>Installationsmodus</span>
+                                <strong id="selfUpdateInstallMode">{{ self_update_status.install_mode or "—" }}</strong>
+                            </div>
+                            <div class="kv-row">
+                                <span>Ziel-Release</span>
+                                <strong id="selfUpdateTargetVersion">{{ self_update_status.target_version_full or self_update_status.available_release_version_full or "—" }}</strong>
+                            </div>
+                            <div class="kv-row">
+                                <span>Gestartet am</span>
+                                <strong id="selfUpdateStartedAt">{{ self_update_status.started_at or "—" }}</strong>
+                            </div>
+                            <div class="kv-row">
+                                <span>Beendet am</span>
+                                <strong id="selfUpdateFinishedAt">{{ self_update_status.finished_at or "—" }}</strong>
+                            </div>
+                            <div class="kv-row">
+                                <span>Helper</span>
+                                <strong id="selfUpdateHelperPath">{{ self_update_status.helper_path or "—" }}</strong>
+                            </div>
+                        </div>
+
+                        <div id="selfUpdateMessage" class="update-message">Lade Self-Update-Status …</div>
+                        <div id="selfUpdateError" class="update-error" hidden></div>
+
+                        <div class="update-links">
+                            <a id="selfUpdateLogLink" class="link-muted" href="/api/logs/download" hidden>PV2Hash-Log herunterladen</a>
+                        </div>
+                    </div>
                 </article>
             </section>
 
@@ -179,6 +224,7 @@
         const clearFilterBtn = document.getElementById("clearFilterBtn");
         const consoleWrap = document.getElementById("consoleWrap");
         const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
+        const selfUpdateBtn = document.getElementById("selfUpdateBtn");
         const updateStateBadge = document.getElementById("updateStateBadge");
         const updateLocalVersion = document.getElementById("updateLocalVersion");
         const updateReleaseVersion = document.getElementById("updateReleaseVersion");
@@ -190,10 +236,21 @@
         const updateReleaseLink = document.getElementById("updateReleaseLink");
         const updateCommandWrap = document.getElementById("updateCommandWrap");
         const updateCommand = document.getElementById("updateCommand");
+        const selfUpdateStateBadge = document.getElementById("selfUpdateStateBadge");
+        const selfUpdateEnabled = document.getElementById("selfUpdateEnabled");
+        const selfUpdateInstallMode = document.getElementById("selfUpdateInstallMode");
+        const selfUpdateTargetVersion = document.getElementById("selfUpdateTargetVersion");
+        const selfUpdateStartedAt = document.getElementById("selfUpdateStartedAt");
+        const selfUpdateFinishedAt = document.getElementById("selfUpdateFinishedAt");
+        const selfUpdateHelperPath = document.getElementById("selfUpdateHelperPath");
+        const selfUpdateMessage = document.getElementById("selfUpdateMessage");
+        const selfUpdateError = document.getElementById("selfUpdateError");
+        const selfUpdateLogLink = document.getElementById("selfUpdateLogLink");
 
         let autoScroll = true;
         let consoleVisible = true;
         let allLines = [];
+        let lastUpdateStatus = null;
 
         function escapeHtml(text) {
             const div = document.createElement("div");
@@ -215,6 +272,7 @@
         }
 
         function renderUpdateStatus(data) {
+            lastUpdateStatus = data || {};
             const status = data && data.status ? data.status : "unknown";
             const badgeMap = {
                 disabled: { label: "Deaktiviert", className: "status-neutral" },
@@ -259,23 +317,23 @@
                 return;
             }
 
-            if (status === "up_to_date") {
-                updateMessage.textContent = "Diese Instanz läuft bereits auf dem neuesten veröffentlichten Release.";
+            if (status === "update_available") {
+                updateMessage.textContent = `Es ist ein neueres Release verfügbar: ${data.release_version_full || data.release_tag}.`;
                 return;
             }
 
-            if (status === "update_available") {
-                updateMessage.textContent = "Es ist ein neueres veröffentlichtes Release verfügbar.";
+            if (status === "up_to_date") {
+                updateMessage.textContent = "Die lokale Installation entspricht dem aktuellen Latest Release.";
                 return;
             }
 
             if (status === "ahead_of_release") {
-                updateMessage.textContent = "Der lokale Stand ist neuer als das aktuell gemeldete Latest-Release.";
+                updateMessage.textContent = "Der lokale Stand ist neuer als das aktuelle Latest Release auf GitHub.";
                 return;
             }
 
             if (status === "error") {
-                updateMessage.textContent = "Die Update-Prüfung konnte nicht erfolgreich abgeschlossen werden.";
+                updateMessage.textContent = "Die Update-Prüfung ist fehlgeschlagen.";
                 if (data.error) {
                     updateError.hidden = false;
                     updateError.textContent = data.error;
@@ -283,7 +341,47 @@
                 return;
             }
 
-            updateMessage.textContent = "Noch keine Update-Information vorhanden.";
+            updateMessage.textContent = "Kein Update-Status vorhanden.";
+        }
+
+        function renderSelfUpdateStatus(data) {
+            const status = data && data.status ? data.status : "unknown";
+            const badgeMap = {
+                disabled: { label: "Deaktiviert", className: "status-neutral" },
+                unavailable: { label: "Nicht bereit", className: "status-neutral" },
+                idle: { label: "Bereit", className: "status-info" },
+                starting: { label: "Startet …", className: "status-info" },
+                running: { label: "Läuft", className: "status-warn" },
+                success: { label: "Erfolgreich", className: "status-good" },
+                error: { label: "Fehler", className: "status-bad" }
+            };
+            const badge = badgeMap[status] || { label: status, className: "status-neutral" };
+
+            selfUpdateStateBadge.textContent = badge.label;
+            selfUpdateStateBadge.className = `status-pill ${badge.className}`;
+            selfUpdateEnabled.textContent = data.enabled ? "ja" : "nein";
+            selfUpdateInstallMode.textContent = data.install_mode || "—";
+            selfUpdateTargetVersion.textContent = data.target_version_full || data.available_release_version_full || "—";
+            selfUpdateStartedAt.textContent = formatDate(data.started_at);
+            selfUpdateFinishedAt.textContent = formatDate(data.finished_at);
+            selfUpdateHelperPath.textContent = data.helper_path || "—";
+            selfUpdateMessage.textContent = data.message || "—";
+            selfUpdateError.hidden = !data.last_error;
+            selfUpdateError.textContent = data.last_error || "";
+            selfUpdateLogLink.hidden = !data.running && !data.last_error;
+
+            const updateAvailable = lastUpdateStatus && lastUpdateStatus.status === "update_available";
+            const buttonEnabled = !!(data.can_start && updateAvailable);
+            selfUpdateBtn.disabled = !buttonEnabled;
+
+            if (data.running) {
+                selfUpdateBtn.disabled = true;
+                selfUpdateBtn.textContent = "Self-Update läuft …";
+            } else if (buttonEnabled && data.available_release_version_full) {
+                selfUpdateBtn.textContent = `Jetzt auf ${data.available_release_version_full} aktualisieren`;
+            } else {
+                selfUpdateBtn.textContent = "Self-Update starten";
+            }
         }
 
         async function fetchUpdateStatus() {
@@ -292,28 +390,64 @@
                 const data = await response.json();
                 renderUpdateStatus(data);
             } catch (err) {
-                renderUpdateStatus({ status: "error", error: "Update-Status konnte nicht geladen werden." });
+                updateStateBadge.textContent = "Fehler";
+                updateStateBadge.className = "status-pill status-bad";
+                updateMessage.textContent = "Fehler beim Laden des Update-Status.";
             }
         }
 
-        async function triggerUpdateCheck() {
-            const previousText = checkUpdatesBtn.textContent;
+        async function runUpdateCheck() {
             checkUpdatesBtn.disabled = true;
-            checkUpdatesBtn.textContent = "PRÜFE …";
-            renderUpdateStatus({ status: "checking", local_version_full: updateLocalVersion.textContent });
-
             try {
                 const response = await fetch("/api/system/update-check", {
                     method: "POST",
-                    cache: "no-store"
+                    headers: { "Accept": "application/json" }
                 });
                 const data = await response.json();
                 renderUpdateStatus(data);
+                await fetchSelfUpdateStatus();
             } catch (err) {
-                renderUpdateStatus({ status: "error", error: "Update-Prüfung konnte nicht gestartet werden." });
+                updateStateBadge.textContent = "Fehler";
+                updateStateBadge.className = "status-pill status-bad";
+                updateMessage.textContent = "Fehler beim Prüfen auf Updates.";
             } finally {
                 checkUpdatesBtn.disabled = false;
-                checkUpdatesBtn.textContent = previousText;
+            }
+        }
+
+        async function fetchSelfUpdateStatus() {
+            try {
+                const response = await fetch("/api/system/self-update-status", { cache: "no-store" });
+                const data = await response.json();
+                renderSelfUpdateStatus(data);
+            } catch (err) {
+                selfUpdateStateBadge.textContent = "Fehler";
+                selfUpdateStateBadge.className = "status-pill status-bad";
+                selfUpdateMessage.textContent = "Fehler beim Laden des Self-Update-Status.";
+            }
+        }
+
+        async function startSelfUpdate() {
+            const release = lastUpdateStatus && (lastUpdateStatus.release_version_full || lastUpdateStatus.release_tag)
+                ? (lastUpdateStatus.release_version_full || lastUpdateStatus.release_tag)
+                : "das aktuelle Release";
+            const confirmed = window.confirm(`PV2Hash wirklich auf ${release} aktualisieren? Der Dienst wird dabei neu gestartet.`);
+            if (!confirmed) {
+                return;
+            }
+
+            selfUpdateBtn.disabled = true;
+            try {
+                const response = await fetch("/api/system/self-update", {
+                    method: "POST",
+                    headers: { "Accept": "application/json" }
+                });
+                const data = await response.json();
+                renderSelfUpdateStatus(data);
+            } catch (err) {
+                selfUpdateStateBadge.textContent = "Fehler";
+                selfUpdateStateBadge.className = "status-pill status-bad";
+                selfUpdateMessage.textContent = "Self-Update konnte nicht gestartet werden.";
             }
         }
 
@@ -390,11 +524,13 @@
         });
 
         logFilterInput.addEventListener("input", renderLogs);
-        checkUpdatesBtn.addEventListener("click", triggerUpdateCheck);
+        checkUpdatesBtn.addEventListener("click", runUpdateCheck);
+        selfUpdateBtn.addEventListener("click", startSelfUpdate);
 
         fetchLogs();
-        fetchUpdateStatus();
+        fetchUpdateStatus().then(fetchSelfUpdateStatus);
         setInterval(fetchLogs, 2000);
+        setInterval(fetchSelfUpdateStatus, 3000);
     </script>
 </body>
 </html>

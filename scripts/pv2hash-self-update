@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_INFO_FILE="/etc/pv2hash/install.env"
+TAG="${1:-}"
+PROBE_ONLY=0
+
+if [[ "${TAG}" == "--probe" ]]; then
+    PROBE_ONLY=1
+    TAG=""
+fi
+
+fail() {
+    echo "$*" >&2
+    exit 1
+}
+
+require_root() {
+    if [[ "${EUID}" -ne 0 ]]; then
+        fail "Der Self-Update-Helper muss als root laufen."
+    fi
+}
+
+require_command() {
+    local cmd="$1"
+    command -v "${cmd}" >/dev/null 2>&1 || fail "Benötigtes Kommando fehlt: ${cmd}"
+}
+
+parse_install_info() {
+    [[ -f "${INSTALL_INFO_FILE}" ]] || fail "Installationsinfo fehlt: ${INSTALL_INFO_FILE}"
+    # shellcheck disable=SC1090
+    source "${INSTALL_INFO_FILE}"
+
+    APP_ROOT="${PV2HASH_APP_ROOT:-/opt/pv2hash}"
+    DATA_DIR="${PV2HASH_DATA_DIR:-/var/lib/pv2hash/data}"
+    DATA_ROOT="$(dirname "${DATA_DIR}")"
+    LOG_DIR="${DATA_ROOT}/logs"
+    STATE_FILE="${DATA_DIR}/self_update_status.json"
+    LOCK_DIR="${DATA_DIR}/self_update.lock"
+    APP_USER_NAME="${PV2HASH_APP_USER:-pv2hash}"
+    APP_GROUP_NAME="${PV2HASH_APP_GROUP:-pv2hash}"
+    INSTALL_SCRIPT="${APP_ROOT}/current/scripts/install_release.sh"
+    SELF_UPDATE_LOG="${LOG_DIR}/self_update.log"
+
+    [[ "${PV2HASH_INSTALL_MODE:-}" == "release" ]] || fail "Self-Update ist nur für Release-Installationen verfügbar."
+    [[ -x "${INSTALL_SCRIPT}" ]] || fail "Release-Installer nicht gefunden: ${INSTALL_SCRIPT}"
+
+    mkdir -p "${DATA_DIR}" "${LOG_DIR}"
+    chown -R "${APP_USER_NAME}:${APP_GROUP_NAME}" "${DATA_DIR}" "${LOG_DIR}" || true
+}
+
+tag_to_version_full() {
+    local raw="$1"
+    if [[ "${raw}" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)-build\.([0-9]+)$ ]]; then
+        printf '%s+build.%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+        return 0
+    fi
+    return 1
+}
+
+write_state() {
+    local status="$1"
+    local message="$2"
+    local finished_at="$3"
+    local last_error="$4"
+    local updated_version_full="$5"
+    local target_version_full=""
+
+    if [[ -n "${TAG}" ]]; then
+        target_version_full="$(tag_to_version_full "${TAG}" 2>/dev/null || true)"
+    fi
+
+    STATE_STATUS="${status}" \
+    STATE_MESSAGE="${message}" \
+    STATE_TARGET_TAG="${TAG}" \
+    STATE_TARGET_VERSION_FULL="${target_version_full}" \
+    STATE_STARTED_AT="${STARTED_AT}" \
+    STATE_FINISHED_AT="${finished_at}" \
+    STATE_LAST_ERROR="${last_error}" \
+    STATE_UPDATED_VERSION_FULL="${updated_version_full}" \
+    STATE_HELPER_PATH="$0" \
+    STATE_LOG_FILE="${SELF_UPDATE_LOG}" \
+    python3 - "${STATE_FILE}" <<'PY'
+import json
+import os
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+payload = {
+    "status": os.environ.get("STATE_STATUS", "idle"),
+    "message": os.environ.get("STATE_MESSAGE", ""),
+    "target_tag": os.environ.get("STATE_TARGET_TAG") or None,
+    "target_version_full": os.environ.get("STATE_TARGET_VERSION_FULL") or None,
+    "started_at": os.environ.get("STATE_STARTED_AT") or None,
+    "finished_at": os.environ.get("STATE_FINISHED_AT") or None,
+    "last_error": os.environ.get("STATE_LAST_ERROR") or None,
+    "updated_version_full": os.environ.get("STATE_UPDATED_VERSION_FULL") or None,
+    "helper_path": os.environ.get("STATE_HELPER_PATH") or None,
+    "log_file": os.environ.get("STATE_LOG_FILE") or None,
+    "written_at": datetime.now(UTC).isoformat(),
+}
+
+path = Path(sys.argv[1])
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+PY
+
+    chown "${APP_USER_NAME}:${APP_GROUP_NAME}" "${STATE_FILE}" || true
+}
+
+main() {
+    require_root
+    require_command python3
+    parse_install_info
+
+    if [[ "${PROBE_ONLY}" -eq 1 ]]; then
+        exit 0
+    fi
+
+    [[ -n "${TAG}" ]] || fail "Release-Tag fehlt."
+    tag_to_version_full "${TAG}" >/dev/null || fail "Ungültiges Release-Tag: ${TAG}"
+
+    STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+    if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+        fail "Es läuft bereits ein Self-Update."
+    fi
+    trap 'rmdir "${LOCK_DIR}" 2>/dev/null || true' EXIT
+
+    write_state "running" "Self-Update auf $(tag_to_version_full "${TAG}") läuft …" "" "" ""
+
+    set +e
+    {
+        echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Starte Self-Update auf ${TAG}"
+        REPO="${PV2HASH_REPO:-phlupp/pv2hash}" \
+        TAG="${TAG}" \
+        APP_ROOT="${APP_ROOT}" \
+        DATA_ROOT="${DATA_ROOT}" \
+        HOST="${PV2HASH_HOST:-0.0.0.0}" \
+        PORT="${PV2HASH_PORT:-8000}" \
+        bash "${INSTALL_SCRIPT}"
+    } >> "${SELF_UPDATE_LOG}" 2>&1
+    rc=$?
+    set -e
+
+    if [[ "${rc}" -eq 0 ]]; then
+        # shellcheck disable=SC1090
+        source "${INSTALL_INFO_FILE}" || true
+        write_state \
+            "success" \
+            "Update erfolgreich installiert. Dienst wurde neu gestartet." \
+            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            "" \
+            "${PV2HASH_VERSION:-}"
+        exit 0
+    fi
+
+    error_tail="$(tail -n 20 "${SELF_UPDATE_LOG}" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')"
+    write_state \
+        "error" \
+        "Self-Update ist fehlgeschlagen. Details siehe Self-Update-Log." \
+        "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+        "${error_tail}" \
+        ""
+    exit "${rc}"
+}
+
+main "$@"

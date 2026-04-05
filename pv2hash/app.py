@@ -20,6 +20,7 @@ from pv2hash.logging_ext.setup import (
     setup_logging,
 )
 from pv2hash.runtime import AppState
+from pv2hash.self_update import SelfUpdateManager
 from pv2hash.services import RuntimeServices
 from pv2hash.update_check import UpdateChecker
 from pv2hash.version import APP_BUILD, APP_VERSION, APP_VERSION_FULL
@@ -37,6 +38,10 @@ services = RuntimeServices(state)
 services.reload_from_config()
 update_checker = UpdateChecker(
     state,
+    current_version=APP_VERSION,
+    current_build=APP_BUILD,
+)
+self_update_manager = SelfUpdateManager(
     current_version=APP_VERSION,
     current_build=APP_BUILD,
 )
@@ -291,6 +296,11 @@ async def save_settings(request: Request):
     form = await request.form()
 
     state.config["system"]["instance_name"] = form.get("instance_name", "PV2Hash Node")
+    state.config["system"]["check_updates"] = form.get("check_updates") == "on"
+    state.config["system"]["auto_update_enabled"] = form.get("auto_update_enabled") == "on"
+    state.config["system"]["update_repo"] = (
+        str(form.get("update_repo", "phlupp/pv2hash")).strip() or "phlupp/pv2hash"
+    )
     state.config["app"]["refresh_seconds"] = int(form.get("refresh_seconds", 5))
     state.config["control"]["policy_mode"] = form.get("policy_mode", "coarse")
     state.config["control"]["distribution_mode"] = form.get("distribution_mode", "equal")
@@ -318,7 +328,12 @@ async def save_settings(request: Request):
     }
 
     save_config(state.config)
-    logger.info("Settings saved")
+    logger.info(
+        "Settings saved: check_updates=%s auto_update_enabled=%s update_repo=%s",
+        state.config["system"].get("check_updates", True),
+        state.config["system"].get("auto_update_enabled", False),
+        state.config["system"].get("update_repo", "phlupp/pv2hash"),
+    )
     reload_runtime()
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 
@@ -507,6 +522,9 @@ async def delete_miner(miner_id: str = Form(...)):
 
 @app.get("/system")
 async def system_page(request: Request):
+    update_status = update_checker.snapshot()
+    auto_update_enabled = bool(state.config["system"].get("auto_update_enabled", False))
+
     context = {
         "request": request,
         "instance_name": state.config["system"]["instance_name"],
@@ -519,7 +537,11 @@ async def system_page(request: Request):
         "app_version": APP_VERSION,
         "app_build": APP_BUILD,
         "app_version_full": APP_VERSION_FULL,
-        "update_status": update_checker.snapshot(),
+        "update_status": update_status,
+        "self_update_status": self_update_manager.snapshot(
+            auto_update_enabled=auto_update_enabled,
+            update_status=update_status,
+        ),
     }
     return templates.TemplateResponse(
         request=request,
@@ -544,6 +566,26 @@ async def api_system_update_status():
 async def api_system_update_check():
     payload = await update_checker.refresh()
     return JSONResponse(content=jsonable_encoder(payload))
+
+
+@app.get("/api/system/self-update-status")
+async def api_system_self_update_status():
+    update_status = update_checker.snapshot()
+    payload = self_update_manager.snapshot(
+        auto_update_enabled=bool(state.config["system"].get("auto_update_enabled", False)),
+        update_status=update_status,
+    )
+    return JSONResponse(content=jsonable_encoder(payload))
+
+
+@app.post("/api/system/self-update")
+async def api_system_self_update():
+    update_status = await update_checker.refresh()
+    payload, status_code = self_update_manager.start_latest(
+        auto_update_enabled=bool(state.config["system"].get("auto_update_enabled", False)),
+        update_status=update_status,
+    )
+    return JSONResponse(content=jsonable_encoder(payload), status_code=status_code)
 
 
 @app.get("/api/status")
