@@ -30,6 +30,39 @@ DEFAULT_CONFIG = {
             "simulator_ramp_rate_w_per_minute": 600.0,
         },
     },
+    "battery": {
+        "type": "none",
+        "name": "Batterie",
+        "enabled": False,
+        "settings": {
+            "host": "",
+            "port": 502,
+            "unit_id": 1,
+            "poll_interval_ms": 1000,
+            "request_timeout_seconds": 1.0,
+            "soc": {
+                "register_type": "holding",
+                "address": None,
+                "value_type": "uint16",
+                "endian": "big_endian",
+                "factor": 1.0,
+            },
+            "charge_power": {
+                "register_type": "holding",
+                "address": None,
+                "value_type": "int16",
+                "endian": "big_endian",
+                "factor": 1.0,
+            },
+            "discharge_power": {
+                "register_type": "holding",
+                "address": None,
+                "value_type": "int16",
+                "endian": "big_endian",
+                "factor": 1.0,
+            },
+        },
+    },
     "miners": [
         {
             "id": "m1",

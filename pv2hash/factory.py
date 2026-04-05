@@ -3,10 +3,16 @@ from pv2hash.miners.base import MinerAdapter
 from pv2hash.miners.braiins import BraiinsMiner
 from pv2hash.miners.simulator import SimulatorMiner
 from pv2hash.sources.base import EnergySource
+from pv2hash.sources.battery_modbus import BatteryModbusSource, ModbusValueConfig
 from pv2hash.sources.simulator import SimulatorSource
 from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
 
 logger = get_logger("pv2hash.factory")
+
+
+MODBUS_REGISTER_TYPES = ("holding", "input", "coil", "discrete_input")
+MODBUS_VALUE_TYPES = ("int8", "uint8", "int16", "uint16", "int32", "uint32", "float32")
+MODBUS_ENDIAN_TYPES = ("big_endian", "little_endian")
 
 
 def _default_profiles_for_driver(driver: str) -> dict:
@@ -53,6 +59,41 @@ def _normalize_min_regulated_profile(value: str | None) -> str:
     return "off"
 
 
+def _build_modbus_value_config(name: str, cfg: dict | None) -> ModbusValueConfig:
+    cfg = dict(cfg or {})
+    register_type = str(cfg.get("register_type", "holding")).strip().lower()
+    if register_type not in MODBUS_REGISTER_TYPES:
+        register_type = "holding"
+
+    value_type = str(cfg.get("value_type", "uint16")).strip().lower()
+    if value_type not in MODBUS_VALUE_TYPES:
+        value_type = "uint16"
+
+    endian = str(cfg.get("endian", "big_endian")).strip().lower()
+    if endian not in MODBUS_ENDIAN_TYPES:
+        endian = "big_endian"
+
+    address = cfg.get("address")
+    try:
+        address = int(address) if address not in (None, "") else None
+    except Exception:
+        address = None
+
+    try:
+        factor = float(cfg.get("factor", 1.0))
+    except Exception:
+        factor = 1.0
+
+    return ModbusValueConfig(
+        name=name,
+        register_type=register_type,
+        address=address,
+        value_type=value_type,
+        endian=endian,
+        factor=factor,
+    )
+
+
 def build_source(config: dict) -> EnergySource:
     source_cfg = config["source"]
     source_type = source_cfg.get("type", "simulator")
@@ -85,6 +126,34 @@ def build_source(config: dict) -> EnergySource:
         )
 
     raise ValueError(f"Unsupported source type: {source_type}")
+
+
+def build_battery_source(config: dict) -> EnergySource | None:
+    battery_cfg = config.get("battery", {}) or {}
+    if not battery_cfg.get("enabled", False):
+        return None
+
+    battery_type = battery_cfg.get("type", "none")
+    settings = battery_cfg.get("settings", {})
+
+    logger.info("Building battery source adapter: %s", battery_type)
+
+    if battery_type in {"", "none", None}:
+        return None
+
+    if battery_type == "battery_modbus":
+        return BatteryModbusSource(
+            host=str(settings.get("host", "")).strip(),
+            port=int(settings.get("port", 502)),
+            unit_id=int(settings.get("unit_id", 1)),
+            poll_interval_ms=int(settings.get("poll_interval_ms", 1000)),
+            request_timeout_seconds=float(settings.get("request_timeout_seconds", 1.0)),
+            soc=_build_modbus_value_config("soc", settings.get("soc")),
+            charge_power=_build_modbus_value_config("charge_power", settings.get("charge_power")),
+            discharge_power=_build_modbus_value_config("discharge_power", settings.get("discharge_power")),
+        )
+
+    raise ValueError(f"Unsupported battery source type: {battery_type}")
 
 
 def build_miners(config: dict) -> list[MinerAdapter]:
