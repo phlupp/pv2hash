@@ -235,7 +235,7 @@ async def control_loop() -> None:
 async def startup_event() -> None:
     logger.info("Application startup complete")
     asyncio.create_task(control_loop())
-    asyncio.create_task(update_checker.refresh_if_stale())
+    asyncio.create_task(update_checker.run_background_loop())
 
 
 def reload_runtime() -> None:
@@ -250,8 +250,6 @@ def reload_runtime() -> None:
 
 @app.get("/")
 async def dashboard(request: Request):
-    asyncio.create_task(update_checker.refresh_if_stale())
-
     total_miner_power = sum(m.power_w for m in state.miners) if state.miners else 0.0
     miner_count = len(state.miners)
 

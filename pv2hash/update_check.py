@@ -12,8 +12,9 @@ from pv2hash.runtime import AppState, UpdateCheckState
 
 DEFAULT_UPDATE_REPO = "phlupp/pv2hash"
 GITHUB_RELEASES_LATEST_URL = "https://api.github.com/repos/{repo}/releases/latest"
-UPDATE_CHECK_CACHE_SECONDS = 6 * 60 * 60
+UPDATE_CHECK_INTERVAL_SECONDS = 60 * 60
 UPDATE_CHECK_TIMEOUT_SECONDS = 10.0
+BACKGROUND_TICK_SECONDS = 60
 _RELEASE_TAG_RE = re.compile(r"^v?(?P<version>\d+\.\d+\.\d+)-build\.(?P<build>\d+)$")
 
 logger = get_logger("pv2hash.update_check")
@@ -93,6 +94,13 @@ class UpdateChecker:
         ).strip()
         return raw or DEFAULT_UPDATE_REPO
 
+    def _is_stale(self) -> bool:
+        checked_at = self.state.update_check.checked_at
+        if checked_at is None:
+            return True
+        age = datetime.now(UTC) - checked_at
+        return age >= timedelta(seconds=UPDATE_CHECK_INTERVAL_SECONDS)
+
     def _set_disabled_state(self) -> None:
         current = self.state.update_check
         self.state.update_check = UpdateCheckState(
@@ -127,13 +135,28 @@ class UpdateChecker:
             self._set_disabled_state()
             return self.snapshot()
 
-        checked_at = self.state.update_check.checked_at
-        if checked_at is not None:
-            age = datetime.now(UTC) - checked_at
-            if age < timedelta(seconds=UPDATE_CHECK_CACHE_SECONDS):
-                return self.snapshot()
+        if not self._is_stale():
+            return self.snapshot()
 
         return await self.refresh()
+
+    async def run_background_loop(self) -> None:
+        logger.info(
+            "Update check background loop started: interval=%ss tick=%ss",
+            UPDATE_CHECK_INTERVAL_SECONDS,
+            BACKGROUND_TICK_SECONDS,
+        )
+
+        while True:
+            try:
+                await self.refresh_if_stale()
+            except asyncio.CancelledError:
+                logger.info("Update check background loop stopped")
+                raise
+            except Exception:
+                logger.exception("Unhandled error in update check background loop")
+
+            await asyncio.sleep(BACKGROUND_TICK_SECONDS)
 
     async def refresh(self) -> dict[str, Any]:
         if not self._is_enabled():
