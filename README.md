@@ -240,7 +240,7 @@ curl -fsSL https://raw.githubusercontent.com/phlupp/pv2hash/main/scripts/install
 Beispiel:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/phlupp/pv2hash/main/scripts/install_release.sh | sudo env TAG=v0.2.2-build.4 bash
+curl -fsSL https://raw.githubusercontent.com/phlupp/pv2hash/main/scripts/install_release.sh | sudo env TAG=v0.2.2 bash
 ```
 
 Der Installer soll:

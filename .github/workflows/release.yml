@@ -1,6 +1,6 @@
 name: Release
 
-run-name: Release ${{ inputs.version }} build ${{ github.run_number }}
+run-name: Release ${{ inputs.version }}
 
 on:
   workflow_dispatch:
@@ -39,11 +39,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
-          echo "BUILD=${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "FULL_VERSION=${{ inputs.version }}+build.${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "VERSION_SLUG=${{ inputs.version }}-build.${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "TAG=v${{ inputs.version }}-build.${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "DIST_DIR=dist/${{ inputs.version }}-build.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "FULL_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+          echo "VERSION_SLUG=${{ inputs.version }}" >> "$GITHUB_ENV"
+          echo "TAG=v${{ inputs.version }}" >> "$GITHUB_ENV"
+          echo "DIST_DIR=dist/${{ inputs.version }}" >> "$GITHUB_ENV"
 
       - name: Update pv2hash/version.py
         shell: bash
@@ -53,12 +52,10 @@ jobs:
           from pathlib import Path
 
           version = os.environ["VERSION"]
-          build = os.environ["BUILD"]
 
           content = (
               f'APP_VERSION = "{version}"\n'
-              f'APP_BUILD = "{build}"\n'
-              'APP_VERSION_FULL = f"{APP_VERSION}+build.{APP_BUILD}"\n'
+              'APP_VERSION_FULL = APP_VERSION\n'
           )
 
           Path("pv2hash/version.py").write_text(content, encoding="utf-8")

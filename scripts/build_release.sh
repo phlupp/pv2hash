@@ -17,32 +17,22 @@ from pathlib import Path
 
 text = Path("pv2hash/version.py").read_text(encoding="utf-8")
 
-def extract(name: str) -> str:
-    m = re.search(rf'^{name}\s*=\s*"([^"]+)"', text, re.MULTILINE)
-    if not m:
-        raise SystemExit(f"{name} nicht in pv2hash/version.py gefunden")
-    return m.group(1)
+match = re.search(r'^APP_VERSION\s*=\s*"([^"]+)"', text, re.MULTILINE)
+if not match:
+    raise SystemExit("APP_VERSION nicht in pv2hash/version.py gefunden")
 
-version = extract("APP_VERSION")
-build = extract("APP_BUILD")
-
-full_version = f"{version}+build.{build}"
-version_slug = f"{version}-build.{build}"
-tag = f"v{version_slug}"
+version = match.group(1)
 
 print(version)
-print(build)
-print(full_version)
-print(version_slug)
-print(tag)
+print(version)
+print(f"v{version}")
 PY
 )
 
 APP_VERSION="${VERSION_INFO[0]}"
-APP_BUILD="${VERSION_INFO[1]}"
-FULL_VERSION="${VERSION_INFO[2]}"
-VERSION_SLUG="${VERSION_INFO[3]}"
-TAG="${VERSION_INFO[4]}"
+VERSION_SLUG="${VERSION_INFO[1]}"
+TAG="${VERSION_INFO[2]}"
+FULL_VERSION="${APP_VERSION}"
 
 DIST_ROOT="dist/${VERSION_SLUG}"
 PACKAGE_DIR_NAME="pv2hash-${VERSION_SLUG}"
@@ -83,13 +73,11 @@ ARCHIVE_SHA256="$(sha256sum "${ARCHIVE_PATH}" | awk '{print $1}')"
 python3 - <<PY > "${MANIFEST_PATH}"
 import json
 from datetime import datetime, UTC
-from pathlib import Path
 
 manifest = {
     "app": "pv2hash",
     "version": "${FULL_VERSION}",
     "version_semver": "${APP_VERSION}",
-    "build": "${APP_BUILD}",
     "version_slug": "${VERSION_SLUG}",
     "tag": "${TAG}",
     "asset_name": "${ARCHIVE_NAME}",

@@ -18,7 +18,9 @@ DEFAULT_STATE_FILE = Path("data/self_update_status.json")
 DEFAULT_LOCK_DIR = Path("data/self_update.lock")
 STARTING_TIMEOUT_SECONDS = 20.0
 LAUNCH_CONFIRM_TIMEOUT_SECONDS = 3.0
-_RELEASE_TAG_RE = re.compile(r"^v?(?P<version>\d+\.\d+\.\d+)-build\.(?P<build>\d+)$")
+_SEMVER_TAG_RE = re.compile(r"^v?(?P<version>\d+\.\d+\.\d+)$")
+_LEGACY_BUILD_TAG_RE = re.compile(r"^v?(?P<version>\d+\.\d+\.\d+)-build\.(?P<build>\d+)$")
+_LOCAL_VERSION_RE = re.compile(r"^(?P<version>\d+\.\d+\.\d+)(?:\+.+)?$")
 
 logger = get_logger("pv2hash.self_update")
 
@@ -32,15 +34,16 @@ class SelfUpdateManager:
         self,
         *,
         current_version: str,
-        current_build: str,
         install_info_file: Path = DEFAULT_INSTALL_INFO_FILE,
         helper_path: Path = DEFAULT_HELPER_PATH,
         state_file: Path = DEFAULT_STATE_FILE,
         lock_dir: Path = DEFAULT_LOCK_DIR,
     ) -> None:
-        self.current_version = current_version
-        self.current_build = current_build
-        self.current_version_full = f"{current_version}+build.{current_build}"
+        match = _LOCAL_VERSION_RE.match(str(current_version).strip())
+        if not match:
+            raise SelfUpdateError(f"Ungültige lokale Version: {current_version!r}")
+        self.current_version = match.group("version")
+        self.current_version_full = self.current_version
         self.install_info_file = install_info_file
         self.helper_path = helper_path
         self.state_file = state_file
@@ -63,14 +66,16 @@ class SelfUpdateManager:
         return values
 
     def _parse_release_tag(self, tag: str) -> tuple[str, str]:
-        match = _RELEASE_TAG_RE.match(str(tag).strip())
-        if not match:
+        raw = str(tag).strip()
+        match = _SEMVER_TAG_RE.match(raw)
+        if match is None:
+            match = _LEGACY_BUILD_TAG_RE.match(raw)
+        if match is None:
             raise SelfUpdateError(f"Ungültiges Release-Tag: {tag!r}")
 
         version = match.group("version")
-        build = match.group("build")
-        normalized_tag = tag if tag.startswith("v") else f"v{tag}"
-        return normalized_tag, f"{version}+build.{build}"
+        normalized_tag = raw if raw.startswith("v") else f"v{raw}"
+        return normalized_tag, version
 
     def _read_state(self) -> dict[str, Any]:
         if not self.state_file.exists():
@@ -201,9 +206,18 @@ class SelfUpdateManager:
             return None
         return max(0.0, (datetime.now(UTC) - parsed).total_seconds())
 
+    def _normalize_version_text(self, value: Any) -> str | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        match = _LOCAL_VERSION_RE.match(raw)
+        if match:
+            return match.group("version")
+        return raw
+
     def _recover_state(self, file_state: dict[str, Any]) -> dict[str, Any]:
         base_status = str(file_state.get("status") or "idle")
-        target_version_full = str(file_state.get("target_version_full") or "").strip()
+        target_version_full = self._normalize_version_text(file_state.get("target_version_full")) or ""
 
         if base_status not in {"starting", "running"}:
             return file_state
@@ -292,7 +306,7 @@ class SelfUpdateManager:
         base_status = str(file_state.get("status") or "idle")
         update_status_value = str((update_status or {}).get("status") or "idle")
         available_release_tag = (update_status or {}).get("release_tag")
-        available_release_version_full = (update_status or {}).get("release_version_full")
+        available_release_version_full = self._normalize_version_text((update_status or {}).get("release_version_full"))
         lock_exists = self._lock_exists()
         running = base_status in {"starting", "running"}
 
@@ -353,11 +367,11 @@ class SelfUpdateManager:
             "available_release_tag": available_release_tag,
             "available_release_version_full": available_release_version_full,
             "target_tag": file_state.get("target_tag"),
-            "target_version_full": file_state.get("target_version_full"),
+            "target_version_full": self._normalize_version_text(file_state.get("target_version_full")),
             "started_at": file_state.get("started_at"),
             "finished_at": file_state.get("finished_at"),
             "last_error": file_state.get("last_error"),
-            "updated_version_full": file_state.get("updated_version_full"),
+            "updated_version_full": self._normalize_version_text(file_state.get("updated_version_full")),
             "log_file": file_state.get("log_file"),
             "lock_exists": lock_exists,
             "lock_path": str(self.lock_dir),

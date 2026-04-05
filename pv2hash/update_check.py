@@ -15,7 +15,9 @@ GITHUB_RELEASES_LATEST_URL = "https://api.github.com/repos/{repo}/releases/lates
 UPDATE_CHECK_INTERVAL_SECONDS = 60 * 60
 UPDATE_CHECK_TIMEOUT_SECONDS = 10.0
 BACKGROUND_TICK_SECONDS = 60
-_RELEASE_TAG_RE = re.compile(r"^v?(?P<version>\d+\.\d+\.\d+)-build\.(?P<build>\d+)$")
+_SEMVER_TAG_RE = re.compile(r"^v?(?P<version>\d+\.\d+\.\d+)$")
+_LEGACY_BUILD_TAG_RE = re.compile(r"^v?(?P<version>\d+\.\d+\.\d+)-build\.(?P<build>\d+)$")
+_LOCAL_VERSION_RE = re.compile(r"^(?P<version>\d+\.\d+\.\d+)(?:\+.+)?$")
 
 logger = get_logger("pv2hash.update_check")
 
@@ -30,28 +32,37 @@ def _parse_timestamp(value: str | None) -> datetime | None:
         return None
 
 
-def _parse_local_version(version: str, build: str) -> tuple[int, int, int, int]:
-    parts = [int(part) for part in str(version).split(".")]
-    if len(parts) != 3:
-        raise ValueError(f"Ungültige lokale Version: {version}")
-    return parts[0], parts[1], parts[2], int(build)
+def _parse_version_tuple(version: str) -> tuple[int, int, int]:
+    match = _LOCAL_VERSION_RE.match(str(version).strip())
+    if not match:
+        raise ValueError(f"Ungültige Version: {version}")
+
+    core = match.group("version")
+    major, minor, patch = [int(part) for part in core.split(".")]
+    return major, minor, patch
 
 
 def _parse_release_tag(tag_name: str) -> dict[str, Any]:
-    match = _RELEASE_TAG_RE.match(str(tag_name).strip())
-    if not match:
+    raw = str(tag_name).strip()
+    match = _SEMVER_TAG_RE.match(raw)
+    build: str | None = None
+
+    if match is None:
+        match = _LEGACY_BUILD_TAG_RE.match(raw)
+        if match is not None:
+            build = match.group("build")
+
+    if match is None:
         raise ValueError(f"Unbekanntes Release-Tag-Format: {tag_name!r}")
 
     version = match.group("version")
-    build = match.group("build")
-    major, minor, patch = [int(part) for part in version.split(".")]
 
     return {
-        "tag": tag_name,
+        "tag": raw,
         "version": version,
         "build": build,
-        "version_full": f"{version}+build.{build}",
-        "tuple": (major, minor, patch, int(build)),
+        "version_full": version,
+        "tuple": _parse_version_tuple(version),
     }
 
 
@@ -77,12 +88,11 @@ def _serialize_update_check(status: UpdateCheckState) -> dict[str, Any]:
 
 
 class UpdateChecker:
-    def __init__(self, state: AppState, *, current_version: str, current_build: str) -> None:
+    def __init__(self, state: AppState, *, current_version: str) -> None:
         self.state = state
-        self.current_version = current_version
-        self.current_build = current_build
-        self.current_version_full = f"{current_version}+build.{current_build}"
-        self.current_tuple = _parse_local_version(current_version, current_build)
+        self.current_version = _LOCAL_VERSION_RE.match(str(current_version).strip()).group("version") if _LOCAL_VERSION_RE.match(str(current_version).strip()) else current_version
+        self.current_version_full = self.current_version
+        self.current_tuple = _parse_version_tuple(self.current_version)
         self._lock = asyncio.Lock()
 
     def _is_enabled(self) -> bool:

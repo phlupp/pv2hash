@@ -23,7 +23,7 @@ from pv2hash.runtime import AppState
 from pv2hash.self_update import SelfUpdateManager
 from pv2hash.services import RuntimeServices
 from pv2hash.update_check import UpdateChecker
-from pv2hash.version import APP_BUILD, APP_VERSION, APP_VERSION_FULL
+from pv2hash.version import APP_VERSION, APP_VERSION_FULL
 
 initial_config = load_config()
 setup_logging(initial_config.get("system", {}).get("log_level", "INFO"))
@@ -39,11 +39,9 @@ services.reload_from_config()
 update_checker = UpdateChecker(
     state,
     current_version=APP_VERSION,
-    current_build=APP_BUILD,
 )
 self_update_manager = SelfUpdateManager(
     current_version=APP_VERSION,
-    current_build=APP_BUILD,
 )
 
 EDITABLE_PROFILE_NAMES = ("p1", "p2", "p3", "p4")
@@ -537,7 +535,6 @@ async def system_page(request: Request):
         "source_type": state.config["source"].get("type", "unknown"),
         "miner_count": len(state.miners),
         "app_version": APP_VERSION,
-        "app_build": APP_BUILD,
         "app_version_full": APP_VERSION_FULL,
         "update_status": update_status,
         "self_update_status": self_update_manager.snapshot(
