@@ -444,6 +444,10 @@
                 });
                 const data = await response.json();
                 renderSelfUpdateStatus(data);
+
+                if (response.ok && data.progress_url) {
+                    window.location.href = data.progress_url;
+                }
             } catch (err) {
                 selfUpdateStateBadge.textContent = "Fehler";
                 selfUpdateStateBadge.className = "status-pill status-bad";

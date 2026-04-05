@@ -717,3 +717,41 @@ select:focus {
     padding-top: 18px;
     border-top: 1px solid rgba(255,255,255,.08);
 }
+
+.update-progress-shell {
+    display: flex;
+    justify-content: center;
+}
+
+.update-progress-card {
+    width: min(820px, 100%);
+}
+
+.update-progress-head {
+    display: grid;
+    gap: 14px;
+}
+
+.update-progress-title-wrap {
+    display: grid;
+    gap: 6px;
+}
+
+.update-progress-title-wrap h2 {
+    margin: 0;
+}
+
+.update-progress-note {
+    margin-top: 14px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(78, 161, 255, .28);
+    background: rgba(78, 161, 255, .12);
+    color: #d8ebff;
+}
+
+.update-progress-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}

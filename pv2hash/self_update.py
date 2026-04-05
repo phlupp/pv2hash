@@ -152,6 +152,45 @@ class SelfUpdateManager:
                 details = "Helper-Probe fehlgeschlagen. sudo / Installationsrechte prüfen."
             raise SelfUpdateError(details)
 
+    def _repair_stale_running_state(self, file_state: dict[str, Any]) -> dict[str, Any]:
+        base_status = str(file_state.get("status") or "idle")
+        target_version_full = str(file_state.get("target_version_full") or "").strip()
+
+        if base_status not in {"starting", "running"}:
+            return file_state
+
+        if not target_version_full or target_version_full != self.current_version_full:
+            return file_state
+
+        finished_at = str(file_state.get("finished_at") or "").strip() or self._now_iso()
+        started_at = file_state.get("started_at")
+        target_tag = file_state.get("target_tag")
+        helper_path = str(file_state.get("helper_path") or self.helper_path)
+        log_file = file_state.get("log_file")
+        message = (
+            f"Update auf {self.current_version_full} erfolgreich abgeschlossen. "
+            "Dienst wurde neu gestartet."
+        )
+
+        self._write_state(
+            status="success",
+            message=message,
+            target_tag=target_tag,
+            target_version_full=target_version_full,
+            started_at=started_at,
+            finished_at=finished_at,
+            last_error=None,
+            updated_version_full=self.current_version_full,
+            helper_path=helper_path,
+            log_file=log_file,
+        )
+        logger.info(
+            "Recovered stale self-update state after restart: target=%s current=%s",
+            target_version_full,
+            self.current_version_full,
+        )
+        return self._read_state()
+
     def snapshot(
         self,
         *,
@@ -159,7 +198,7 @@ class SelfUpdateManager:
         update_status: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         install_info = self._read_install_info()
-        file_state = self._read_state()
+        file_state = self._repair_stale_running_state(self._read_state())
         is_release_install = install_info.get("PV2HASH_INSTALL_MODE") == "release"
         helper_exists = self.helper_path.exists() and os.access(self.helper_path, os.X_OK)
         helper_configured = is_release_install and helper_exists

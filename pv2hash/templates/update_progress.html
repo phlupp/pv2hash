@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PV2Hash – Update läuft</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">PV</div>
+                <div>
+                    <div class="brand-title">PV2Hash</div>
+                    <div class="brand-subtitle">{{ instance_name }}</div>
+                </div>
+            </div>
+
+            <nav class="nav">
+                <span class="nav-item disabled">Update läuft …</span>
+            </nav>
+        </aside>
+
+        <main class="content">
+            <header class="topbar">
+                <div>
+                    <h1>Update läuft</h1>
+                    <p>Die Anwendung wird aktualisiert und startet dabei neu.</p>
+                </div>
+            </header>
+
+            <section class="update-progress-shell">
+                <article class="card update-progress-card">
+                    <div class="update-progress-head">
+                        <span id="progressBadge" class="status-pill status-info">Verbinde …</span>
+                        <div class="update-progress-title-wrap">
+                            <h2 id="progressTitle">Self-Update wird vorbereitet</h2>
+                            <p id="progressSubtitle" class="muted">Bitte dieses Browserfenster geöffnet lassen.</p>
+                        </div>
+                    </div>
+
+                    <div class="update-progress-note" id="progressReconnectNote" hidden>
+                        Die Anwendung wird gerade neu gestartet. Verbindung wird automatisch wiederhergestellt …
+                    </div>
+
+                    <div class="kv update-kv top-gap">
+                        <div class="kv-row">
+                            <span>Lokale Version</span>
+                            <strong id="progressLocalVersion">{{ update_status.local_version_full or app_version_full }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Ziel-Release</span>
+                            <strong id="progressTargetVersion">{{ self_update_status.target_version_full or self_update_status.available_release_version_full or "—" }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Release-Tag</span>
+                            <strong id="progressReleaseTag">{{ self_update_status.target_tag or update_status.release_tag or "—" }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Gestartet am</span>
+                            <strong id="progressStartedAt">{{ self_update_status.started_at or "—" }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Beendet am</span>
+                            <strong id="progressFinishedAt">{{ self_update_status.finished_at or "—" }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Release-Status</span>
+                            <strong id="progressReleaseState">{{ update_status.status or "—" }}</strong>
+                        </div>
+                    </div>
+
+                    <div id="progressMessage" class="update-message top-gap">Warte auf Status …</div>
+                    <div id="progressError" class="update-error top-gap" hidden></div>
+
+                    <div class="update-progress-actions top-gap">
+                        <a class="btn btn-secondary" href="/system">Zur Systemseite</a>
+                        <a class="btn btn-info" href="/">Zum Dashboard</a>
+                    </div>
+                </article>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const progressBadge = document.getElementById("progressBadge");
+        const progressTitle = document.getElementById("progressTitle");
+        const progressSubtitle = document.getElementById("progressSubtitle");
+        const progressReconnectNote = document.getElementById("progressReconnectNote");
+        const progressLocalVersion = document.getElementById("progressLocalVersion");
+        const progressTargetVersion = document.getElementById("progressTargetVersion");
+        const progressReleaseTag = document.getElementById("progressReleaseTag");
+        const progressStartedAt = document.getElementById("progressStartedAt");
+        const progressFinishedAt = document.getElementById("progressFinishedAt");
+        const progressReleaseState = document.getElementById("progressReleaseState");
+        const progressMessage = document.getElementById("progressMessage");
+        const progressError = document.getElementById("progressError");
+
+        let reconnecting = false;
+        let redirectScheduled = false;
+        let lastSelfUpdate = null;
+        let lastUpdateStatus = null;
+
+        function formatDate(value) {
+            if (!value) {
+                return "—";
+            }
+
+            const parsed = new Date(value);
+            if (Number.isNaN(parsed.getTime())) {
+                return value;
+            }
+
+            return parsed.toLocaleString("de-DE");
+        }
+
+        function setBadge(label, className) {
+            progressBadge.textContent = label;
+            progressBadge.className = `status-pill ${className}`;
+        }
+
+        function scheduleRedirect() {
+            if (redirectScheduled) {
+                return;
+            }
+            redirectScheduled = true;
+            progressSubtitle.textContent = "Update erfolgreich. Weiterleitung zum Dashboard …";
+            window.setTimeout(() => {
+                window.location.href = "/";
+            }, 3000);
+        }
+
+        function renderProgress(selfUpdate, updateStatus) {
+            lastSelfUpdate = selfUpdate || {};
+            lastUpdateStatus = updateStatus || {};
+            reconnecting = false;
+            progressReconnectNote.hidden = true;
+            progressError.hidden = true;
+            progressError.textContent = "";
+
+            const selfStatus = selfUpdate && selfUpdate.status ? selfUpdate.status : "unknown";
+            const releaseStatus = updateStatus && updateStatus.status ? updateStatus.status : "unknown";
+            const currentVersion = (updateStatus && updateStatus.local_version_full) || (selfUpdate && selfUpdate.current_version_full) || "—";
+            const targetVersion = (selfUpdate && selfUpdate.target_version_full) || (selfUpdate && selfUpdate.available_release_version_full) || (updateStatus && updateStatus.release_version_full) || "—";
+            const targetTag = (selfUpdate && selfUpdate.target_tag) || (updateStatus && updateStatus.release_tag) || "—";
+
+            progressLocalVersion.textContent = currentVersion;
+            progressTargetVersion.textContent = targetVersion;
+            progressReleaseTag.textContent = targetTag;
+            progressStartedAt.textContent = formatDate(selfUpdate && selfUpdate.started_at);
+            progressFinishedAt.textContent = formatDate(selfUpdate && selfUpdate.finished_at);
+            progressReleaseState.textContent = releaseStatus;
+            progressMessage.textContent = selfUpdate && selfUpdate.message ? selfUpdate.message : "—";
+
+            if (selfUpdate && selfUpdate.last_error) {
+                progressError.hidden = false;
+                progressError.textContent = selfUpdate.last_error;
+            }
+
+            if (selfStatus === "success") {
+                setBadge("Erfolgreich", "status-good");
+                progressTitle.textContent = "Update abgeschlossen";
+                scheduleRedirect();
+                return;
+            }
+
+            if (selfStatus === "error") {
+                setBadge("Fehler", "status-bad");
+                progressTitle.textContent = "Update fehlgeschlagen";
+                progressSubtitle.textContent = "Details stehen unten. Du kannst zur Systemseite zurückkehren.";
+                return;
+            }
+
+            if (selfStatus === "starting") {
+                setBadge("Startet …", "status-info");
+                progressTitle.textContent = "Self-Update startet";
+                progressSubtitle.textContent = "Der Installer wird vorbereitet.";
+                return;
+            }
+
+            if (selfStatus === "running") {
+                setBadge("Läuft", "status-warn");
+                progressTitle.textContent = "Update wird installiert";
+                progressSubtitle.textContent = "Der Dienst kann dabei kurzzeitig nicht erreichbar sein.";
+                return;
+            }
+
+            if (selfStatus === "disabled") {
+                setBadge("Deaktiviert", "status-neutral");
+                progressTitle.textContent = "Self-Update ist deaktiviert";
+                progressSubtitle.textContent = "Bitte aktiviere es in den Einstellungen.";
+                return;
+            }
+
+            if (selfStatus === "unavailable") {
+                setBadge("Nicht bereit", "status-neutral");
+                progressTitle.textContent = "Self-Update ist nicht verfügbar";
+                progressSubtitle.textContent = "Bitte prüfe Installationsmodus und Helper.";
+                return;
+            }
+
+            if (targetVersion !== "—" && currentVersion === targetVersion && releaseStatus === "up_to_date") {
+                setBadge("Erfolgreich", "status-good");
+                progressTitle.textContent = "Update abgeschlossen";
+                progressSubtitle.textContent = "Die Zielversion ist bereits aktiv.";
+                scheduleRedirect();
+                return;
+            }
+
+            setBadge("Warte …", "status-info");
+            progressTitle.textContent = "Warte auf Status";
+            progressSubtitle.textContent = "Sobald die Anwendung wieder antwortet, wird der Status hier aktualisiert.";
+        }
+
+        async function fetchJson(url) {
+            const response = await fetch(url, { cache: "no-store" });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+        }
+
+        async function pollProgress() {
+            try {
+                const [selfUpdate, updateStatus] = await Promise.all([
+                    fetchJson("/api/system/self-update-status"),
+                    fetchJson("/api/system/update-status")
+                ]);
+                renderProgress(selfUpdate, updateStatus);
+            } catch (err) {
+                reconnecting = true;
+                setBadge("Neustart …", "status-info");
+                progressTitle.textContent = "Verbindung wird wiederhergestellt";
+                progressSubtitle.textContent = "Das ist während des Dienst-Neustarts normal.";
+                progressReconnectNote.hidden = false;
+                progressMessage.textContent = "Die Anwendung antwortet gerade noch nicht wieder. Es wird automatisch erneut versucht …";
+            }
+        }
+
+        pollProgress();
+        window.setInterval(pollProgress, 2500);
+    </script>
+</body>
+</html>

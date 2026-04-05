@@ -550,6 +550,28 @@ async def system_page(request: Request):
     )
 
 
+@app.get("/system/update-progress")
+async def system_update_progress_page(request: Request):
+    update_status = update_checker.snapshot()
+    auto_update_enabled = bool(state.config["system"].get("auto_update_enabled", False))
+
+    context = {
+        "request": request,
+        "instance_name": state.config["system"]["instance_name"],
+        "app_version_full": APP_VERSION_FULL,
+        "update_status": update_status,
+        "self_update_status": self_update_manager.snapshot(
+            auto_update_enabled=auto_update_enabled,
+            update_status=update_status,
+        ),
+    }
+    return templates.TemplateResponse(
+        request=request,
+        name="update_progress.html",
+        context=context,
+    )
+
+
 @app.post("/system/reload")
 async def system_reload():
     logger.info("Manual system reload triggered from UI")
@@ -585,7 +607,9 @@ async def api_system_self_update():
         auto_update_enabled=bool(state.config["system"].get("auto_update_enabled", False)),
         update_status=update_status,
     )
-    return JSONResponse(content=jsonable_encoder(payload), status_code=status_code)
+    response_payload = dict(payload)
+    response_payload["progress_url"] = "/system/update-progress"
+    return JSONResponse(content=jsonable_encoder(response_payload), status_code=status_code)
 
 
 @app.get("/api/status")
