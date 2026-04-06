@@ -141,6 +141,37 @@ def _merge_battery_snapshot(main_snapshot, battery_snapshot):
     )
 
 
+def _runtime_matches(generation: int, source, battery_source, controller, miners: list) -> bool:
+    return (
+        generation == services.reload_generation
+        and source is services.source
+        and battery_source is services.battery_source
+        and controller is services.controller
+        and miners == list(services.miners)
+    )
+
+
+async def _shutdown_retired_miners(miners: list) -> None:
+    if not miners:
+        return
+
+    for miner in miners:
+        try:
+            logger.info(
+                "Applying off profile to retired/disabled miner: id=%s name=%s host=%s",
+                getattr(miner.info, "id", "?"),
+                getattr(miner.info, "name", "?"),
+                getattr(miner.info, "host", "?"),
+            )
+            await miner.set_profile("off")
+            await miner.get_status()
+        except Exception:
+            logger.exception(
+                "Failed to apply off profile to retired/disabled miner: id=%s",
+                getattr(getattr(miner, "info", None), "id", "?"),
+            )
+
+
 def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
     if driver == "braiins":
         return 50051, 1200, 2200, 3200, 4200
@@ -299,17 +330,12 @@ async def control_loop() -> None:
                 battery_snapshot = await battery_source.read()
                 snapshot = _merge_battery_snapshot(snapshot, battery_snapshot)
 
-            if (
-                generation != services.reload_generation
-                or source is not services.source
-                or battery_source is not services.battery_source
-            ):
+            if not _runtime_matches(generation, source, battery_source, controller, miners):
                 logger.info("Discarding stale control iteration after runtime reload")
                 await asyncio.sleep(0.1)
                 continue
 
-            source_last_live_packet_at = getattr(source, "last_live_packet_at", None)
-            state.last_live_packet_at = source_last_live_packet_at
+            state.last_live_packet_at = getattr(source, "last_live_packet_at", None)
 
             decision = controller.decide(
                 snapshot=snapshot,
@@ -317,12 +343,33 @@ async def control_loop() -> None:
                 distribution_mode=distribution_mode,
             )
 
+            if not _runtime_matches(generation, source, battery_source, controller, miners):
+                logger.info("Discarding stale control decision after runtime reload")
+                await asyncio.sleep(0.1)
+                continue
+
+            aborted = False
+
             for miner, profile in zip(miners, decision.profiles):
+                if not _runtime_matches(generation, source, battery_source, controller, miners):
+                    logger.info("Stopping stale profile apply after runtime reload")
+                    aborted = True
+                    break
                 await miner.set_profile(profile)
 
-            miner_states = [await miner.get_status() for miner in miners]
+            if aborted:
+                await asyncio.sleep(0.1)
+                continue
 
-            if generation != services.reload_generation:
+            miner_states = []
+            for miner in miners:
+                if not _runtime_matches(generation, source, battery_source, controller, miners):
+                    logger.info("Stopping stale status refresh after runtime reload")
+                    aborted = True
+                    break
+                miner_states.append(await miner.get_status())
+
+            if aborted or not _runtime_matches(generation, source, battery_source, controller, miners):
                 logger.info("Discarding state update after runtime reload")
                 await asyncio.sleep(0.1)
                 continue
@@ -347,6 +394,18 @@ async def startup_event() -> None:
 def reload_runtime() -> None:
     logger.info("Reloading runtime")
     services.reload_from_config()
+
+    retired_miners = services.pop_retired_miners()
+    if retired_miners:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.warning(
+                "Retired/disabled miners could not be shut down immediately because no event loop is running"
+            )
+        else:
+            loop.create_task(_shutdown_retired_miners(retired_miners))
+
     state.snapshot = None
     state.miners = []
     state.last_decision = None

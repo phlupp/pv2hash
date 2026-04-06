@@ -19,10 +19,14 @@ class RuntimeServices:
         self.controller = None
         self.last_error: str | None = None
         self.reload_generation = 0
+        self._retired_miners = []
 
     def reload_from_config(self) -> None:
         config = load_config()
         self.state.config = config
+
+        old_miners = list(self.miners)
+        old_by_id = {getattr(miner.info, "id", None): miner for miner in old_miners}
 
         logger.info("Reloading runtime from config")
         logger.info(
@@ -36,6 +40,12 @@ class RuntimeServices:
         self.source = build_source(config)
         self.battery_source = build_battery_source(config)
         self.miners = build_miners(config)
+        self._carry_runtime_state(old_by_id)
+        self._retired_miners = [
+            miner
+            for miner_id, miner in old_by_id.items()
+            if miner_id is not None and miner_id not in {m.info.id for m in self.miners}
+        ]
         self.controller = BasicController(config["control"], config.get("battery", {}))
         self.last_error = None
         self.reload_generation += 1
@@ -51,6 +61,30 @@ class RuntimeServices:
             config["source"].get("type"),
             config.get("battery", {}).get("type") if config.get("battery", {}).get("enabled") else "disabled",
         )
+
+    def _carry_runtime_state(self, old_by_id: dict) -> None:
+        for miner in self.miners:
+            old = old_by_id.get(getattr(miner.info, "id", None))
+            if old is None:
+                continue
+
+            miner.info.profile = old.info.profile
+            miner.info.power_w = old.info.power_w
+            miner.info.reachable = old.info.reachable
+            miner.info.runtime_state = old.info.runtime_state
+            miner.info.last_error = old.info.last_error
+            miner.info.last_seen = old.info.last_seen
+            miner.info.api_version = old.info.api_version
+            miner.info.control_mode = old.info.control_mode
+            miner.info.autotuning_enabled = old.info.autotuning_enabled
+            miner.info.power_target_min_w = old.info.power_target_min_w
+            miner.info.power_target_default_w = old.info.power_target_default_w
+            miner.info.power_target_max_w = old.info.power_target_max_w
+
+    def pop_retired_miners(self) -> list:
+        retired = list(self._retired_miners)
+        self._retired_miners = []
+        return retired
 
     def get_source_debug_info(self) -> dict:
         if self.source is None:
