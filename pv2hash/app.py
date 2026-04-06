@@ -47,7 +47,6 @@ self_update_manager = SelfUpdateManager(
 EDITABLE_PROFILE_NAMES = ("p1", "p2", "p3", "p4")
 ALL_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
 EDITABLE_MIN_REGULATED_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
-BATTERY_OVERRIDE_PROFILE_NAMES = ("p1", "p2", "p3", "p4")
 MODBUS_REGISTER_TYPES = ("holding", "input", "coil", "discrete_input")
 MODBUS_VALUE_TYPES = ("int8", "uint8", "int16", "uint16", "int32", "uint32", "float32")
 MODBUS_ENDIAN_TYPES = ("big_endian", "little_endian")
@@ -55,7 +54,9 @@ MODBUS_ENDIAN_TYPES = ("big_endian", "little_endian")
 
 def _safe_int(value, default: int) -> int:
     try:
-        return int(value)
+        if value is None:
+            return default
+        return int(float(str(value).strip()))
     except Exception:
         return default
 
@@ -74,7 +75,7 @@ def _optional_int(value) -> int | None:
     if text == "":
         return None
     try:
-        return int(text)
+        return int(float(text))
     except Exception:
         return None
 
@@ -160,69 +161,6 @@ def _normalize_fallback_profile(value: str | None, default: str = "p1") -> str:
     return normalized
 
 
-def _normalize_battery_override_profile(value: str | None, default: str = "p1") -> str:
-    normalized = str(value or default).strip().lower()
-    if normalized not in BATTERY_OVERRIDE_PROFILE_NAMES:
-        return default
-    return normalized
-
-
-def _normalize_battery_soc_min(value, default: float) -> float:
-    try:
-        parsed = float(value)
-    except Exception:
-        parsed = float(default)
-    return max(0.0, min(parsed, 100.0))
-
-
-def _parse_int_value(value, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
-    try:
-        parsed = int(float(str(value).strip()))
-    except Exception:
-        parsed = int(default)
-    if minimum is not None:
-        parsed = max(minimum, parsed)
-    if maximum is not None:
-        parsed = min(maximum, parsed)
-    return parsed
-
-
-def _build_miner_battery_config(form, existing: dict | None = None) -> dict:
-    existing = existing or {}
-    return {
-        "use_battery_when_charging": form.get("use_battery_when_charging") == "on",
-        "battery_charge_soc_min": _normalize_battery_soc_min(
-            form.get(
-                "battery_charge_soc_min",
-                existing.get("battery_charge_soc_min", 95.0),
-            ),
-            default=float(existing.get("battery_charge_soc_min", 95.0)),
-        ),
-        "battery_charge_profile": _normalize_battery_override_profile(
-            form.get(
-                "battery_charge_profile",
-                existing.get("battery_charge_profile", "p1"),
-            ),
-            default="p1",
-        ),
-        "use_battery_when_discharging": form.get("use_battery_when_discharging") == "on",
-        "battery_discharge_soc_min": _normalize_battery_soc_min(
-            form.get(
-                "battery_discharge_soc_min",
-                existing.get("battery_discharge_soc_min", 80.0),
-            ),
-            default=float(existing.get("battery_discharge_soc_min", 80.0)),
-        ),
-        "battery_discharge_profile": _normalize_battery_override_profile(
-            form.get(
-                "battery_discharge_profile",
-                existing.get("battery_discharge_profile", "p1"),
-            ),
-            default="p1",
-        ),
-    }
-
-
 def _get_runtime_miner_map() -> dict[str, dict]:
     return {miner.id: asdict(miner) for miner in state.miners}
 
@@ -238,12 +176,6 @@ def _build_miners_view() -> list[dict]:
         merged.setdefault("settings", {})
         merged.setdefault("profiles", {})
         merged.setdefault("min_regulated_profile", "off")
-        merged.setdefault("use_battery_when_charging", False)
-        merged.setdefault("battery_charge_soc_min", 95.0)
-        merged.setdefault("battery_charge_profile", "p1")
-        merged.setdefault("use_battery_when_discharging", False)
-        merged.setdefault("battery_discharge_soc_min", 80.0)
-        merged.setdefault("battery_discharge_profile", "p1")
         miner_views.append(merged)
 
     return miner_views
@@ -470,34 +402,15 @@ async def save_settings(request: Request):
     state.config["system"]["update_repo"] = (
         str(form.get("update_repo", "phlupp/pv2hash")).strip() or "phlupp/pv2hash"
     )
-    state.config["app"]["refresh_seconds"] = _parse_int_value(
-        form.get("refresh_seconds", 5),
-        default=5,
-        minimum=1,
-        maximum=60,
-    )
+    state.config["app"]["refresh_seconds"] = _safe_int(form.get("refresh_seconds", 5), 5)
     state.config["control"]["policy_mode"] = form.get("policy_mode", "coarse")
     state.config["control"]["distribution_mode"] = form.get("distribution_mode", "equal")
-    state.config["control"]["switch_hysteresis_w"] = _parse_int_value(
-        form.get("switch_hysteresis_w", 100),
-        default=100,
-        minimum=0,
+    state.config["control"]["switch_hysteresis_w"] = _safe_int(form.get("switch_hysteresis_w", 100), 100)
+    state.config["control"]["min_switch_interval_seconds"] = int(
+        form.get("min_switch_interval_seconds", 60)
     )
-    state.config["control"]["min_switch_interval_seconds"] = _parse_int_value(
-        form.get("min_switch_interval_seconds", 60),
-        default=60,
-        minimum=0,
-    )
-    state.config["control"]["max_import_w"] = _parse_int_value(
-        form.get("max_import_w", 200),
-        default=200,
-        minimum=0,
-    )
-    state.config["control"]["import_hold_seconds"] = _parse_int_value(
-        form.get("import_hold_seconds", 15),
-        default=15,
-        minimum=0,
-    )
+    state.config["control"]["max_import_w"] = max(0, _safe_int(form.get("max_import_w", 200), 200))
+    state.config["control"]["import_hold_seconds"] = _safe_int(form.get("import_hold_seconds", 15), 15)
 
     state.config["control"].setdefault("source_loss", {})
     state.config["control"]["source_loss"]["stale"] = {
@@ -505,22 +418,14 @@ async def save_settings(request: Request):
         "fallback_profile": _normalize_fallback_profile(
             form.get("stale_fallback_profile", "p1")
         ),
-        "hold_seconds": _parse_int_value(
-            form.get("stale_hold_seconds", 0),
-            default=0,
-            minimum=0,
-        ),
+        "hold_seconds": _safe_int(form.get("stale_hold_seconds", 0), 0),
     }
     state.config["control"]["source_loss"]["offline"] = {
         "mode": form.get("offline_mode", "off_all"),
         "fallback_profile": _normalize_fallback_profile(
             form.get("offline_fallback_profile", "p1")
         ),
-        "hold_seconds": _parse_int_value(
-            form.get("offline_hold_seconds", 0),
-            default=0,
-            minimum=0,
-        ),
+        "hold_seconds": _safe_int(form.get("offline_hold_seconds", 0), 0),
     }
 
     save_config(state.config)
@@ -570,7 +475,7 @@ async def save_source(request: Request):
     state.config["source"]["settings"]["multicast_ip"] = form.get(
         "multicast_ip", "239.12.255.254"
     )
-    state.config["source"]["settings"]["bind_port"] = _parse_int_value(form.get("bind_port", 9522), 9522, minimum=1)
+    state.config["source"]["settings"]["bind_port"] = _safe_int(form.get("bind_port", 9522), 9522)
     state.config["source"]["settings"]["interface_ip"] = (
         form.get("interface_ip", "0.0.0.0").strip() or "0.0.0.0"
     )
@@ -595,10 +500,10 @@ async def save_source(request: Request):
     state.config["battery"]["enabled"] = battery_enabled
     state.config["battery"].setdefault("settings", {})
     state.config["battery"]["settings"]["host"] = str(form.get("battery_host", "")).strip()
-    state.config["battery"]["settings"]["port"] = _parse_int_value(form.get("battery_port", 502), 502, minimum=1)
-    state.config["battery"]["settings"]["unit_id"] = _parse_int_value(form.get("battery_unit_id", 1), 1, minimum=0)
-    state.config["battery"]["settings"]["poll_interval_ms"] = _parse_int_value(
-        form.get("battery_poll_interval_ms", 1000), 1000, minimum=100
+    state.config["battery"]["settings"]["port"] = _safe_int(form.get("battery_port", 502), 502)
+    state.config["battery"]["settings"]["unit_id"] = _safe_int(form.get("battery_unit_id", 1), 1)
+    state.config["battery"]["settings"]["poll_interval_ms"] = _safe_int(
+        form.get("battery_poll_interval_ms", 1000), 1000
     )
     state.config["battery"]["settings"]["request_timeout_seconds"] = _safe_float(
         form.get("battery_request_timeout_seconds", 1.0), 1.0
@@ -653,23 +558,22 @@ async def add_miner(request: Request):
             status_code=400,
         )
 
-    miner_entry = {
-        "id": miner_id,
-        "name": name,
-        "host": host,
-        "driver": driver,
-        "enabled": True,
-        "priority": int(form.get("priority", 100)),
-        "serial_number": form.get("serial_number") or None,
-        "model": form.get("model") or None,
-        "firmware_version": form.get("firmware_version") or None,
-        "settings": _build_miner_settings(form, driver, default_port),
-        "profiles": profile_values,
-        "min_regulated_profile": min_regulated_profile,
-    }
-    miner_entry.update(_build_miner_battery_config(form))
-
-    state.config.setdefault("miners", []).append(miner_entry)
+    state.config.setdefault("miners", []).append(
+        {
+            "id": miner_id,
+            "name": name,
+            "host": host,
+            "driver": driver,
+            "enabled": True,
+            "priority": int(form.get("priority", 100)),
+            "serial_number": form.get("serial_number") or None,
+            "model": form.get("model") or None,
+            "firmware_version": form.get("firmware_version") or None,
+            "settings": _build_miner_settings(form, driver, default_port),
+            "profiles": profile_values,
+            "min_regulated_profile": min_regulated_profile,
+        }
+    )
 
     save_config(state.config)
     logger.info("Miner added: id=%s name=%s driver=%s host=%s", miner_id, name, driver, host)
@@ -721,7 +625,6 @@ async def update_miner(request: Request):
             )
             miner["profiles"] = profile_values
             miner["min_regulated_profile"] = min_regulated_profile
-            miner.update(_build_miner_battery_config(form, existing=miner))
 
             logger.info(
                 "Miner updated: id=%s name=%s driver=%s host=%s enabled=%s min_regulated_profile=%s",
