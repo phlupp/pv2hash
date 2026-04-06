@@ -85,6 +85,18 @@ def _normalize_battery_soc_min(value, default: float) -> float:
     return max(0.0, min(parsed, 100.0))
 
 
+def _parse_int_value(value, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
+    try:
+        parsed = int(float(str(value).strip()))
+    except Exception:
+        parsed = int(default)
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
 def _build_miner_battery_config(form, existing: dict | None = None) -> dict:
     existing = existing or {}
     return {
@@ -359,15 +371,34 @@ async def save_settings(request: Request):
     state.config["system"]["update_repo"] = (
         str(form.get("update_repo", "phlupp/pv2hash")).strip() or "phlupp/pv2hash"
     )
-    state.config["app"]["refresh_seconds"] = int(form.get("refresh_seconds", 5))
+    state.config["app"]["refresh_seconds"] = _parse_int_value(
+        form.get("refresh_seconds", 5),
+        default=5,
+        minimum=1,
+        maximum=60,
+    )
     state.config["control"]["policy_mode"] = form.get("policy_mode", "coarse")
     state.config["control"]["distribution_mode"] = form.get("distribution_mode", "equal")
-    state.config["control"]["switch_hysteresis_w"] = int(form.get("switch_hysteresis_w", 100))
-    state.config["control"]["min_switch_interval_seconds"] = int(
-        form.get("min_switch_interval_seconds", 60)
+    state.config["control"]["switch_hysteresis_w"] = _parse_int_value(
+        form.get("switch_hysteresis_w", 100),
+        default=100,
+        minimum=0,
     )
-    state.config["control"]["max_import_w"] = max(0, int(form.get("max_import_w", 200)))
-    state.config["control"]["import_hold_seconds"] = int(form.get("import_hold_seconds", 15))
+    state.config["control"]["min_switch_interval_seconds"] = _parse_int_value(
+        form.get("min_switch_interval_seconds", 60),
+        default=60,
+        minimum=0,
+    )
+    state.config["control"]["max_import_w"] = _parse_int_value(
+        form.get("max_import_w", 200),
+        default=200,
+        minimum=0,
+    )
+    state.config["control"]["import_hold_seconds"] = _parse_int_value(
+        form.get("import_hold_seconds", 15),
+        default=15,
+        minimum=0,
+    )
 
     state.config["control"].setdefault("source_loss", {})
     state.config["control"]["source_loss"]["stale"] = {
@@ -375,14 +406,22 @@ async def save_settings(request: Request):
         "fallback_profile": _normalize_fallback_profile(
             form.get("stale_fallback_profile", "p1")
         ),
-        "hold_seconds": int(form.get("stale_hold_seconds", 0)),
+        "hold_seconds": _parse_int_value(
+            form.get("stale_hold_seconds", 0),
+            default=0,
+            minimum=0,
+        ),
     }
     state.config["control"]["source_loss"]["offline"] = {
         "mode": form.get("offline_mode", "off_all"),
         "fallback_profile": _normalize_fallback_profile(
             form.get("offline_fallback_profile", "p1")
         ),
-        "hold_seconds": int(form.get("offline_hold_seconds", 0)),
+        "hold_seconds": _parse_int_value(
+            form.get("offline_hold_seconds", 0),
+            default=0,
+            minimum=0,
+        ),
     }
 
     save_config(state.config)

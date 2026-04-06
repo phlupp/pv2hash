@@ -56,7 +56,7 @@
 
                             <label>
                                 <span>Refresh-Intervall (Sekunden)</span>
-                                <input type="number" name="refresh_seconds" value="{{ config.app.refresh_seconds }}" min="1" max="60">
+                                <input type="number" name="refresh_seconds" value="{{ config.app.refresh_seconds }}" min="1" max="60" step="1" inputmode="numeric">
                             </label>
 
                             <label>
@@ -120,6 +120,8 @@
                                     name="switch_hysteresis_w"
                                     value="{{ config.control.switch_hysteresis_w if config.control.switch_hysteresis_w is defined else 100 }}"
                                     min="0"
+                                    step="1"
+                                    inputmode="numeric"
                                 >
                                 <small class="help">Zusätzliche Reserve vor dem nächsten Zuschalten bzw. Rücksetzen der Import-Erkennung.</small>
                             </label>
@@ -131,6 +133,8 @@
                                     name="min_switch_interval_seconds"
                                     value="{{ config.control.min_switch_interval_seconds if config.control.min_switch_interval_seconds is defined else 60 }}"
                                     min="0"
+                                    step="1"
+                                    inputmode="numeric"
                                 >
                                 <small class="help">Minimale Zeit zwischen zwei Profil-/Verteiländerungen.</small>
                             </label>
@@ -142,6 +146,8 @@
                                     name="max_import_w"
                                     value="{{ config.control.max_import_w if config.control.max_import_w is defined else 200 }}"
                                     min="0"
+                                    step="1"
+                                    inputmode="numeric"
                                 >
                                 <small class="help">Erlaubter Netzbezug in Watt. 0 = kein Bezug erlaubt.</small>
                             </label>
@@ -153,6 +159,8 @@
                                     name="import_hold_seconds"
                                     value="{{ config.control.import_hold_seconds if config.control.import_hold_seconds is defined else 15 }}"
                                     min="0"
+                                    step="1"
+                                    inputmode="numeric"
                                 >
                                 <small class="help">Wie lange zu hoher Bezug anstehen muss, bevor heruntergeregelt wird.</small>
                             </label>
@@ -193,6 +201,8 @@
                                     name="stale_hold_seconds"
                                     value="{{ config.control.source_loss.stale.hold_seconds if config.control.source_loss.stale.hold_seconds is defined else 0 }}"
                                     min="0"
+                                    step="1"
+                                    inputmode="numeric"
                                 >
                                 <small class="help">0 = unbegrenzt halten bis Verbindung zurückkehrt.</small>
                             </label>
@@ -225,6 +235,8 @@
                                     name="offline_hold_seconds"
                                     value="{{ config.control.source_loss.offline.hold_seconds if config.control.source_loss.offline.hold_seconds is defined else 0 }}"
                                     min="0"
+                                    step="1"
+                                    inputmode="numeric"
                                 >
                                 <small class="help">0 = unbegrenzt halten bis Verbindung zurückkehrt.</small>
                             </label>
