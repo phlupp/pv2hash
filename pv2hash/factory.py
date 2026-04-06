@@ -59,6 +59,12 @@ def _normalize_min_regulated_profile(value: str | None) -> str:
     return "off"
 
 
+def _normalize_battery_override_profile(value: str | None) -> str:
+    if value in {"p1", "p2", "p3", "p4"}:
+        return str(value)
+    return "p1"
+
+
 def _build_modbus_value_config(name: str, cfg: dict | None) -> ModbusValueConfig:
     cfg = dict(cfg or {})
     register_type = str(cfg.get("register_type", "holding")).strip().lower()
@@ -196,6 +202,24 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     firmware_version=miner_cfg.get("firmware_version"),
                     profiles=profiles,
                     min_regulated_profile=min_regulated_profile,
+                    use_battery_when_charging=bool(
+                        miner_cfg.get("use_battery_when_charging", False)
+                    ),
+                    battery_charge_soc_min=float(
+                        miner_cfg.get("battery_charge_soc_min", 95.0)
+                    ),
+                    battery_charge_profile=_normalize_battery_override_profile(
+                        miner_cfg.get("battery_charge_profile", "p1")
+                    ),
+                    use_battery_when_discharging=bool(
+                        miner_cfg.get("use_battery_when_discharging", False)
+                    ),
+                    battery_discharge_soc_min=float(
+                        miner_cfg.get("battery_discharge_soc_min", 80.0)
+                    ),
+                    battery_discharge_profile=_normalize_battery_override_profile(
+                        miner_cfg.get("battery_discharge_profile", "p1")
+                    ),
                 )
             )
             continue
@@ -216,6 +240,24 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     firmware_version=miner_cfg.get("firmware_version"),
                     profiles=profiles,
                     min_regulated_profile=min_regulated_profile,
+                    use_battery_when_charging=bool(
+                        miner_cfg.get("use_battery_when_charging", False)
+                    ),
+                    battery_charge_soc_min=float(
+                        miner_cfg.get("battery_charge_soc_min", 95.0)
+                    ),
+                    battery_charge_profile=_normalize_battery_override_profile(
+                        miner_cfg.get("battery_charge_profile", "p1")
+                    ),
+                    use_battery_when_discharging=bool(
+                        miner_cfg.get("use_battery_when_discharging", False)
+                    ),
+                    battery_discharge_soc_min=float(
+                        miner_cfg.get("battery_discharge_soc_min", 80.0)
+                    ),
+                    battery_discharge_profile=_normalize_battery_override_profile(
+                        miner_cfg.get("battery_discharge_profile", "p1")
+                    ),
                     timeout_s=float(settings.get("timeout_s", 8.0)),
                 )
             )

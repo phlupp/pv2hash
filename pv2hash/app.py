@@ -161,6 +161,13 @@ def _normalize_fallback_profile(value: str | None, default: str = "p1") -> str:
     return normalized
 
 
+def _normalize_battery_override_profile(value: str | None, default: str = "p1") -> str:
+    normalized = str(value or default).strip().lower()
+    if normalized not in EDITABLE_PROFILE_NAMES:
+        return default
+    return normalized
+
+
 def _get_runtime_miner_map() -> dict[str, dict]:
     return {miner.id: asdict(miner) for miner in state.miners}
 
@@ -406,8 +413,8 @@ async def save_settings(request: Request):
     state.config["control"]["policy_mode"] = form.get("policy_mode", "coarse")
     state.config["control"]["distribution_mode"] = form.get("distribution_mode", "equal")
     state.config["control"]["switch_hysteresis_w"] = _safe_int(form.get("switch_hysteresis_w", 100), 100)
-    state.config["control"]["min_switch_interval_seconds"] = int(
-        form.get("min_switch_interval_seconds", 60)
+    state.config["control"]["min_switch_interval_seconds"] = _safe_int(
+        form.get("min_switch_interval_seconds", 60), 60
     )
     state.config["control"]["max_import_w"] = max(0, _safe_int(form.get("max_import_w", 200), 200))
     state.config["control"]["import_hold_seconds"] = _safe_int(form.get("import_hold_seconds", 15), 15)
@@ -572,6 +579,24 @@ async def add_miner(request: Request):
             "settings": _build_miner_settings(form, driver, default_port),
             "profiles": profile_values,
             "min_regulated_profile": min_regulated_profile,
+            "use_battery_when_charging": form.get("use_battery_when_charging") == "on",
+            "battery_charge_soc_min": _safe_float(
+                form.get("battery_charge_soc_min", 95.0),
+                95.0,
+            ),
+            "battery_charge_profile": _normalize_battery_override_profile(
+                form.get("battery_charge_profile", "p1"),
+                "p1",
+            ),
+            "use_battery_when_discharging": form.get("use_battery_when_discharging") == "on",
+            "battery_discharge_soc_min": _safe_float(
+                form.get("battery_discharge_soc_min", 80.0),
+                80.0,
+            ),
+            "battery_discharge_profile": _normalize_battery_override_profile(
+                form.get("battery_discharge_profile", "p1"),
+                "p1",
+            ),
         }
     )
 
@@ -625,6 +650,36 @@ async def update_miner(request: Request):
             )
             miner["profiles"] = profile_values
             miner["min_regulated_profile"] = min_regulated_profile
+            miner["use_battery_when_charging"] = form.get("use_battery_when_charging") == "on"
+            miner["battery_charge_soc_min"] = _safe_float(
+                form.get(
+                    "battery_charge_soc_min",
+                    miner.get("battery_charge_soc_min", 95.0),
+                ),
+                float(miner.get("battery_charge_soc_min", 95.0)),
+            )
+            miner["battery_charge_profile"] = _normalize_battery_override_profile(
+                form.get(
+                    "battery_charge_profile",
+                    miner.get("battery_charge_profile", "p1"),
+                ),
+                str(miner.get("battery_charge_profile", "p1")),
+            )
+            miner["use_battery_when_discharging"] = form.get("use_battery_when_discharging") == "on"
+            miner["battery_discharge_soc_min"] = _safe_float(
+                form.get(
+                    "battery_discharge_soc_min",
+                    miner.get("battery_discharge_soc_min", 80.0),
+                ),
+                float(miner.get("battery_discharge_soc_min", 80.0)),
+            )
+            miner["battery_discharge_profile"] = _normalize_battery_override_profile(
+                form.get(
+                    "battery_discharge_profile",
+                    miner.get("battery_discharge_profile", "p1"),
+                ),
+                str(miner.get("battery_discharge_profile", "p1")),
+            )
 
             logger.info(
                 "Miner updated: id=%s name=%s driver=%s host=%s enabled=%s min_regulated_profile=%s",

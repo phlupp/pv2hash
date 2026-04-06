@@ -36,7 +36,7 @@ class RuntimeServices:
         self.source = build_source(config)
         self.battery_source = build_battery_source(config)
         self.miners = build_miners(config)
-        self.controller = BasicController(config["control"])
+        self.controller = BasicController(config["control"], config.get("battery", {}))
         self.last_error = None
         self.reload_generation += 1
 
