@@ -36,6 +36,13 @@ class MinerInfo:
 
     min_regulated_profile: str = "off"
 
+    use_battery_when_charging: bool = False
+    battery_charge_soc_min: float = 95.0
+    battery_charge_profile: str = "p1"
+    use_battery_when_discharging: bool = False
+    battery_discharge_soc_min: float = 80.0
+    battery_discharge_profile: str = "p1"
+
     reachable: bool = False
     runtime_state: str = "unknown"
 

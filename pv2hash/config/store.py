@@ -10,6 +10,7 @@ CONFIG_PATH = Path("data/config.json")
 PROFILE_NAMES = ("p1", "p2", "p3", "p4")
 FALLBACK_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
 MIN_REGULATED_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
+BATTERY_OVERRIDE_PROFILE_NAMES = ("p1", "p2", "p3", "p4")
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -28,8 +29,21 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
     return result
 
 
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _clamp_float(value: Any, default: float, min_value: float, max_value: float) -> float:
+    parsed = _coerce_float(value, default)
+    return max(min_value, min(parsed, max_value))
+
+
 def _normalize_miner_profiles(config: dict[str, Any]) -> None:
     default_profiles = DEFAULT_CONFIG["miners"][0]["profiles"]
+    default_miner = DEFAULT_CONFIG["miners"][0]
 
     for miner in config.get("miners", []):
         profiles = miner.setdefault("profiles", {})
@@ -65,9 +79,61 @@ def _normalize_miner_profiles(config: dict[str, Any]) -> None:
 
         miner["min_regulated_profile"] = min_regulated_profile
 
+        miner["use_battery_when_charging"] = bool(
+            miner.get("use_battery_when_charging", False)
+        )
+        miner["battery_charge_soc_min"] = _clamp_float(
+            miner.get(
+                "battery_charge_soc_min",
+                default_miner.get("battery_charge_soc_min", 95.0),
+            ),
+            default=float(default_miner.get("battery_charge_soc_min", 95.0)),
+            min_value=0.0,
+            max_value=100.0,
+        )
+        battery_charge_profile = str(
+            miner.get(
+                "battery_charge_profile",
+                default_miner.get("battery_charge_profile", "p1"),
+            )
+        ).strip().lower()
+        if battery_charge_profile not in BATTERY_OVERRIDE_PROFILE_NAMES:
+            battery_charge_profile = str(default_miner.get("battery_charge_profile", "p1"))
+        miner["battery_charge_profile"] = battery_charge_profile
+
+        miner["use_battery_when_discharging"] = bool(
+            miner.get("use_battery_when_discharging", False)
+        )
+        miner["battery_discharge_soc_min"] = _clamp_float(
+            miner.get(
+                "battery_discharge_soc_min",
+                default_miner.get("battery_discharge_soc_min", 80.0),
+            ),
+            default=float(default_miner.get("battery_discharge_soc_min", 80.0)),
+            min_value=0.0,
+            max_value=100.0,
+        )
+        battery_discharge_profile = str(
+            miner.get(
+                "battery_discharge_profile",
+                default_miner.get("battery_discharge_profile", "p1"),
+            )
+        ).strip().lower()
+        if battery_discharge_profile not in BATTERY_OVERRIDE_PROFILE_NAMES:
+            battery_discharge_profile = str(
+                default_miner.get("battery_discharge_profile", "p1")
+            )
+        miner["battery_discharge_profile"] = battery_discharge_profile
+
 
 def _normalize_source_loss_profiles(config: dict[str, Any]) -> None:
-    source_loss = config.setdefault("control", {}).setdefault("source_loss", {})
+    control = config.setdefault("control", {})
+    source_loss = control.setdefault("source_loss", {})
+
+    try:
+        control["max_import_w"] = max(0.0, float(control.get("max_import_w", 200)))
+    except Exception:
+        control["max_import_w"] = 200.0
 
     for quality in ("stale", "offline"):
         behavior = source_loss.setdefault(quality, {})
@@ -82,10 +148,37 @@ def _normalize_source_loss_profiles(config: dict[str, Any]) -> None:
         behavior["fallback_profile"] = fallback_profile
 
 
+def _normalize_battery_settings(config: dict[str, Any]) -> None:
+    battery = config.setdefault("battery", {})
+    defaults = DEFAULT_CONFIG.get("battery", {})
+
+    battery["charge_active_threshold_w"] = max(
+        0.0,
+        _coerce_float(
+            battery.get(
+                "charge_active_threshold_w",
+                defaults.get("charge_active_threshold_w", 100.0),
+            ),
+            float(defaults.get("charge_active_threshold_w", 100.0)),
+        ),
+    )
+    battery["discharge_active_threshold_w"] = max(
+        0.0,
+        _coerce_float(
+            battery.get(
+                "discharge_active_threshold_w",
+                defaults.get("discharge_active_threshold_w", 100.0),
+            ),
+            float(defaults.get("discharge_active_threshold_w", 100.0)),
+        ),
+    )
+
+
 def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized = deepcopy(config)
     _normalize_miner_profiles(normalized)
     _normalize_source_loss_profiles(normalized)
+    _normalize_battery_settings(normalized)
     return normalized
 
 

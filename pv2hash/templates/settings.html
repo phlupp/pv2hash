@@ -136,13 +136,14 @@
                             </label>
 
                             <label>
-                                <span>Grenzwert Netzleistung (W)</span>
+                                <span>Grenzwert Netzbezug (W)</span>
                                 <input
                                     type="number"
                                     name="max_import_w"
                                     value="{{ config.control.max_import_w if config.control.max_import_w is defined else 200 }}"
+                                    min="0"
                                 >
-                                <small class="help">Positiv = erlaubter Bezug, negativ = gewünschte Rest-Einspeisung.</small>
+                                <small class="help">Erlaubter Netzbezug in Watt. 0 = kein Bezug erlaubt.</small>
                             </label>
 
                             <label>

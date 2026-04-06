@@ -76,6 +76,12 @@ class BraiinsMiner(MinerAdapter):
         password: str = "",
         timeout_s: float = 8.0,
         grpcurl_bin: str | None = None,
+        use_battery_when_charging: bool = False,
+        battery_charge_soc_min: float = 95.0,
+        battery_charge_profile: str = "p1",
+        use_battery_when_discharging: bool = False,
+        battery_discharge_soc_min: float = 80.0,
+        battery_discharge_profile: str = "p1",
     ) -> None:
         self.host = host
         self.port = int(port)
@@ -125,6 +131,12 @@ class BraiinsMiner(MinerAdapter):
             power_w=0.0,
             profiles=miner_profiles,
             min_regulated_profile=normalized_min_regulated_profile,
+            use_battery_when_charging=bool(use_battery_when_charging),
+            battery_charge_soc_min=float(battery_charge_soc_min),
+            battery_charge_profile=battery_charge_profile,
+            use_battery_when_discharging=bool(use_battery_when_discharging),
+            battery_discharge_soc_min=float(battery_discharge_soc_min),
+            battery_discharge_profile=battery_discharge_profile,
         )
 
         self._set_runtime_defaults()

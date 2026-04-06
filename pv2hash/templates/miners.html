@@ -140,6 +140,56 @@
                         <input type="number" name="profile_p4_power_w" value="4200" min="1">
                     </label>
 
+                    <fieldset class="form-section">
+                        <legend>Batterie-Laden</legend>
+
+                        <label class="checkbox-row">
+                            <input type="checkbox" name="use_battery_when_charging">
+                            <span>Batterie beim Laden zum Mining verwenden</span>
+                        </label>
+
+                        <label>
+                            <span>Ab SOC (%)</span>
+                            <input type="number" name="battery_charge_soc_min" value="95" min="0" max="100" step="0.1">
+                            <small class="help">Ab diesem Ladezustand darf der Batterie-Ladebetrieb das feste Profil freigeben.</small>
+                        </label>
+
+                        <label>
+                            <span>Profil beim Laden</span>
+                            <select name="battery_charge_profile">
+                                <option value="p1" selected>p1</option>
+                                <option value="p2">p2</option>
+                                <option value="p3">p3</option>
+                                <option value="p4">p4</option>
+                            </select>
+                        </label>
+                    </fieldset>
+
+                    <fieldset class="form-section">
+                        <legend>Batterie-Entladen</legend>
+
+                        <label class="checkbox-row">
+                            <input type="checkbox" name="use_battery_when_discharging">
+                            <span>Batterie beim Entladen zum Mining verwenden</span>
+                        </label>
+
+                        <label>
+                            <span>Ab SOC (%)</span>
+                            <input type="number" name="battery_discharge_soc_min" value="80" min="0" max="100" step="0.1">
+                            <small class="help">Fällt der SOC darunter oder ist Batterienutzung aus, geht der Regler auf das Min.-Regelprofil zurück.</small>
+                        </label>
+
+                        <label>
+                            <span>Profil beim Entladen</span>
+                            <select name="battery_discharge_profile">
+                                <option value="p1" selected>p1</option>
+                                <option value="p2">p2</option>
+                                <option value="p3">p3</option>
+                                <option value="p4">p4</option>
+                            </select>
+                        </label>
+                    </fieldset>
+
                     <div class="actions">
                         <button class="btn" type="submit">Miner anlegen</button>
                     </div>
@@ -278,6 +328,72 @@
                                 min="1"
                             >
                         </label>
+
+                        <fieldset class="form-section">
+                            <legend>Batterie-Laden</legend>
+
+                            <label class="checkbox-row">
+                                <input type="checkbox" name="use_battery_when_charging" {% if miner.use_battery_when_charging %}checked{% endif %}>
+                                <span>Batterie beim Laden zum Mining verwenden</span>
+                            </label>
+
+                            <label>
+                                <span>Ab SOC (%)</span>
+                                <input
+                                    type="number"
+                                    name="battery_charge_soc_min"
+                                    value="{{ miner.battery_charge_soc_min if miner.battery_charge_soc_min is defined else 95 }}"
+                                    min="0"
+                                    max="100"
+                                    step="0.1"
+                                >
+                                <small class="help">Ab diesem Ladezustand darf der Batterie-Ladebetrieb das feste Profil freigeben.</small>
+                            </label>
+
+                            <label>
+                                <span>Profil beim Laden</span>
+                                {% set current_charge_profile = miner.battery_charge_profile if miner.battery_charge_profile is defined else 'p1' %}
+                                <select name="battery_charge_profile">
+                                    <option value="p1" {% if current_charge_profile == 'p1' %}selected{% endif %}>p1</option>
+                                    <option value="p2" {% if current_charge_profile == 'p2' %}selected{% endif %}>p2</option>
+                                    <option value="p3" {% if current_charge_profile == 'p3' %}selected{% endif %}>p3</option>
+                                    <option value="p4" {% if current_charge_profile == 'p4' %}selected{% endif %}>p4</option>
+                                </select>
+                            </label>
+                        </fieldset>
+
+                        <fieldset class="form-section">
+                            <legend>Batterie-Entladen</legend>
+
+                            <label class="checkbox-row">
+                                <input type="checkbox" name="use_battery_when_discharging" {% if miner.use_battery_when_discharging %}checked{% endif %}>
+                                <span>Batterie beim Entladen zum Mining verwenden</span>
+                            </label>
+
+                            <label>
+                                <span>Ab SOC (%)</span>
+                                <input
+                                    type="number"
+                                    name="battery_discharge_soc_min"
+                                    value="{{ miner.battery_discharge_soc_min if miner.battery_discharge_soc_min is defined else 80 }}"
+                                    min="0"
+                                    max="100"
+                                    step="0.1"
+                                >
+                                <small class="help">Fällt der SOC darunter oder ist Batterienutzung aus, geht der Regler auf das Min.-Regelprofil zurück.</small>
+                            </label>
+
+                            <label>
+                                <span>Profil beim Entladen</span>
+                                {% set current_discharge_profile = miner.battery_discharge_profile if miner.battery_discharge_profile is defined else 'p1' %}
+                                <select name="battery_discharge_profile">
+                                    <option value="p1" {% if current_discharge_profile == 'p1' %}selected{% endif %}>p1</option>
+                                    <option value="p2" {% if current_discharge_profile == 'p2' %}selected{% endif %}>p2</option>
+                                    <option value="p3" {% if current_discharge_profile == 'p3' %}selected{% endif %}>p3</option>
+                                    <option value="p4" {% if current_discharge_profile == 'p4' %}selected{% endif %}>p4</option>
+                                </select>
+                            </label>
+                        </fieldset>
 
                         <label class="checkbox-row">
                             <input type="checkbox" name="enabled" {% if miner.enabled %}checked{% endif %}>

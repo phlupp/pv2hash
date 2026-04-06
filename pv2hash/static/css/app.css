@@ -324,6 +324,22 @@ tbody td {
     gap: 14px;
 }
 
+.form-section {
+    margin: 0;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: rgba(255,255,255,.03);
+    display: grid;
+    gap: 14px;
+}
+
+.form-section legend {
+    padding: 0 8px;
+    color: var(--text);
+    font-weight: 700;
+}
+
 label {
     display: grid;
     gap: 8px;

@@ -3,16 +3,14 @@ from pv2hash.miners.base import MinerAdapter
 from pv2hash.miners.braiins import BraiinsMiner
 from pv2hash.miners.simulator import SimulatorMiner
 from pv2hash.sources.base import EnergySource
-from pv2hash.sources.battery_modbus import BatteryModbusSource, ModbusValueConfig
 from pv2hash.sources.simulator import SimulatorSource
 from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
 
 logger = get_logger("pv2hash.factory")
 
 
-MODBUS_REGISTER_TYPES = ("holding", "input", "coil", "discrete_input")
-MODBUS_VALUE_TYPES = ("int8", "uint8", "int16", "uint16", "int32", "uint32", "float32")
-MODBUS_ENDIAN_TYPES = ("big_endian", "little_endian")
+BATTERY_PROFILE_NAMES = {"p1", "p2", "p3", "p4"}
+MIN_REGULATED_PROFILE_NAMES = {"off", "p1", "p2", "p3", "p4"}
 
 
 def _default_profiles_for_driver(driver: str) -> dict:
@@ -54,44 +52,24 @@ def _normalize_profiles(driver: str, profiles: dict | None) -> dict:
 
 
 def _normalize_min_regulated_profile(value: str | None) -> str:
-    if value in {"off", "p1", "p2", "p3", "p4"}:
+    if value in MIN_REGULATED_PROFILE_NAMES:
         return str(value)
     return "off"
 
 
-def _build_modbus_value_config(name: str, cfg: dict | None) -> ModbusValueConfig:
-    cfg = dict(cfg or {})
-    register_type = str(cfg.get("register_type", "holding")).strip().lower()
-    if register_type not in MODBUS_REGISTER_TYPES:
-        register_type = "holding"
+def _normalize_battery_override_profile(value: str | None, default: str = "p1") -> str:
+    normalized = str(value or default).strip().lower()
+    if normalized in BATTERY_PROFILE_NAMES:
+        return normalized
+    return default
 
-    value_type = str(cfg.get("value_type", "uint16")).strip().lower()
-    if value_type not in MODBUS_VALUE_TYPES:
-        value_type = "uint16"
 
-    endian = str(cfg.get("endian", "big_endian")).strip().lower()
-    if endian not in MODBUS_ENDIAN_TYPES:
-        endian = "big_endian"
-
-    address = cfg.get("address")
+def _normalize_soc_threshold(value: object, default: float) -> float:
     try:
-        address = int(address) if address not in (None, "") else None
+        parsed = float(value)
     except Exception:
-        address = None
-
-    try:
-        factor = float(cfg.get("factor", 1.0))
-    except Exception:
-        factor = 1.0
-
-    return ModbusValueConfig(
-        name=name,
-        register_type=register_type,
-        address=address,
-        value_type=value_type,
-        endian=endian,
-        factor=factor,
-    )
+        parsed = float(default)
+    return max(0.0, min(parsed, 100.0))
 
 
 def build_source(config: dict) -> EnergySource:
@@ -128,34 +106,6 @@ def build_source(config: dict) -> EnergySource:
     raise ValueError(f"Unsupported source type: {source_type}")
 
 
-def build_battery_source(config: dict) -> EnergySource | None:
-    battery_cfg = config.get("battery", {}) or {}
-    if not battery_cfg.get("enabled", False):
-        return None
-
-    battery_type = battery_cfg.get("type", "none")
-    settings = battery_cfg.get("settings", {})
-
-    logger.info("Building battery source adapter: %s", battery_type)
-
-    if battery_type in {"", "none", None}:
-        return None
-
-    if battery_type == "battery_modbus":
-        return BatteryModbusSource(
-            host=str(settings.get("host", "")).strip(),
-            port=int(settings.get("port", 502)),
-            unit_id=int(settings.get("unit_id", 1)),
-            poll_interval_ms=int(settings.get("poll_interval_ms", 1000)),
-            request_timeout_seconds=float(settings.get("request_timeout_seconds", 1.0)),
-            soc=_build_modbus_value_config("soc", settings.get("soc")),
-            charge_power=_build_modbus_value_config("charge_power", settings.get("charge_power")),
-            discharge_power=_build_modbus_value_config("discharge_power", settings.get("discharge_power")),
-        )
-
-    raise ValueError(f"Unsupported battery source type: {battery_type}")
-
-
 def build_miners(config: dict) -> list[MinerAdapter]:
     miner_adapters: list[MinerAdapter] = []
 
@@ -174,6 +124,31 @@ def build_miners(config: dict) -> list[MinerAdapter]:
         min_regulated_profile = _normalize_min_regulated_profile(
             miner_cfg.get("min_regulated_profile", "off")
         )
+
+        battery_kwargs = {
+            "use_battery_when_charging": bool(
+                miner_cfg.get("use_battery_when_charging", False)
+            ),
+            "battery_charge_soc_min": _normalize_soc_threshold(
+                miner_cfg.get("battery_charge_soc_min", 95.0),
+                95.0,
+            ),
+            "battery_charge_profile": _normalize_battery_override_profile(
+                miner_cfg.get("battery_charge_profile", "p1"),
+                default="p1",
+            ),
+            "use_battery_when_discharging": bool(
+                miner_cfg.get("use_battery_when_discharging", False)
+            ),
+            "battery_discharge_soc_min": _normalize_soc_threshold(
+                miner_cfg.get("battery_discharge_soc_min", 80.0),
+                80.0,
+            ),
+            "battery_discharge_profile": _normalize_battery_override_profile(
+                miner_cfg.get("battery_discharge_profile", "p1"),
+                default="p1",
+            ),
+        }
 
         logger.info(
             "Building miner adapter: id=%s name=%s driver=%s host=%s",
@@ -196,6 +171,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     firmware_version=miner_cfg.get("firmware_version"),
                     profiles=profiles,
                     min_regulated_profile=min_regulated_profile,
+                    **battery_kwargs,
                 )
             )
             continue
@@ -207,8 +183,6 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     name=miner_cfg["name"],
                     host=miner_cfg["host"],
                     port=int(settings.get("port", 50051)),
-                    username=settings.get("username", "root"),
-                    password=settings.get("password", ""),
                     priority=miner_cfg.get("priority", 100),
                     enabled=miner_cfg.get("enabled", True),
                     serial_number=miner_cfg.get("serial_number"),
@@ -216,11 +190,14 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     firmware_version=miner_cfg.get("firmware_version"),
                     profiles=profiles,
                     min_regulated_profile=min_regulated_profile,
-                    timeout_s=float(settings.get("timeout_s", 8.0)),
+                    username=settings.get("username", "root"),
+                    password=settings.get("password", ""),
+                    **battery_kwargs,
                 )
             )
             continue
 
         raise ValueError(f"Unsupported miner driver: {driver}")
 
+    logger.info("Built %d enabled miner adapter(s)", len(miner_adapters))
     return miner_adapters

@@ -18,6 +18,37 @@ def _normalize_profile(profile: str | None) -> str:
     return "off"
 
 
+def is_profile_higher(left: str | None, right: str | None) -> bool:
+    return PROFILE_INDEX[_normalize_profile(left)] > PROFILE_INDEX[_normalize_profile(right)]
+
+
+def max_profile(left: str | None, right: str | None) -> str:
+    normalized_left = _normalize_profile(left)
+    normalized_right = _normalize_profile(right)
+    if PROFILE_INDEX[normalized_left] >= PROFILE_INDEX[normalized_right]:
+        return normalized_left
+    return normalized_right
+
+
+def clamp_profile_to_max(profile: str | None, max_allowed_profile: str | None) -> str:
+    normalized_profile = _normalize_profile(profile)
+    normalized_max = _normalize_profile(max_allowed_profile)
+
+    if PROFILE_INDEX[normalized_profile] > PROFILE_INDEX[normalized_max]:
+        return normalized_max
+    return normalized_profile
+
+
+def apply_profile_caps(
+    profiles: list[str],
+    max_profiles: list[str],
+) -> list[str]:
+    return [
+        clamp_profile_to_max(profile, max_profile_name)
+        for profile, max_profile_name in zip(profiles, max_profiles)
+    ]
+
+
 def _next_profile(profile: str) -> str:
     idx = PROFILE_INDEX[_normalize_profile(profile)]
     return PROFILE_ORDER[min(idx + 1, len(PROFILE_ORDER) - 1)]
