@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -48,6 +48,96 @@ EDITABLE_PROFILE_NAMES = ("p1", "p2", "p3", "p4")
 ALL_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
 EDITABLE_MIN_REGULATED_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
 BATTERY_OVERRIDE_PROFILE_NAMES = ("p1", "p2", "p3", "p4")
+MODBUS_REGISTER_TYPES = ("holding", "input", "coil", "discrete_input")
+MODBUS_VALUE_TYPES = ("int8", "uint8", "int16", "uint16", "int32", "uint32", "float32")
+MODBUS_ENDIAN_TYPES = ("big_endian", "little_endian")
+
+
+def _safe_int(value, default: int) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _safe_float(value, default: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _optional_int(value) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text == "":
+        return None
+    try:
+        return int(text)
+    except Exception:
+        return None
+
+
+def _parse_modbus_value_form(form, prefix: str) -> dict:
+    register_type = str(form.get(f"{prefix}_register_type", "holding")).strip().lower()
+    if register_type not in MODBUS_REGISTER_TYPES:
+        register_type = "holding"
+
+    value_type = str(form.get(f"{prefix}_value_type", "uint16")).strip().lower()
+    if value_type not in MODBUS_VALUE_TYPES:
+        value_type = "uint16"
+
+    endian = str(form.get(f"{prefix}_endian", "big_endian")).strip().lower()
+    if endian not in MODBUS_ENDIAN_TYPES:
+        endian = "big_endian"
+
+    return {
+        "register_type": register_type,
+        "address": _optional_int(form.get(f"{prefix}_address")),
+        "value_type": value_type,
+        "endian": endian,
+        "factor": _safe_float(form.get(f"{prefix}_factor", 1.0), 1.0),
+    }
+
+
+def _merge_battery_snapshot(main_snapshot, battery_snapshot):
+    if battery_snapshot is None:
+        return main_snapshot
+
+    return replace(
+        main_snapshot,
+        battery_charge_power_w=(
+            battery_snapshot.battery_charge_power_w
+            if battery_snapshot.battery_charge_power_w is not None
+            else main_snapshot.battery_charge_power_w
+        ),
+        battery_discharge_power_w=(
+            battery_snapshot.battery_discharge_power_w
+            if battery_snapshot.battery_discharge_power_w is not None
+            else main_snapshot.battery_discharge_power_w
+        ),
+        battery_soc_pct=(
+            battery_snapshot.battery_soc_pct
+            if battery_snapshot.battery_soc_pct is not None
+            else main_snapshot.battery_soc_pct
+        ),
+        battery_is_charging=(
+            battery_snapshot.battery_is_charging
+            if battery_snapshot.battery_is_charging is not None
+            else main_snapshot.battery_is_charging
+        ),
+        battery_is_discharging=(
+            battery_snapshot.battery_is_discharging
+            if battery_snapshot.battery_is_discharging is not None
+            else main_snapshot.battery_is_discharging
+        ),
+        battery_is_active=(
+            battery_snapshot.battery_is_active
+            if battery_snapshot.battery_is_active is not None
+            else main_snapshot.battery_is_active
+        ),
+    )
 
 
 def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
@@ -252,6 +342,7 @@ async def control_loop() -> None:
         try:
             generation = services.reload_generation
             source = services.source
+            battery_source = services.battery_source
             controller = services.controller
             miners = list(services.miners)
             distribution_mode = state.config["control"].get("distribution_mode", "equal")
@@ -264,8 +355,16 @@ async def control_loop() -> None:
                 source.set_simulated_miner_power_w(current_total_miner_power_w)
 
             snapshot = await source.read()
+            battery_snapshot = None
+            if battery_source is not None:
+                battery_snapshot = await battery_source.read()
+                snapshot = _merge_battery_snapshot(snapshot, battery_snapshot)
 
-            if generation != services.reload_generation or source is not services.source:
+            if (
+                generation != services.reload_generation
+                or source is not services.source
+                or battery_source is not services.battery_source
+            ):
                 logger.info("Discarding stale control iteration after runtime reload")
                 await asyncio.sleep(0.1)
                 continue
@@ -442,8 +541,12 @@ async def sources_page(request: Request):
     context = {
         "request": request,
         "source": state.config["source"],
+        "battery": state.config.get("battery", {}),
         "saved": request.query_params.get("saved") == "1",
         "local_interface_ips": get_local_ipv4_addresses(),
+        "modbus_register_types": MODBUS_REGISTER_TYPES,
+        "modbus_value_types": MODBUS_VALUE_TYPES,
+        "modbus_endian_types": MODBUS_ENDIAN_TYPES,
     }
     return templates.TemplateResponse(
         request=request,
@@ -467,23 +570,51 @@ async def save_source(request: Request):
     state.config["source"]["settings"]["multicast_ip"] = form.get(
         "multicast_ip", "239.12.255.254"
     )
-    state.config["source"]["settings"]["bind_port"] = int(form.get("bind_port", 9522))
+    state.config["source"]["settings"]["bind_port"] = _parse_int_value(form.get("bind_port", 9522), 9522, minimum=1)
     state.config["source"]["settings"]["interface_ip"] = (
         form.get("interface_ip", "0.0.0.0").strip() or "0.0.0.0"
     )
-    state.config["source"]["settings"]["packet_timeout_seconds"] = float(
-        form.get("packet_timeout_seconds", 1.0)
+    state.config["source"]["settings"]["packet_timeout_seconds"] = _safe_float(
+        form.get("packet_timeout_seconds", 1.0), 1.0
     )
-    state.config["source"]["settings"]["stale_after_seconds"] = float(
-        form.get("stale_after_seconds", 8.0)
+    state.config["source"]["settings"]["stale_after_seconds"] = _safe_float(
+        form.get("stale_after_seconds", 8.0), 8.0
     )
-    state.config["source"]["settings"]["offline_after_seconds"] = float(
-        form.get("offline_after_seconds", 30.0)
+    state.config["source"]["settings"]["offline_after_seconds"] = _safe_float(
+        form.get("offline_after_seconds", 30.0), 30.0
     )
     state.config["source"]["settings"]["device_ip"] = form.get("device_ip", "").strip()
 
+    battery_type = str(form.get("battery_type", "none")).strip()
+    battery_name = str(form.get("battery_name", "Batterie")).strip() or "Batterie"
+    battery_enabled = form.get("battery_enabled") == "on"
+
+    state.config.setdefault("battery", {})
+    state.config["battery"]["type"] = battery_type
+    state.config["battery"]["name"] = battery_name
+    state.config["battery"]["enabled"] = battery_enabled
+    state.config["battery"].setdefault("settings", {})
+    state.config["battery"]["settings"]["host"] = str(form.get("battery_host", "")).strip()
+    state.config["battery"]["settings"]["port"] = _parse_int_value(form.get("battery_port", 502), 502, minimum=1)
+    state.config["battery"]["settings"]["unit_id"] = _parse_int_value(form.get("battery_unit_id", 1), 1, minimum=0)
+    state.config["battery"]["settings"]["poll_interval_ms"] = _parse_int_value(
+        form.get("battery_poll_interval_ms", 1000), 1000, minimum=100
+    )
+    state.config["battery"]["settings"]["request_timeout_seconds"] = _safe_float(
+        form.get("battery_request_timeout_seconds", 1.0), 1.0
+    )
+    state.config["battery"]["settings"]["soc"] = _parse_modbus_value_form(form, "battery_soc")
+    state.config["battery"]["settings"]["charge_power"] = _parse_modbus_value_form(form, "battery_charge_power")
+    state.config["battery"]["settings"]["discharge_power"] = _parse_modbus_value_form(form, "battery_discharge_power")
+
     save_config(state.config)
-    logger.info("Source settings saved: type=%s name=%s", source_type, source_name)
+    logger.info(
+        "Source settings saved: type=%s name=%s battery_type=%s battery_enabled=%s",
+        source_type,
+        source_name,
+        battery_type,
+        battery_enabled,
+    )
     reload_runtime()
     return RedirectResponse(url="/sources?saved=1", status_code=303)
 
@@ -720,6 +851,7 @@ async def api_status():
         "last_decision": state.last_decision,
         "last_reload_at": state.last_reload_at.isoformat(),
         "source_debug": services.get_source_debug_info(),
+        "battery_source_debug": services.get_battery_source_debug_info(),
     }
     return JSONResponse(content=jsonable_encoder(payload))
 
