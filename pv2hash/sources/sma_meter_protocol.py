@@ -11,6 +11,10 @@ from pv2hash.sources.base import EnergySource
 logger = get_logger("pv2hash.source.sma_meter_protocol")
 
 
+class _IncompleteTelegramError(Exception):
+    pass
+
+
 class SmaMeterProtocolSource(EnergySource):
     EMETER_PROTOCOL_ID = b"\x60\x69"
 
@@ -63,6 +67,10 @@ class SmaMeterProtocolSource(EnergySource):
             "offline_after_seconds": self.offline_after_seconds,
             "last_live_packet_at": None,
             "current_quality": "no_data",
+            "has_active_plus": False,
+            "has_active_minus": False,
+            "incomplete_packets": 0,
+            "last_packet_rejected_reason": None,
         }
 
         self.sock = self._create_socket()
@@ -127,11 +135,17 @@ class SmaMeterProtocolSource(EnergySource):
             self.last_live_packet_at = snapshot.updated_at
             self.debug_info["parsed_packets"] += 1
             self.debug_info["last_error"] = None
+            self.debug_info["last_packet_rejected_reason"] = None
             self.debug_info["last_live_packet_at"] = snapshot.updated_at.isoformat()
             self._set_quality("live")
 
             return snapshot
 
+        except _IncompleteTelegramError as exc:
+            self.debug_info["incomplete_packets"] += 1
+            self.debug_info["last_error"] = str(exc)
+            self.debug_info["last_packet_rejected_reason"] = str(exc)
+            logger.debug("Ignoring incomplete SMA telegram: %s", exc)
         except TimeoutError:
             self.debug_info["timeouts"] += 1
         except socket.timeout:
@@ -238,8 +252,8 @@ class SmaMeterProtocolSource(EnergySource):
             raise ValueError(f"Unexpected protocol id: 0x{protocol_id:04x}")
 
         pos = 28
-        active_plus_w = 0.0
-        active_minus_w = 0.0
+        active_plus_w: float | None = None
+        active_minus_w: float | None = None
         entries: list[dict] = []
 
         while pos + 4 <= len(packet):
@@ -282,10 +296,25 @@ class SmaMeterProtocolSource(EnergySource):
 
         self._dump_obis_entries(entries)
 
-        grid_power_w = active_plus_w - active_minus_w
-        
+        has_active_plus = active_plus_w is not None
+        has_active_minus = active_minus_w is not None
+        self.debug_info["has_active_plus"] = has_active_plus
+        self.debug_info["has_active_minus"] = has_active_minus
         self.debug_info["active_plus_w"] = active_plus_w
         self.debug_info["active_minus_w"] = active_minus_w
+
+        if not has_active_plus or not has_active_minus:
+            missing = []
+            if not has_active_plus:
+                missing.append("1:1.4.0")
+            if not has_active_minus:
+                missing.append("1:2.4.0")
+            self.debug_info["grid_power_w"] = None
+            raise _IncompleteTelegramError(
+                f"Incomplete SMA telegram, missing OBIS {' and '.join(missing)}"
+            )
+
+        grid_power_w = active_plus_w - active_minus_w
         self.debug_info["grid_power_w"] = grid_power_w
 
         return EnergySnapshot(
