@@ -41,11 +41,41 @@
             </section>
             {% endif %}
 
+            {% if obis_debug_saved %}
+            <section class="alert success">
+                OBIS-Debug-Einstellung gespeichert und Runtime neu geladen.
+            </section>
+            {% endif %}
+
             {% if error_message %}
             <section class="alert danger">
                 {{ error_message }}
             </section>
             {% endif %}
+
+            <section class="card">
+                <div class="card-head">
+                    <h2>OBIS-Debug</h2>
+                    {% if source_type == "sma_meter_protocol" %}
+                    <span class="badge">{{ "AN" if obis_debug_enabled else "AUS" }}</span>
+                    {% else %}
+                    <span class="badge">nur für SMA-Quelle</span>
+                    {% endif %}
+                </div>
+
+                <form method="post" action="/miners/obis-debug" class="form-grid">
+                    <label class="checkbox-row">
+                        <input type="checkbox" name="debug_dump_obis" {% if obis_debug_enabled %}checked{% endif %} {% if source_type != "sma_meter_protocol" %}disabled{% endif %}>
+                        <span>OBIS-Debug in der Konsole ausgeben</span>
+                    </label>
+
+                    <div class="actions">
+                        <button class="btn btn-secondary" type="submit" {% if source_type != "sma_meter_protocol" %}disabled{% endif %}>OBIS-Debug speichern</button>
+                    </div>
+                </form>
+
+                <p class="help top-gap">Schaltet den ausführlichen SMA-/OBIS-Telegramm-Dump in der Konsole an oder aus.</p>
+            </section>
 
             <section class="card">
                 <div class="card-head">

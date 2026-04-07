@@ -224,6 +224,11 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
         "request": request,
         "miners": _build_miners_view(),
         "saved": request.query_params.get("saved") == "1",
+        "obis_debug_saved": request.query_params.get("obis_debug_saved") == "1",
+        "source_type": state.config["source"].get("type", "unknown"),
+        "obis_debug_enabled": bool(
+            state.config["source"].get("settings", {}).get("debug_dump_obis", True)
+        ),
         "error_message": error_message,
     }
 
@@ -463,6 +468,10 @@ async def save_settings(request: Request):
     form = await request.form()
 
     state.config["system"]["instance_name"] = form.get("instance_name", "PV2Hash Node")
+    log_level = str(form.get("log_level", state.config["system"].get("log_level", "INFO"))).strip().upper()
+    if log_level not in {"DEBUG", "INFO"}:
+        log_level = "INFO"
+    state.config["system"]["log_level"] = log_level
     state.config["system"]["check_updates"] = form.get("check_updates") == "on"
     state.config["system"]["auto_update_enabled"] = form.get("auto_update_enabled") == "on"
     state.config["system"]["update_repo"] = (
@@ -495,6 +504,7 @@ async def save_settings(request: Request):
     }
 
     save_config(state.config)
+    setup_logging(state.config["system"].get("log_level", "INFO"))
     logger.info(
         "Settings saved: check_updates=%s auto_update_enabled=%s update_repo=%s",
         state.config["system"].get("check_updates", True),
@@ -598,6 +608,21 @@ async def miners_page(request: Request):
         name="miners.html",
         context=context,
     )
+
+
+@app.post("/miners/obis-debug")
+async def save_miners_obis_debug(request: Request):
+    form = await request.form()
+    enabled = form.get("debug_dump_obis") == "on"
+
+    state.config.setdefault("source", {})
+    state.config["source"].setdefault("settings", {})
+    state.config["source"]["settings"]["debug_dump_obis"] = enabled
+
+    save_config(state.config)
+    logger.info("OBIS debug updated: enabled=%s", enabled)
+    reload_runtime()
+    return RedirectResponse(url="/miners?obis_debug_saved=1", status_code=303)
 
 
 @app.post("/miners/add")
@@ -776,6 +801,7 @@ async def system_page(request: Request):
         "request": request,
         "instance_name": state.config["system"]["instance_name"],
         "log_level": state.config["system"].get("log_level", "INFO"),
+        "log_saved": request.query_params.get("log_saved") == "1",
         "started_at": state.started_at,
         "last_reload_at": state.last_reload_at,
         "last_live_packet_at": state.last_live_packet_at,
@@ -794,6 +820,21 @@ async def system_page(request: Request):
         name="system.html",
         context=context,
     )
+
+
+@app.post("/system/log-level")
+async def system_save_log_level(request: Request):
+    form = await request.form()
+    log_level = str(form.get("log_level", state.config["system"].get("log_level", "INFO"))).strip().upper()
+    if log_level not in {"DEBUG", "INFO"}:
+        log_level = "INFO"
+
+    state.config.setdefault("system", {})
+    state.config["system"]["log_level"] = log_level
+    save_config(state.config)
+    setup_logging(log_level)
+    logger.info("Log level updated from system page: %s", log_level)
+    return RedirectResponse(url="/system?log_saved=1", status_code=303)
 
 
 @app.get("/system/update-progress")

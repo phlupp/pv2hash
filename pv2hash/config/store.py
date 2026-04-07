@@ -148,6 +148,15 @@ def _normalize_source_loss_profiles(config: dict[str, Any]) -> None:
         behavior["fallback_profile"] = fallback_profile
 
 
+
+def _normalize_source_settings(config: dict[str, Any]) -> None:
+    source = config.setdefault("source", {})
+    settings = source.setdefault("settings", {})
+    default_settings = DEFAULT_CONFIG.get("source", {}).get("settings", {})
+    settings["debug_dump_obis"] = bool(
+        settings.get("debug_dump_obis", default_settings.get("debug_dump_obis", True))
+    )
+
 def _normalize_battery_settings(config: dict[str, Any]) -> None:
     battery = config.setdefault("battery", {})
     defaults = DEFAULT_CONFIG.get("battery", {})
@@ -178,6 +187,7 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized = deepcopy(config)
     _normalize_miner_profiles(normalized)
     _normalize_source_loss_profiles(normalized)
+    _normalize_source_settings(normalized)
     _normalize_battery_settings(normalized)
     return normalized
 

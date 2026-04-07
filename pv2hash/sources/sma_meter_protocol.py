@@ -57,6 +57,7 @@ class SmaMeterProtocolSource(EnergySource):
         stale_after_seconds: float = 8.0,
         offline_after_seconds: float = 30.0,
         device_ip: str = "",
+        debug_dump_obis: bool = True,
     ) -> None:
         self.multicast_ip = multicast_ip
         self.bind_port = bind_port
@@ -69,7 +70,7 @@ class SmaMeterProtocolSource(EnergySource):
         self.last_snapshot: EnergySnapshot | None = None
         self.last_live_packet_at: datetime | None = None
 
-        self.debug_dump_obis = True
+        self.debug_dump_obis = bool(debug_dump_obis)
         self._last_logged_quality: str | None = None
 
         self.debug_info = {
@@ -111,6 +112,7 @@ class SmaMeterProtocolSource(EnergySource):
             "last_packet_channels": [],
             "last_packet_obis_ids": [],
             "last_packet_manufacturer_specific_count": 0,
+            "debug_dump_obis": self.debug_dump_obis,
         }
 
         self.sock = self._create_socket()

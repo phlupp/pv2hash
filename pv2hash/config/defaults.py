@@ -25,6 +25,7 @@ DEFAULT_CONFIG = {
             "stale_after_seconds": 8.0,
             "offline_after_seconds": 30.0,
             "device_ip": "",
+            "debug_dump_obis": True,
             "simulator_import_power_w": 1000.0,
             "simulator_export_power_w": 10000.0,
             "simulator_ramp_rate_w_per_minute": 600.0,
