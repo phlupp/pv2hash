@@ -47,6 +47,10 @@ class SmaMeterProtocolSource(EnergySource):
     CURRENT_INDEXES = {31, 51, 71}
     VOLTAGE_INDEXES = {32, 52, 72}
     COSPHI_INDEXES = {13}
+    KNOWN_SUSY_DEVICE_NAMES = {
+        270: "SMA Energy Meter",
+        372: "SMA Home Manager 2.0",
+    }
 
     def __init__(
         self,
@@ -57,7 +61,7 @@ class SmaMeterProtocolSource(EnergySource):
         stale_after_seconds: float = 8.0,
         offline_after_seconds: float = 30.0,
         device_ip: str = "",
-        debug_dump_obis: bool = True,
+        debug_dump_obis: bool = False,
     ) -> None:
         self.multicast_ip = multicast_ip
         self.bind_port = bind_port
@@ -108,11 +112,11 @@ class SmaMeterProtocolSource(EnergySource):
             "last_packet_susy_id": None,
             "last_packet_serial_number": None,
             "last_packet_measuring_time_ms": None,
+            "last_packet_device_name": None,
             "last_packet_entry_count": 0,
             "last_packet_channels": [],
             "last_packet_obis_ids": [],
             "last_packet_manufacturer_specific_count": 0,
-            "debug_dump_obis": self.debug_dump_obis,
         }
 
         self.sock = self._create_socket()
@@ -264,6 +268,9 @@ class SmaMeterProtocolSource(EnergySource):
             f"1-{channel}:{index}.{measurement_type}.{tariff}"
         )
 
+    def _resolve_device_name(self, susy_id: int) -> str:
+        return self.KNOWN_SUSY_DEVICE_NAMES.get(susy_id, f"SMA Gerät (SUSy-ID {susy_id})")
+
     @staticmethod
     def _is_manufacturer_specific(channel: int, index: int, measurement_type: int, tariff: int) -> bool:
         return (
@@ -376,6 +383,7 @@ class SmaMeterProtocolSource(EnergySource):
         self.debug_info["last_packet_susy_id"] = susy_id
         self.debug_info["last_packet_serial_number"] = serial_number
         self.debug_info["last_packet_measuring_time_ms"] = measuring_time_ms
+        self.debug_info["last_packet_device_name"] = self._resolve_device_name(susy_id)
 
         pos = 28
         active_plus_w: float | None = None

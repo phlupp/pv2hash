@@ -25,7 +25,7 @@ DEFAULT_CONFIG = {
             "stale_after_seconds": 8.0,
             "offline_after_seconds": 30.0,
             "device_ip": "",
-            "debug_dump_obis": True,
+            "debug_dump_obis": False,
             "simulator_import_power_w": 1000.0,
             "simulator_export_power_w": 10000.0,
             "simulator_ramp_rate_w_per_minute": 600.0,
@@ -125,10 +125,10 @@ DEFAULT_CONFIG = {
     "control": {
         "policy_mode": "coarse",
         "distribution_mode": "equal",
-        "min_switch_interval_seconds": 60,
+        "min_switch_interval_seconds": 300,
         "cooldown_seconds": 15,
         "switch_hysteresis_w": 100,
-        "max_import_w": 200,
+        "max_import_w": 100,
         "import_hold_seconds": 15,
         "source_loss": {
             "stale": {

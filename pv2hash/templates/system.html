@@ -32,7 +32,6 @@
                 <div>
                     <h1>System</h1>
                     <p>Status, Runtime, Updates und Live-Konsole</p>
-                    {% if log_saved %}<span class="badge badge-ok">Log-Level gespeichert</span>{% endif %}
                 </div>
             </header>
 
@@ -54,18 +53,6 @@
                         <div class="kv-row">
                             <span>Log-Level</span>
                             <strong>{{ log_level }}</strong>
-                        </div>
-                        <div class="top-gap">
-                            <form method="post" action="/system/log-level" class="inline-form wrap">
-                                <label>
-                                    <span>Log-Modus</span>
-                                    <select name="log_level">
-                                        <option value="INFO" {% if log_level == 'INFO' %}selected{% endif %}>INFO</option>
-                                        <option value="DEBUG" {% if log_level == 'DEBUG' %}selected{% endif %}>DEBUG</option>
-                                    </select>
-                                </label>
-                                <button class="btn btn-secondary" type="submit">Log-Modus speichern</button>
-                            </form>
                         </div>
                         <div class="kv-row">
                             <span>Quelle</span>
@@ -98,6 +85,16 @@
                     <div class="actions start wrap">
                         <form method="post" action="/system/reload" class="inline-form">
                             <button class="btn" type="submit">Runtime neu laden</button>
+                        </form>
+
+                        <form method="post" action="/system/logging" class="inline-form">
+                            <label for="logLevelSelect" class="sr-only">Log-Level</label>
+                            <select id="logLevelSelect" name="log_level">
+                                {% for item in allowed_log_levels %}
+                                <option value="{{ item }}" {% if item == log_level %}selected{% endif %}>{{ item }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn btn-secondary" type="submit">Log-Level setzen</button>
                         </form>
 
                         <button id="checkUpdatesBtn" class="btn btn-secondary" type="button">Jetzt auf Updates prüfen</button>

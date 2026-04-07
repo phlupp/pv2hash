@@ -80,6 +80,37 @@ def _optional_int(value) -> int | None:
         return None
 
 
+def _normalize_log_level(value: str | None, default: str = "INFO") -> str:
+    normalized = str(value or default).strip().upper()
+    if normalized not in {"INFO", "DEBUG"}:
+        return default
+    return normalized
+
+
+def _resolve_sma_device_label(source_debug: dict | None) -> str | None:
+    if not source_debug:
+        return None
+
+    explicit = source_debug.get("last_packet_device_name")
+    if explicit:
+        return str(explicit)
+
+    susy_id = source_debug.get("last_packet_susy_id")
+    if susy_id in (None, ""):
+        return None
+
+    try:
+        susy_id_int = int(susy_id)
+    except Exception:
+        return f"SMA Gerät (SUSy-ID {susy_id})"
+
+    known = {
+        270: "SMA Energy Meter",
+        372: "SMA Home Manager 2.0",
+    }
+    return known.get(susy_id_int, f"SMA Gerät (SUSy-ID {susy_id_int})")
+
+
 def _parse_modbus_value_form(form, prefix: str) -> dict:
     register_type = str(form.get(f"{prefix}_register_type", "holding")).strip().lower()
     if register_type not in MODBUS_REGISTER_TYPES:
@@ -224,11 +255,6 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
         "request": request,
         "miners": _build_miners_view(),
         "saved": request.query_params.get("saved") == "1",
-        "obis_debug_saved": request.query_params.get("obis_debug_saved") == "1",
-        "source_type": state.config["source"].get("type", "unknown"),
-        "obis_debug_enabled": bool(
-            state.config["source"].get("settings", {}).get("debug_dump_obis", True)
-        ),
         "error_message": error_message,
     }
 
@@ -423,6 +449,8 @@ async def dashboard(request: Request):
     total_miner_power = sum(m.power_w for m in state.miners) if state.miners else 0.0
     miner_count = len(state.miners)
 
+    source_debug = services.get_source_debug_info()
+
     context = {
         "request": request,
         "snapshot": state.snapshot,
@@ -437,7 +465,10 @@ async def dashboard(request: Request):
         "last_reload_at": state.last_reload_at,
         "source_reloaded_at": state.source_reloaded_at,
         "last_live_packet_at": state.last_live_packet_at,
-        "source_debug": services.get_source_debug_info(),
+        "source_debug": source_debug,
+        "source_device_label": _resolve_sma_device_label(source_debug),
+        "source_device_serial_number": source_debug.get("last_packet_serial_number") if source_debug else None,
+        "source_device_susy_id": source_debug.get("last_packet_susy_id") if source_debug else None,
         "app_version_full": APP_VERSION_FULL,
         "update_check": update_checker.snapshot(),
     }
@@ -468,10 +499,7 @@ async def save_settings(request: Request):
     form = await request.form()
 
     state.config["system"]["instance_name"] = form.get("instance_name", "PV2Hash Node")
-    log_level = str(form.get("log_level", state.config["system"].get("log_level", "INFO"))).strip().upper()
-    if log_level not in {"DEBUG", "INFO"}:
-        log_level = "INFO"
-    state.config["system"]["log_level"] = log_level
+    state.config["system"]["log_level"] = _normalize_log_level(form.get("log_level", state.config["system"].get("log_level", "INFO")))
     state.config["system"]["check_updates"] = form.get("check_updates") == "on"
     state.config["system"]["auto_update_enabled"] = form.get("auto_update_enabled") == "on"
     state.config["system"]["update_repo"] = (
@@ -506,7 +534,8 @@ async def save_settings(request: Request):
     save_config(state.config)
     setup_logging(state.config["system"].get("log_level", "INFO"))
     logger.info(
-        "Settings saved: check_updates=%s auto_update_enabled=%s update_repo=%s",
+        "Settings saved: log_level=%s check_updates=%s auto_update_enabled=%s update_repo=%s",
+        state.config["system"].get("log_level", "INFO"),
         state.config["system"].get("check_updates", True),
         state.config["system"].get("auto_update_enabled", False),
         state.config["system"].get("update_repo", "phlupp/pv2hash"),
@@ -565,6 +594,7 @@ async def save_source(request: Request):
         form.get("offline_after_seconds", 30.0), 30.0
     )
     state.config["source"]["settings"]["device_ip"] = form.get("device_ip", "").strip()
+    state.config["source"]["settings"]["debug_dump_obis"] = form.get("debug_dump_obis") == "on"
 
     battery_type = str(form.get("battery_type", "none")).strip()
     battery_name = str(form.get("battery_name", "Batterie")).strip() or "Batterie"
@@ -608,21 +638,6 @@ async def miners_page(request: Request):
         name="miners.html",
         context=context,
     )
-
-
-@app.post("/miners/obis-debug")
-async def save_miners_obis_debug(request: Request):
-    form = await request.form()
-    enabled = form.get("debug_dump_obis") == "on"
-
-    state.config.setdefault("source", {})
-    state.config["source"].setdefault("settings", {})
-    state.config["source"]["settings"]["debug_dump_obis"] = enabled
-
-    save_config(state.config)
-    logger.info("OBIS debug updated: enabled=%s", enabled)
-    reload_runtime()
-    return RedirectResponse(url="/miners?obis_debug_saved=1", status_code=303)
 
 
 @app.post("/miners/add")
@@ -801,7 +816,6 @@ async def system_page(request: Request):
         "request": request,
         "instance_name": state.config["system"]["instance_name"],
         "log_level": state.config["system"].get("log_level", "INFO"),
-        "log_saved": request.query_params.get("log_saved") == "1",
         "started_at": state.started_at,
         "last_reload_at": state.last_reload_at,
         "last_live_packet_at": state.last_live_packet_at,
@@ -814,27 +828,13 @@ async def system_page(request: Request):
             auto_update_enabled=auto_update_enabled,
             update_status=update_status,
         ),
+        "allowed_log_levels": ("INFO", "DEBUG"),
     }
     return templates.TemplateResponse(
         request=request,
         name="system.html",
         context=context,
     )
-
-
-@app.post("/system/log-level")
-async def system_save_log_level(request: Request):
-    form = await request.form()
-    log_level = str(form.get("log_level", state.config["system"].get("log_level", "INFO"))).strip().upper()
-    if log_level not in {"DEBUG", "INFO"}:
-        log_level = "INFO"
-
-    state.config.setdefault("system", {})
-    state.config["system"]["log_level"] = log_level
-    save_config(state.config)
-    setup_logging(log_level)
-    logger.info("Log level updated from system page: %s", log_level)
-    return RedirectResponse(url="/system?log_saved=1", status_code=303)
 
 
 @app.get("/system/update-progress")
@@ -864,6 +864,17 @@ async def system_reload():
     logger.info("Manual system reload triggered from UI")
     reload_runtime()
     return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/system/logging")
+async def system_logging(request: Request):
+    form = await request.form()
+    log_level = _normalize_log_level(form.get("log_level", state.config["system"].get("log_level", "INFO")))
+    state.config["system"]["log_level"] = log_level
+    save_config(state.config)
+    setup_logging(log_level)
+    logger.info("Log level changed to %s", log_level)
+    return RedirectResponse(url="/system", status_code=303)
 
 
 @app.get("/api/system/update-status")

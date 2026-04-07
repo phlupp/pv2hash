@@ -76,7 +76,12 @@
 
                 <article class="card stat">
                     <span class="label">Quelle</span>
-                    <strong>{{ snapshot.source if snapshot else "—" }}</strong>
+                    <strong>{{ source_device_label or (snapshot.source if snapshot else "—") }}</strong>
+                    {% if source_device_serial_number %}
+                    <small>SN: {{ source_device_serial_number }}{% if source_device_susy_id %} · SUSy-ID: {{ source_device_susy_id }}{% endif %}</small>
+                    {% elif source_device_susy_id %}
+                    <small>SUSy-ID: {{ source_device_susy_id }}</small>
+                    {% endif %}
                     <small>Qualität: {{ snapshot.quality if snapshot else "—" }}</small>
                 </article>
 

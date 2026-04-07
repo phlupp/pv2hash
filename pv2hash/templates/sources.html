@@ -201,6 +201,12 @@
                                 value="{{ source_settings.device_ip if source_settings and source_settings.device_ip is defined else '' }}"
                             >
                         </label>
+
+                        <label class="checkbox-row">
+                            <input type="checkbox" name="debug_dump_obis" {% if source_settings and source_settings.debug_dump_obis %}checked{% endif %}>
+                            <span>OBIS-Debug in Konsole aktivieren</span>
+                            <small class="help">Schreibt vollständige SMA-Telegramm-Dumps ins Log. Nur bei Fehlersuche aktivieren.</small>
+                        </label>
                     </div>
                 </section>
 
