@@ -579,23 +579,96 @@
     </div>
 
     <script>
+        const MINER_UI_STORAGE_KEY = 'pv2hash.miners.ui.v1';
+
+        function loadMinerUiState() {
+            try {
+                const raw = window.localStorage.getItem(MINER_UI_STORAGE_KEY);
+                if (!raw) {
+                    return { addOpen: false, openMinerIds: [] };
+                }
+                const parsed = JSON.parse(raw);
+                return {
+                    addOpen: Boolean(parsed.addOpen),
+                    openMinerIds: Array.isArray(parsed.openMinerIds) ? parsed.openMinerIds : [],
+                };
+            } catch {
+                return { addOpen: false, openMinerIds: [] };
+            }
+        }
+
+        function saveMinerUiState(state) {
+            try {
+                window.localStorage.setItem(MINER_UI_STORAGE_KEY, JSON.stringify({
+                    addOpen: Boolean(state.addOpen),
+                    openMinerIds: Array.isArray(state.openMinerIds) ? state.openMinerIds : [],
+                }));
+            } catch {
+                // ignore storage issues
+            }
+        }
+
+        function setButtonLabel(button, isOpen) {
+            const cardId = button.getAttribute('data-editing-card');
+            const targetId = button.getAttribute('data-toggle-target');
+            if (cardId) {
+                button.textContent = isOpen ? 'Konfiguration verbergen' : 'Konfigurieren';
+                return;
+            }
+            if (targetId === 'add-miner-panel') {
+                button.textContent = isOpen ? 'Eingabe verbergen' : 'Neuen Miner hinzufügen';
+            }
+        }
+
         function bindPanelToggles() {
+            const uiState = loadMinerUiState();
+            const validMinerIds = new Set(Array.from(document.querySelectorAll('[data-miner-card]')).map((card) => card.dataset.minerId));
+            uiState.openMinerIds = uiState.openMinerIds.filter((id) => validMinerIds.has(id));
+            saveMinerUiState(uiState);
+
             document.querySelectorAll('[data-toggle-target]').forEach((button) => {
-                button.addEventListener('click', () => {
-                    const target = document.getElementById(button.getAttribute('data-toggle-target'));
-                    if (!target) {
-                        return;
+                const targetId = button.getAttribute('data-toggle-target');
+                const target = document.getElementById(targetId);
+                if (!target) {
+                    return;
+                }
+
+                const cardId = button.getAttribute('data-editing-card');
+                let shouldOpen = false;
+                if (cardId) {
+                    shouldOpen = uiState.openMinerIds.includes(cardId);
+                } else if (targetId === 'add-miner-panel') {
+                    shouldOpen = uiState.addOpen;
+                }
+
+                target.hidden = !shouldOpen;
+                setButtonLabel(button, shouldOpen);
+                if (cardId) {
+                    const card = document.querySelector(`[data-miner-card][data-miner-id="${cardId}"]`);
+                    if (card) {
+                        card.dataset.editing = shouldOpen ? 'true' : 'false';
                     }
+                }
+
+                button.addEventListener('click', () => {
                     const willShow = target.hidden;
                     target.hidden = !willShow;
-                    button.textContent = willShow ? 'Konfiguration verbergen' : 'Konfigurieren';
+                    setButtonLabel(button, willShow);
 
-                    const cardId = button.getAttribute('data-editing-card');
                     if (cardId) {
                         const card = document.querySelector(`[data-miner-card][data-miner-id="${cardId}"]`);
                         if (card) {
                             card.dataset.editing = willShow ? 'true' : 'false';
                         }
+                        const nextOpen = new Set(loadMinerUiState().openMinerIds.filter((id) => validMinerIds.has(id)));
+                        if (willShow) {
+                            nextOpen.add(cardId);
+                        } else {
+                            nextOpen.delete(cardId);
+                        }
+                        saveMinerUiState({ ...loadMinerUiState(), openMinerIds: Array.from(nextOpen) });
+                    } else if (targetId === 'add-miner-panel') {
+                        saveMinerUiState({ ...loadMinerUiState(), addOpen: willShow });
                     }
                 });
             });
