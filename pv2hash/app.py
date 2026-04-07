@@ -736,9 +736,6 @@ async def add_miner(request: Request):
             "driver": driver,
             "enabled": True,
             "priority": int(form.get("priority", 100)),
-            "serial_number": form.get("serial_number") or None,
-            "model": form.get("model") or None,
-            "firmware_version": form.get("firmware_version") or None,
             "settings": _build_miner_settings(form, driver, default_port),
             "profiles": profile_values,
             "min_regulated_profile": min_regulated_profile,
@@ -802,9 +799,6 @@ async def update_miner(request: Request):
             miner["driver"] = driver
             miner["priority"] = int(form.get("priority", miner.get("priority", 100)))
             miner["enabled"] = form.get("enabled") == "on"
-            miner["serial_number"] = form.get("serial_number") or None
-            miner["model"] = form.get("model") or None
-            miner["firmware_version"] = form.get("firmware_version") or None
             miner["settings"] = _build_miner_settings(
                 form,
                 driver,
