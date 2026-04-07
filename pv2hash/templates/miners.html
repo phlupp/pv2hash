@@ -7,13 +7,32 @@
     <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
+    {% macro help_link(url, label='Hilfe') -%}
+    <a class="btn btn-secondary btn-small" href="{{ url }}" target="_blank" rel="noopener">{{ label }}</a>
+    {%- endmacro %}
+
+    {% macro battery_profile_options(current) -%}
+        <option value="p1" {% if current == 'p1' %}selected{% endif %}>p1</option>
+        <option value="p2" {% if current == 'p2' %}selected{% endif %}>p2</option>
+        <option value="p3" {% if current == 'p3' %}selected{% endif %}>p3</option>
+        <option value="p4" {% if current == 'p4' %}selected{% endif %}>p4</option>
+    {%- endmacro %}
+
+    {% macro min_regulated_options(current) -%}
+        <option value="off" {% if current == 'off' %}selected{% endif %}>off</option>
+        <option value="p1" {% if current == 'p1' %}selected{% endif %}>p1</option>
+        <option value="p2" {% if current == 'p2' %}selected{% endif %}>p2</option>
+        <option value="p3" {% if current == 'p3' %}selected{% endif %}>p3</option>
+        <option value="p4" {% if current == 'p4' %}selected{% endif %}>p4</option>
+    {%- endmacro %}
+
     <div class="layout">
         <aside class="sidebar">
             <div class="brand">
                 <div class="brand-mark">PV</div>
                 <div>
                     <div class="brand-title">PV2Hash</div>
-                    <div class="brand-subtitle">Miner Verwaltung</div>
+                    <div class="brand-subtitle">Miner</div>
                 </div>
             </div>
 
@@ -31,7 +50,11 @@
             <header class="topbar">
                 <div>
                     <h1>Miner</h1>
-                    <p>Konfigurierte Miner verwalten</p>
+                    <p>Bestehende Miner kompakt verwalten und neue Miner erst nach Auswahl des Treibers anlegen.</p>
+                </div>
+                <div class="topbar-actions">
+                    <button class="btn btn-small" type="button" data-toggle-target="add-miner-panel">Neuen Miner hinzufügen</button>
+                    {{ help_link(wiki_links.overview, 'Wiki: Miner') }}
                 </div>
             </header>
 
@@ -47,156 +70,216 @@
             </section>
             {% endif %}
 
-            <section class="card">
-                <div class="card-head">
-                    <h2>Miner hinzufügen</h2>
+            <section class="card disclosure-card miner-add-card">
+                <div class="disclosure-summary disclosure-summary-static">
+                    <div>
+                        <strong>Neuen Miner hinzufügen</strong>
+                        <small>Erst Treiber wählen, dann nur die passenden Felder ausfüllen.</small>
+                    </div>
+                    <span class="summary-action">Treiber auswählen</span>
                 </div>
 
-                <form method="post" action="/miners/add" class="form-grid">
-                    <label>
-                        <span>Name</span>
-                        <input type="text" name="name" required>
-                    </label>
+                <div class="disclosure-body" id="add-miner-panel" {% if not error_message %}hidden{% endif %}>
+                    <form method="post" action="/miners/add" class="form-grid miner-config-form" data-driver-form data-apply-driver-defaults="true">
+                        <section class="card type-subcard">
+                            <div class="card-head">
+                                <div>
+                                    <h2>Grunddaten</h2>
+                                    <p class="card-subtitle">Der Treiber bestimmt, welche zusätzlichen Felder benötigt werden.</p>
+                                </div>
+                            </div>
 
-                    <label>
-                        <span>Host / IP</span>
-                        <input type="text" name="host" required>
-                    </label>
+                            <div class="form-grid">
+                                <label>
+                                    <span>Treiber</span>
+                                    <select name="driver" data-driver-select data-default-port-target="add-port-field">
+                                        <option value="simulator">{{ driver_labels.simulator }}</option>
+                                        <option value="braiins">{{ driver_labels.braiins }}</option>
+                                    </select>
+                                </label>
 
-                    <label>
-                        <span>Treiber</span>
-                        <select name="driver">
-                            <option value="simulator">simulator</option>
-                            <option value="braiins">braiins</option>
-                        </select>
-                    </label>
+                                <label>
+                                    <span>Name</span>
+                                    <input type="text" name="name" required>
+                                </label>
 
-                    <label>
-                        <span>API Port</span>
-                        <input type="number" name="port" value="50051">
-                        <small class="help">Für Braiins typischerweise 50051.</small>
-                    </label>
+                                <label>
+                                    <span>Host / IP</span>
+                                    <input type="text" name="host" required>
+                                </label>
 
-                    <label>
-                        <span>Priorität</span>
-                        <input type="number" name="priority" value="100" min="1" max="999">
-                    </label>
+                                <label>
+                                    <span>Priorität</span>
+                                    <input type="number" name="priority" value="100" min="1" max="999">
+                                </label>
 
-                    <label>
-                        <span>Min. Regelprofil</span>
-                        <select name="min_regulated_profile">
-                            <option value="off" selected>off</option>
-                            <option value="p1">p1</option>
-                            <option value="p2">p2</option>
-                            <option value="p3">p3</option>
-                            <option value="p4">p4</option>
-                        </select>
-                        <small class="help">Wie weit der Regler diesen Miner automatisch herunterstufen darf.</small>
-                    </label>
+                                <label class="checkbox-row form-grid-span-2">
+                                    <input type="checkbox" checked disabled>
+                                    <span>Miner beim Anlegen aktivieren</span>
+                                    <small class="help">Neue Miner werden direkt aktiviert. Danach kann der Miner jederzeit deaktiviert werden.</small>
+                                </label>
+                            </div>
+                        </section>
 
-                    <label>
-                        <span>Seriennummer</span>
-                        <input type="text" name="serial_number">
-                    </label>
+                        <section class="card type-subcard top-gap" data-driver-types="braiins">
+                            <div class="card-head">
+                                <div>
+                                    <h2>Verbindung</h2>
+                                    <p class="card-subtitle">Nur für Miner mit Braiins OS+ erforderlich.</p>
+                                </div>
+                                {{ help_link(wiki_links.braiins, 'Hilfe') }}
+                            </div>
 
-                    <label>
-                        <span>Modell</span>
-                        <input type="text" name="model">
-                    </label>
+                            <div class="form-grid miner-connection-grid">
+                                <label class="field-narrow">
+                                    <span>API Port</span>
+                                    <input id="add-port-field" type="number" name="port" value="4028">
+                                </label>
 
-                    <label>
-                        <span>Firmware Version</span>
-                        <input type="text" name="firmware_version">
-                    </label>
+                                <label>
+                                    <span>Braiins Benutzer</span>
+                                    <input type="text" name="username" value="root">
+                                </label>
 
-                    <label>
-                        <span>Braiins Benutzer</span>
-                        <input type="text" name="username" value="root">
-                    </label>
+                                <label>
+                                    <span>Braiins Passwort</span>
+                                    <input type="password" name="password">
+                                </label>
+                            </div>
+                        </section>
 
-                    <label>
-                        <span>Braiins Passwort</span>
-                        <input type="password" name="password">
-                    </label>
+                        <section class="card type-subcard top-gap">
+                            <div class="card-head">
+                                <div>
+                                    <h2>Leistungsprofile</h2>
+                                    <p class="card-subtitle">Die Profile definieren die festen Leistungsstufen des Miners.</p>
+                                </div>
+                                {{ help_link(wiki_links.profiles, 'Hilfe') }}
+                            </div>
 
-                    <label>
-                        <span>P1 Leistung (W)</span>
-                        <input type="number" name="profile_p1_power_w" value="1200" min="1">
-                        <small class="help">Kleinste echte Leistungsstufe.</small>
-                    </label>
+                            <div class="form-grid miner-profile-grid">
+                                <label>
+                                    <span>P1 Leistung (W)</span>
+                                    <input type="number" name="profile_p1_power_w" value="900" min="1">
+                                    <small class="help">Kleinste echte Leistungsstufe.</small>
+                                </label>
 
-                    <label>
-                        <span>P2 Leistung (W)</span>
-                        <input type="number" name="profile_p2_power_w" value="2200" min="1">
-                    </label>
+                                <label>
+                                    <span>P2 Leistung (W)</span>
+                                    <input type="number" name="profile_p2_power_w" value="1800" min="1">
+                                </label>
 
-                    <label>
-                        <span>P3 Leistung (W)</span>
-                        <input type="number" name="profile_p3_power_w" value="3200" min="1">
-                    </label>
+                                <label>
+                                    <span>P3 Leistung (W)</span>
+                                    <input type="number" name="profile_p3_power_w" value="3000" min="1">
+                                </label>
 
-                    <label>
-                        <span>P4 Leistung (W)</span>
-                        <input type="number" name="profile_p4_power_w" value="4200" min="1">
-                    </label>
+                                <label>
+                                    <span>P4 Leistung (W)</span>
+                                    <input type="number" name="profile_p4_power_w" value="4200" min="1">
+                                </label>
 
-                    <fieldset class="form-section">
-                        <legend>Batterie-Laden</legend>
+                                <label>
+                                    <span>Min. Regelprofil</span>
+                                    <select name="min_regulated_profile">
+                                        {{ min_regulated_options('off') }}
+                                    </select>
+                                    <small class="help">Wie weit der Regler diesen Miner automatisch herunterstufen darf.</small>
+                                </label>
+                            </div>
+                        </section>
 
-                        <label class="checkbox-row">
-                            <input type="checkbox" name="use_battery_when_charging">
-                            <span>Batterie beim Laden zum Mining verwenden</span>
-                        </label>
+                        <section class="card type-subcard top-gap">
+                            <div class="card-head">
+                                <div>
+                                    <h2>Batterieverhalten</h2>
+                                    <p class="card-subtitle">Optionales Verhalten, wenn Batterie-Laden oder -Entladen erkannt wird.</p>
+                                </div>
+                                {{ help_link(wiki_links.battery, 'Hilfe') }}
+                            </div>
 
-                        <label>
-                            <span>Ab SOC (%)</span>
-                            <input type="number" name="battery_charge_soc_min" value="95" min="0" max="100" step="0.1">
-                            <small class="help">Ab diesem Ladezustand darf der Batterie-Ladebetrieb das feste Profil freigeben.</small>
-                        </label>
+                            <div class="grid grid-2 miner-battery-grid">
+                                <fieldset class="form-section">
+                                    <legend>Batterie-Laden</legend>
 
-                        <label>
-                            <span>Profil beim Laden</span>
-                            <select name="battery_charge_profile">
-                                <option value="p1" selected>p1</option>
-                                <option value="p2">p2</option>
-                                <option value="p3">p3</option>
-                                <option value="p4">p4</option>
-                            </select>
-                        </label>
-                    </fieldset>
+                                    <label class="checkbox-row">
+                                        <input type="checkbox" name="use_battery_when_charging">
+                                        <span>Batterie beim Laden zum Mining verwenden</span>
+                                    </label>
 
-                    <fieldset class="form-section">
-                        <legend>Batterie-Entladen</legend>
+                                    <label>
+                                        <span>Ab SOC (%)</span>
+                                        <input type="number" name="battery_charge_soc_min" value="95" min="0" max="100" step="0.1">
+                                        <small class="help">Ab diesem Ladezustand darf der Ladebetrieb das Profil freigeben.</small>
+                                    </label>
 
-                        <label class="checkbox-row">
-                            <input type="checkbox" name="use_battery_when_discharging">
-                            <span>Batterie beim Entladen zum Mining verwenden</span>
-                        </label>
+                                    <label>
+                                        <span>Profil beim Laden</span>
+                                        <select name="battery_charge_profile">
+                                            {{ battery_profile_options('p1') }}
+                                        </select>
+                                    </label>
+                                </fieldset>
 
-                        <label>
-                            <span>Ab SOC (%)</span>
-                            <input type="number" name="battery_discharge_soc_min" value="80" min="0" max="100" step="0.1">
-                            <small class="help">Fällt der SOC darunter oder ist Batterienutzung aus, geht der Regler auf das Min.-Regelprofil zurück.</small>
-                        </label>
+                                <fieldset class="form-section">
+                                    <legend>Batterie-Entladen</legend>
 
-                        <label>
-                            <span>Profil beim Entladen</span>
-                            <select name="battery_discharge_profile">
-                                <option value="p1" selected>p1</option>
-                                <option value="p2">p2</option>
-                                <option value="p3">p3</option>
-                                <option value="p4">p4</option>
-                            </select>
-                        </label>
-                    </fieldset>
+                                    <label class="checkbox-row">
+                                        <input type="checkbox" name="use_battery_when_discharging">
+                                        <span>Batterie beim Entladen zum Mining verwenden</span>
+                                    </label>
 
-                    <div class="actions">
-                        <button class="btn" type="submit">Miner anlegen</button>
-                    </div>
-                </form>
+                                    <label>
+                                        <span>Ab SOC (%)</span>
+                                        <input type="number" name="battery_discharge_soc_min" value="80" min="0" max="100" step="0.1">
+                                        <small class="help">Fällt der SOC darunter, geht der Regler auf das Min.-Regelprofil zurück.</small>
+                                    </label>
+
+                                    <label>
+                                        <span>Profil beim Entladen</span>
+                                        <select name="battery_discharge_profile">
+                                            {{ battery_profile_options('p1') }}
+                                        </select>
+                                    </label>
+                                </fieldset>
+                            </div>
+                        </section>
+
+                        <section class="card type-subcard top-gap">
+                            <div class="card-head">
+                                <div>
+                                    <h2>Geräteangaben</h2>
+                                    <p class="card-subtitle">Optionale Stammdaten für bessere Übersicht.</p>
+                                </div>
+                            </div>
+
+                            <div class="form-grid miner-meta-grid">
+                                <label>
+                                    <span>Seriennummer</span>
+                                    <input type="text" name="serial_number">
+                                </label>
+
+                                <label>
+                                    <span>Modell</span>
+                                    <input type="text" name="model">
+                                </label>
+
+                                <label>
+                                    <span>Firmware Version</span>
+                                    <input type="text" name="firmware_version">
+                                </label>
+                            </div>
+                        </section>
+
+                        <div class="actions top-gap split">
+                            <span></span>
+                            <button class="btn" type="submit">Miner anlegen</button>
+                        </div>
+                    </form>
+                </div>
             </section>
 
-            <div class="grid">
+            <section class="grid miner-card-grid top-gap">
                 {% for miner in miners %}
                 {% set rt = miner.runtime or {} %}
                 {% set reachable = rt.get("reachable", false) %}
@@ -211,294 +294,270 @@
                 {% set pt_max = rt.get("power_target_max_w") %}
                 {% set last_error = rt.get("last_error") %}
                 {% set last_seen = rt.get("last_seen") %}
+                {% set driver_label = driver_labels.get(miner.driver, miner.driver) %}
+                {% set min_profile = miner.min_regulated_profile if miner.min_regulated_profile is defined else 'off' %}
+                {% set charge_profile = miner.battery_charge_profile if miner.battery_charge_profile is defined else 'p1' %}
+                {% set discharge_profile = miner.battery_discharge_profile if miner.battery_discharge_profile is defined else 'p1' %}
+                {% set profile_p1 = miner.profiles.p1.power_w if miner.profiles and miner.profiles.p1 is defined else (1200 if miner.driver == 'braiins' else 900) %}
+                {% set profile_p2 = miner.profiles.p2.power_w if miner.profiles and miner.profiles.p2 is defined else (2200 if miner.driver == 'braiins' else 1800) %}
+                {% set profile_p3 = miner.profiles.p3.power_w if miner.profiles and miner.profiles.p3 is defined else (3200 if miner.driver == 'braiins' else 3000) %}
+                {% set profile_p4 = miner.profiles.p4.power_w if miner.profiles and miner.profiles.p4 is defined else 4200 %}
 
-                <section class="card">
+                <article class="card miner-card" data-miner-card data-miner-id="{{ miner.id }}" data-editing="false">
                     <div class="card-head">
-                        <h2>{{ miner.name }}</h2>
-                        <span class="badge">{{ miner.id }}</span>
+                        <div>
+                            <h2>{{ miner.name }}</h2>
+                            <p class="card-subtitle">{{ driver_label }} · {{ miner.host }}</p>
+                        </div>
+                        <div class="topbar-actions">
+                            <button class="btn btn-small" type="button" data-toggle-target="miner-config-{{ miner.id }}" data-editing-card="{{ miner.id }}">Konfigurieren</button>
+                            {% if miner.driver == 'braiins' %}
+                                {{ help_link(wiki_links.braiins, 'Hilfe') }}
+                            {% else %}
+                                {{ help_link(wiki_links.simulator, 'Hilfe') }}
+                            {% endif %}
+                        </div>
                     </div>
 
-                    <form method="post" action="/miners/update" class="form-grid">
-                        <input type="hidden" name="miner_id" value="{{ miner.id }}">
-
-                        <label>
-                            <span>Name</span>
-                            <input type="text" name="name" value="{{ miner.name }}" required>
-                        </label>
-
-                        <label>
-                            <span>Host / IP</span>
-                            <input type="text" name="host" value="{{ miner.host }}" required>
-                        </label>
-
-                        <label>
-                            <span>Treiber</span>
-                            <select name="driver">
-                                <option value="simulator" {% if miner.driver == "simulator" %}selected{% endif %}>simulator</option>
-                                <option value="braiins" {% if miner.driver == "braiins" %}selected{% endif %}>braiins</option>
-                            </select>
-                        </label>
-
-                        <label>
-                            <span>API Port</span>
-                            <input type="number" name="port" value="{{ miner.settings.port if miner.settings and miner.settings.port is defined else 50051 }}">
-                        </label>
-
-                        <label>
-                            <span>Priorität</span>
-                            <input type="number" name="priority" value="{{ miner.priority }}" min="1" max="999">
-                        </label>
-
-                        <label>
-                            <span>Min. Regelprofil</span>
-                            {% set current_min_regulated_profile = miner.min_regulated_profile if miner.min_regulated_profile is defined else 'off' %}
-                            <select name="min_regulated_profile">
-                                <option value="off" {% if current_min_regulated_profile == "off" %}selected{% endif %}>off</option>
-                                <option value="p1" {% if current_min_regulated_profile == "p1" %}selected{% endif %}>p1</option>
-                                <option value="p2" {% if current_min_regulated_profile == "p2" %}selected{% endif %}>p2</option>
-                                <option value="p3" {% if current_min_regulated_profile == "p3" %}selected{% endif %}>p3</option>
-                                <option value="p4" {% if current_min_regulated_profile == "p4" %}selected{% endif %}>p4</option>
-                            </select>
-                            <small class="help">Wie weit der Regler diesen Miner automatisch herunterstufen darf.</small>
-                        </label>
-
-                        <label>
-                            <span>Seriennummer</span>
-                            <input type="text" name="serial_number" value="{{ miner.serial_number or '' }}">
-                        </label>
-
-                        <label>
-                            <span>Modell</span>
-                            <input type="text" name="model" value="{{ miner.model or '' }}">
-                        </label>
-
-                        <label>
-                            <span>Firmware Version</span>
-                            <input type="text" name="firmware_version" value="{{ miner.firmware_version or '' }}">
-                        </label>
-
-                        <label>
-                            <span>Braiins Benutzer</span>
-                            <input type="text" name="username" value="{{ miner.settings.username if miner.settings and miner.settings.username is defined else 'root' }}">
-                        </label>
-
-                        <label>
-                            <span>Braiins Passwort</span>
-                            <input type="password" name="password" value="">
-                            <small class="help">Leer = unverändert.</small>
-                        </label>
-
-                        <label>
-                            <span>P1 Leistung (W)</span>
-                            <input
-                                type="number"
-                                name="profile_p1_power_w"
-                                value="{{ miner.profiles.p1.power_w if miner.profiles and miner.profiles.p1 is defined else (1200 if miner.driver == 'braiins' else 900) }}"
-                                min="1"
-                            >
-                            <small class="help">Kleinste echte Leistungsstufe.</small>
-                        </label>
-
-                        <label>
-                            <span>P2 Leistung (W)</span>
-                            <input
-                                type="number"
-                                name="profile_p2_power_w"
-                                value="{{ miner.profiles.p2.power_w if miner.profiles and miner.profiles.p2 is defined else (2200 if miner.driver == 'braiins' else 1800) }}"
-                                min="1"
-                            >
-                        </label>
-
-                        <label>
-                            <span>P3 Leistung (W)</span>
-                            <input
-                                type="number"
-                                name="profile_p3_power_w"
-                                value="{{ miner.profiles.p3.power_w if miner.profiles and miner.profiles.p3 is defined else (3200 if miner.driver == 'braiins' else 3000) }}"
-                                min="1"
-                            >
-                        </label>
-
-                        <label>
-                            <span>P4 Leistung (W)</span>
-                            <input
-                                type="number"
-                                name="profile_p4_power_w"
-                                value="{{ miner.profiles.p4.power_w if miner.profiles and miner.profiles.p4 is defined else (4200 if miner.driver == 'braiins' else 4200) }}"
-                                min="1"
-                            >
-                        </label>
-
-                        <fieldset class="form-section">
-                            <legend>Batterie-Laden</legend>
-
-                            <label class="checkbox-row">
-                                <input type="checkbox" name="use_battery_when_charging" {% if miner.use_battery_when_charging %}checked{% endif %}>
-                                <span>Batterie beim Laden zum Mining verwenden</span>
-                            </label>
-
-                            <label>
-                                <span>Ab SOC (%)</span>
-                                <input
-                                    type="number"
-                                    name="battery_charge_soc_min"
-                                    value="{{ miner.battery_charge_soc_min if miner.battery_charge_soc_min is defined else 95 }}"
-                                    min="0"
-                                    max="100"
-                                    step="0.1"
-                                >
-                                <small class="help">Ab diesem Ladezustand darf der Batterie-Ladebetrieb das feste Profil freigeben.</small>
-                            </label>
-
-                            <label>
-                                <span>Profil beim Laden</span>
-                                {% set current_charge_profile = miner.battery_charge_profile if miner.battery_charge_profile is defined else 'p1' %}
-                                <select name="battery_charge_profile">
-                                    <option value="p1" {% if current_charge_profile == 'p1' %}selected{% endif %}>p1</option>
-                                    <option value="p2" {% if current_charge_profile == 'p2' %}selected{% endif %}>p2</option>
-                                    <option value="p3" {% if current_charge_profile == 'p3' %}selected{% endif %}>p3</option>
-                                    <option value="p4" {% if current_charge_profile == 'p4' %}selected{% endif %}>p4</option>
-                                </select>
-                            </label>
-                        </fieldset>
-
-                        <fieldset class="form-section">
-                            <legend>Batterie-Entladen</legend>
-
-                            <label class="checkbox-row">
-                                <input type="checkbox" name="use_battery_when_discharging" {% if miner.use_battery_when_discharging %}checked{% endif %}>
-                                <span>Batterie beim Entladen zum Mining verwenden</span>
-                            </label>
-
-                            <label>
-                                <span>Ab SOC (%)</span>
-                                <input
-                                    type="number"
-                                    name="battery_discharge_soc_min"
-                                    value="{{ miner.battery_discharge_soc_min if miner.battery_discharge_soc_min is defined else 80 }}"
-                                    min="0"
-                                    max="100"
-                                    step="0.1"
-                                >
-                                <small class="help">Fällt der SOC darunter oder ist Batterienutzung aus, geht der Regler auf das Min.-Regelprofil zurück.</small>
-                            </label>
-
-                            <label>
-                                <span>Profil beim Entladen</span>
-                                {% set current_discharge_profile = miner.battery_discharge_profile if miner.battery_discharge_profile is defined else 'p1' %}
-                                <select name="battery_discharge_profile">
-                                    <option value="p1" {% if current_discharge_profile == 'p1' %}selected{% endif %}>p1</option>
-                                    <option value="p2" {% if current_discharge_profile == 'p2' %}selected{% endif %}>p2</option>
-                                    <option value="p3" {% if current_discharge_profile == 'p3' %}selected{% endif %}>p3</option>
-                                    <option value="p4" {% if current_discharge_profile == 'p4' %}selected{% endif %}>p4</option>
-                                </select>
-                            </label>
-                        </fieldset>
-
-                        <label class="checkbox-row">
-                            <input type="checkbox" name="enabled" {% if miner.enabled %}checked{% endif %}>
-                            <span>Miner aktiviert</span>
-                        </label>
-
-                        <div class="actions split">
-                            <button class="btn" type="submit">Speichern</button>
+                    <div class="miner-summary-grid">
+                        <div class="miner-summary-item">
+                            <span class="label">Status</span>
+                            <strong data-runtime-field="summary-state">{% if reachable %}erreichbar{% else %}nicht erreichbar{% endif %} · {{ runtime_state }}</strong>
                         </div>
-                    </form>
+                        <div class="miner-summary-item">
+                            <span class="label">Aktuelles Profil</span>
+                            <strong data-runtime-field="summary-profile">{{ current_profile }}</strong>
+                        </div>
+                        <div class="miner-summary-item">
+                            <span class="label">Aktuelle Leistung</span>
+                            <strong data-runtime-field="summary-power">{% if current_power_w is not none %}{{ '%.0f'|format(current_power_w) }} W{% else %}–{% endif %}</strong>
+                        </div>
+                        <div class="miner-summary-item">
+                            <span class="label">Freigabe</span>
+                            <strong data-runtime-field="summary-enabled">{{ 'aktiv' if miner.enabled else 'deaktiviert' }}</strong>
+                        </div>
+                    </div>
 
-                    <div class="top-gap">
-                        <div class="card stat">
-                            <span class="label">Runtime</span>
+                    <div class="kv compact-kv top-gap">
+                        <div class="kv-row"><span>Priorität</span><strong>{{ miner.priority }}</strong></div>
+                        <div class="kv-row"><span>Min. Regelprofil</span><strong>{{ min_profile }}</strong></div>
+                        <div class="kv-row"><span>Letzter Fehler</span><strong data-runtime-field="summary-error">{{ last_error or '—' }}</strong></div>
+                    </div>
 
-                            <div class="stack" style="margin-top:10px; gap:8px;">
-                                <div>
-                                    <strong>Status:</strong>
-                                    {% if reachable %}
-                                        erreichbar
-                                    {% else %}
-                                        nicht erreichbar
-                                    {% endif %}
-                                    · {{ runtime_state }}
+                    <div class="measurement-config-panel top-gap" id="miner-config-{{ miner.id }}" hidden>
+                        <form method="post" action="/miners/update" class="form-grid miner-config-form" data-driver-form>
+                            <input type="hidden" name="miner_id" value="{{ miner.id }}">
+
+                            <section class="card type-subcard">
+                                <div class="card-head">
+                                    <div>
+                                        <h2>Grunddaten</h2>
+                                        <p class="card-subtitle">Treiber, Erreichbarkeit und allgemeine Eigenschaften des Miners.</p>
+                                    </div>
                                 </div>
 
-                                <div>
-                                    <strong>Aktuelles Profil:</strong> {{ current_profile }}
+                                <div class="form-grid">
+                                    <label>
+                                        <span>Treiber</span>
+                                        <select name="driver" data-driver-select>
+                                            <option value="simulator" {% if miner.driver == 'simulator' %}selected{% endif %}>{{ driver_labels.simulator }}</option>
+                                            <option value="braiins" {% if miner.driver == 'braiins' %}selected{% endif %}>{{ driver_labels.braiins }}</option>
+                                        </select>
+                                    </label>
+
+                                    <label>
+                                        <span>Name</span>
+                                        <input type="text" name="name" value="{{ miner.name }}" required>
+                                    </label>
+
+                                    <label>
+                                        <span>Host / IP</span>
+                                        <input type="text" name="host" value="{{ miner.host }}" required>
+                                    </label>
+
+                                    <label>
+                                        <span>Priorität</span>
+                                        <input type="number" name="priority" value="{{ miner.priority }}" min="1" max="999">
+                                    </label>
+
+                                    <label class="checkbox-row form-grid-span-2">
+                                        <input type="checkbox" name="enabled" {% if miner.enabled %}checked{% endif %}>
+                                        <span>Miner aktiviert</span>
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section class="card type-subcard top-gap" data-driver-types="braiins">
+                                <div class="card-head">
+                                    <div>
+                                        <h2>Verbindung</h2>
+                                        <p class="card-subtitle">Nur für Braiins OS+ relevant.</p>
+                                    </div>
+                                    {{ help_link(wiki_links.braiins, 'Hilfe') }}
                                 </div>
 
-                                <div>
-                                    <strong>Aktuelle Leistung:</strong>
-                                    {% if current_power_w is not none %}
-                                        {{ '%.0f'|format(current_power_w) }} W
-                                    {% else %}
-                                        –
-                                    {% endif %}
+                                <div class="form-grid miner-connection-grid">
+                                    <label class="field-narrow">
+                                        <span>API Port</span>
+                                        <input type="number" name="port" value="{{ miner.settings.port if miner.settings and miner.settings.port is defined else 50051 }}">
+                                    </label>
+
+                                    <label>
+                                        <span>Braiins Benutzer</span>
+                                        <input type="text" name="username" value="{{ miner.settings.username if miner.settings and miner.settings.username is defined else 'root' }}">
+                                    </label>
+
+                                    <label>
+                                        <span>Braiins Passwort</span>
+                                        <input type="password" name="password" value="">
+                                        <small class="help">Leer = unverändert.</small>
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section class="card type-subcard top-gap">
+                                <div class="card-head">
+                                    <div>
+                                        <h2>Leistungsprofile</h2>
+                                        <p class="card-subtitle">P1 bis P4 sowie die Untergrenze für die automatische Regelung.</p>
+                                    </div>
+                                    {{ help_link(wiki_links.profiles, 'Hilfe') }}
                                 </div>
 
-                                <div>
-                                    <strong>API-Version:</strong>
-                                    {% if api_version %}
-                                        {{ api_version }}
-                                    {% else %}
-                                        –
-                                    {% endif %}
+                                <div class="form-grid miner-profile-grid">
+                                    <label>
+                                        <span>P1 Leistung (W)</span>
+                                        <input type="number" name="profile_p1_power_w" value="{{ profile_p1 }}" min="1">
+                                        <small class="help">Kleinste echte Leistungsstufe.</small>
+                                    </label>
+
+                                    <label>
+                                        <span>P2 Leistung (W)</span>
+                                        <input type="number" name="profile_p2_power_w" value="{{ profile_p2 }}" min="1">
+                                    </label>
+
+                                    <label>
+                                        <span>P3 Leistung (W)</span>
+                                        <input type="number" name="profile_p3_power_w" value="{{ profile_p3 }}" min="1">
+                                    </label>
+
+                                    <label>
+                                        <span>P4 Leistung (W)</span>
+                                        <input type="number" name="profile_p4_power_w" value="{{ profile_p4 }}" min="1">
+                                    </label>
+
+                                    <label>
+                                        <span>Min. Regelprofil</span>
+                                        <select name="min_regulated_profile">
+                                            {{ min_regulated_options(min_profile) }}
+                                        </select>
+                                        <small class="help">Wie weit der Regler diesen Miner automatisch herunterstufen darf.</small>
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section class="card type-subcard top-gap">
+                                <div class="card-head">
+                                    <div>
+                                        <h2>Batterieverhalten</h2>
+                                        <p class="card-subtitle">Optionales Verhalten bei Batterie-Laden und -Entladen.</p>
+                                    </div>
+                                    {{ help_link(wiki_links.battery, 'Hilfe') }}
                                 </div>
 
-                                <div>
-                                    <strong>Control-Mode:</strong>
-                                    {% if control_mode %}
-                                        {{ control_mode }}
-                                    {% else %}
-                                        –
-                                    {% endif %}
+                                <div class="grid grid-2 miner-battery-grid">
+                                    <fieldset class="form-section">
+                                        <legend>Batterie-Laden</legend>
+
+                                        <label class="checkbox-row">
+                                            <input type="checkbox" name="use_battery_when_charging" {% if miner.use_battery_when_charging %}checked{% endif %}>
+                                            <span>Batterie beim Laden zum Mining verwenden</span>
+                                        </label>
+
+                                        <label>
+                                            <span>Ab SOC (%)</span>
+                                            <input type="number" name="battery_charge_soc_min" value="{{ miner.battery_charge_soc_min if miner.battery_charge_soc_min is defined else 95 }}" min="0" max="100" step="0.1">
+                                            <small class="help">Ab diesem Ladezustand darf der Ladebetrieb das Profil freigeben.</small>
+                                        </label>
+
+                                        <label>
+                                            <span>Profil beim Laden</span>
+                                            <select name="battery_charge_profile">
+                                                {{ battery_profile_options(charge_profile) }}
+                                            </select>
+                                        </label>
+                                    </fieldset>
+
+                                    <fieldset class="form-section">
+                                        <legend>Batterie-Entladen</legend>
+
+                                        <label class="checkbox-row">
+                                            <input type="checkbox" name="use_battery_when_discharging" {% if miner.use_battery_when_discharging %}checked{% endif %}>
+                                            <span>Batterie beim Entladen zum Mining verwenden</span>
+                                        </label>
+
+                                        <label>
+                                            <span>Ab SOC (%)</span>
+                                            <input type="number" name="battery_discharge_soc_min" value="{{ miner.battery_discharge_soc_min if miner.battery_discharge_soc_min is defined else 80 }}" min="0" max="100" step="0.1">
+                                            <small class="help">Fällt der SOC darunter, geht der Regler auf das Min.-Regelprofil zurück.</small>
+                                        </label>
+
+                                        <label>
+                                            <span>Profil beim Entladen</span>
+                                            <select name="battery_discharge_profile">
+                                                {{ battery_profile_options(discharge_profile) }}
+                                            </select>
+                                        </label>
+                                    </fieldset>
+                                </div>
+                            </section>
+
+                            <section class="card type-subcard top-gap">
+                                <div class="card-head">
+                                    <div>
+                                        <h2>Geräteangaben</h2>
+                                        <p class="card-subtitle">Optionale Stammdaten und ergänzende Runtime-Infos.</p>
+                                    </div>
                                 </div>
 
-                                <div>
-                                    <strong>Autotuning:</strong>
-                                    {% if autotuning_enabled is sameas true %}
-                                        an
-                                    {% elif autotuning_enabled is sameas false %}
-                                        aus
-                                    {% else %}
-                                        –
-                                    {% endif %}
+                                <div class="form-grid miner-meta-grid">
+                                    <label>
+                                        <span>Seriennummer</span>
+                                        <input type="text" name="serial_number" value="{{ miner.serial_number or '' }}">
+                                    </label>
+
+                                    <label>
+                                        <span>Modell</span>
+                                        <input type="text" name="model" value="{{ miner.model or '' }}">
+                                    </label>
+
+                                    <label>
+                                        <span>Firmware Version</span>
+                                        <input type="text" name="firmware_version" value="{{ miner.firmware_version or '' }}">
+                                    </label>
                                 </div>
 
-                                <div>
-                                    <strong>Power Target:</strong>
-                                    {% if pt_min is none and pt_def is none and pt_max is none %}
-                                        noch nicht gelesen
-                                    {% else %}
-                                        Min {% if pt_min is not none %}{{ '%.0f'|format(pt_min) }} W{% else %}–{% endif %}
-                                        · Default {% if pt_def is not none %}{{ '%.0f'|format(pt_def) }} W{% else %}–{% endif %}
-                                        · Max {% if pt_max is not none %}{{ '%.0f'|format(pt_max) }} W{% else %}–{% endif %}
-                                    {% endif %}
+                                <div class="kv compact-kv top-gap">
+                                    <div class="kv-row"><span>API-Version</span><strong data-runtime-field="detail-api">{{ api_version or '—' }}</strong></div>
+                                    <div class="kv-row"><span>Control-Mode</span><strong data-runtime-field="detail-control-mode">{{ control_mode or '—' }}</strong></div>
+                                    <div class="kv-row"><span>Autotuning</span><strong data-runtime-field="detail-autotuning">{% if autotuning_enabled is sameas true %}an{% elif autotuning_enabled is sameas false %}aus{% else %}—{% endif %}</strong></div>
+                                    <div class="kv-row"><span>Power Target</span><strong data-runtime-field="detail-power-target">{% if pt_min is none and pt_def is none and pt_max is none %}noch nicht gelesen{% else %}Min {% if pt_min is not none %}{{ '%.0f'|format(pt_min) }} W{% else %}–{% endif %} · Default {% if pt_def is not none %}{{ '%.0f'|format(pt_def) }} W{% else %}–{% endif %} · Max {% if pt_max is not none %}{{ '%.0f'|format(pt_max) }} W{% else %}–{% endif %}{% endif %}</strong></div>
+                                    <div class="kv-row"><span>Last Seen</span><strong data-runtime-field="detail-last-seen">{{ last_seen or '—' }}</strong></div>
                                 </div>
+                            </section>
 
-                                <div>
-                                    <strong>Letzter Fehler:</strong>
-                                    {% if last_error %}
-                                        {{ last_error }}
-                                    {% else %}
-                                        –
-                                    {% endif %}
-                                </div>
-
-                                <div>
-                                    <strong>Last Seen:</strong>
-                                    {% if last_seen %}
-                                        {{ last_seen }}
-                                    {% else %}
-                                        –
-                                    {% endif %}
-                                </div>
+                            <div class="actions top-gap split wrap">
+                                <span></span>
+                                <button class="btn" type="submit">Miner speichern</button>
                             </div>
-                        </div>
-                    </div>
+                        </form>
 
-                    <form method="post" action="/miners/delete" class="inline-form top-gap">
-                        <input type="hidden" name="miner_id" value="{{ miner.id }}">
-                        <button class="btn btn-danger" type="submit">Miner löschen</button>
-                    </form>
-                </section>
+                        <form method="post" action="/miners/delete" class="inline-form top-gap" onsubmit="return confirm('Miner wirklich löschen?');">
+                            <input type="hidden" name="miner_id" value="{{ miner.id }}">
+                            <button class="btn btn-danger" type="submit">Miner löschen</button>
+                        </form>
+                    </div>
+                </article>
                 {% endfor %}
 
                 {% if not miners %}
@@ -506,8 +565,158 @@
                     <p>Keine Miner konfiguriert.</p>
                 </section>
                 {% endif %}
-            </div>
+            </section>
         </main>
     </div>
+
+    <script>
+        function bindPanelToggles() {
+            document.querySelectorAll('[data-toggle-target]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    const target = document.getElementById(button.getAttribute('data-toggle-target'));
+                    if (!target) {
+                        return;
+                    }
+                    const willShow = target.hidden;
+                    target.hidden = !willShow;
+                    button.textContent = willShow ? 'Konfiguration verbergen' : 'Konfigurieren';
+
+                    const cardId = button.getAttribute('data-editing-card');
+                    if (cardId) {
+                        const card = document.querySelector(`[data-miner-card][data-miner-id="${cardId}"]`);
+                        if (card) {
+                            card.dataset.editing = willShow ? 'true' : 'false';
+                        }
+                    }
+                });
+            });
+        }
+
+        function syncDriverSectionsForForm(form) {
+            const select = form.querySelector('[data-driver-select]');
+            if (!select) {
+                return;
+            }
+
+            const update = () => {
+                const current = select.value;
+                form.querySelectorAll('[data-driver-types]').forEach((element) => {
+                    const visibleFor = (element.getAttribute('data-driver-types') || '')
+                        .split(',')
+                        .map((item) => item.trim())
+                        .filter(Boolean);
+                    element.hidden = !visibleFor.includes(current);
+                });
+
+                const defaultPortTargetId = select.getAttribute('data-default-port-target');
+                if (defaultPortTargetId) {
+                    const portInput = document.getElementById(defaultPortTargetId);
+                    if (portInput) {
+                        portInput.value = current === 'braiins' ? '50051' : '4028';
+                    }
+                }
+
+                const p1 = form.querySelector('input[name="profile_p1_power_w"]');
+                const p2 = form.querySelector('input[name="profile_p2_power_w"]');
+                const p3 = form.querySelector('input[name="profile_p3_power_w"]');
+                const p4 = form.querySelector('input[name="profile_p4_power_w"]');
+                if (form.dataset.applyDriverDefaults === 'true' && p1 && p2 && p3 && p4) {
+                    const defaults = current === 'braiins'
+                        ? ['1200', '2200', '3200', '4200']
+                        : ['900', '1800', '3000', '4200'];
+                    if (form.dataset.profileDefaultsApplied !== current) {
+                        [p1, p2, p3, p4].forEach((field, index) => field.value = defaults[index]);
+                        form.dataset.profileDefaultsApplied = current;
+                    }
+                }
+            };
+
+            select.addEventListener('change', update);
+            update();
+        }
+
+        function bindDriverSections() {
+            document.querySelectorAll('[data-driver-form]').forEach((form) => syncDriverSectionsForForm(form));
+        }
+
+        function formatPower(value) {
+            if (value === null || value === undefined || value === '') {
+                return '–';
+            }
+            const numeric = Number(value);
+            if (Number.isNaN(numeric)) {
+                return '–';
+            }
+            return `${Math.round(numeric)} W`;
+        }
+
+        function formatSummaryState(miner) {
+            const reachability = miner.reachable ? 'erreichbar' : 'nicht erreichbar';
+            const state = miner.runtime_state || 'unknown';
+            return `${reachability} · ${state}`;
+        }
+
+        function formatAutotuning(value) {
+            if (value === true) {
+                return 'an';
+            }
+            if (value === false) {
+                return 'aus';
+            }
+            return '—';
+        }
+
+        function formatPowerTarget(miner) {
+            const min = miner.power_target_min_w;
+            const def = miner.power_target_default_w;
+            const max = miner.power_target_max_w;
+            if (min === null && def === null && max === null) {
+                return 'noch nicht gelesen';
+            }
+            const fmt = (value) => value === null || value === undefined ? '–' : `${Math.round(Number(value))} W`;
+            return `Min ${fmt(min)} · Default ${fmt(def)} · Max ${fmt(max)}`;
+        }
+
+        function updateMinerCard(card, miner) {
+            card.querySelectorAll('[data-runtime-field="summary-state"]').forEach((el) => el.textContent = formatSummaryState(miner));
+            card.querySelectorAll('[data-runtime-field="summary-profile"]').forEach((el) => el.textContent = miner.profile || 'off');
+            card.querySelectorAll('[data-runtime-field="summary-power"]').forEach((el) => el.textContent = formatPower(miner.power_w));
+            card.querySelectorAll('[data-runtime-field="summary-enabled"]').forEach((el) => el.textContent = miner.enabled ? 'aktiv' : 'deaktiviert');
+            card.querySelectorAll('[data-runtime-field="summary-error"]').forEach((el) => el.textContent = miner.last_error || '—');
+            card.querySelectorAll('[data-runtime-field="detail-api"]').forEach((el) => el.textContent = miner.api_version || '—');
+            card.querySelectorAll('[data-runtime-field="detail-control-mode"]').forEach((el) => el.textContent = miner.control_mode || '—');
+            card.querySelectorAll('[data-runtime-field="detail-autotuning"]').forEach((el) => el.textContent = formatAutotuning(miner.autotuning_enabled));
+            card.querySelectorAll('[data-runtime-field="detail-power-target"]').forEach((el) => el.textContent = formatPowerTarget(miner));
+            card.querySelectorAll('[data-runtime-field="detail-last-seen"]').forEach((el) => el.textContent = miner.last_seen || '—');
+        }
+
+        async function pollMinerStatus() {
+            try {
+                const response = await fetch('/api/status', { cache: 'no-store' });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const byId = new Map((payload.miners || []).map((miner) => [miner.id, miner]));
+                document.querySelectorAll('[data-miner-card]').forEach((card) => {
+                    if (card.dataset.editing === 'true') {
+                        return;
+                    }
+                    const miner = byId.get(card.dataset.minerId);
+                    if (!miner) {
+                        return;
+                    }
+                    updateMinerCard(card, miner);
+                });
+            } catch (error) {
+                console.debug('Miner-Status konnte nicht aktualisiert werden.', error);
+            }
+        }
+
+        bindPanelToggles();
+        bindDriverSections();
+        pollMinerStatus();
+        window.setInterval(pollMinerStatus, 5000);
+    </script>
 </body>
 </html>

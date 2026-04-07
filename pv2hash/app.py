@@ -132,6 +132,15 @@ def _resolve_battery_profile_label(battery_type: str | None) -> str:
     return labels.get(normalized, normalized or "Unbekannt")
 
 
+def _resolve_miner_driver_label(driver: str | None) -> str:
+    normalized = str(driver or "simulator").strip().lower()
+    labels = {
+        "simulator": "Simulator",
+        "braiins": "Braiins OS+",
+    }
+    return labels.get(normalized, normalized or "Unbekannt")
+
+
 def _parse_modbus_value_form(form, prefix: str) -> dict:
     register_type = str(form.get(f"{prefix}_register_type", "holding")).strip().lower()
     if register_type not in MODBUS_REGISTER_TYPES:
@@ -277,6 +286,17 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
         "miners": _build_miners_view(),
         "saved": request.query_params.get("saved") == "1",
         "error_message": error_message,
+        "driver_labels": {
+            "simulator": _resolve_miner_driver_label("simulator"),
+            "braiins": _resolve_miner_driver_label("braiins"),
+        },
+        "wiki_links": {
+            "overview": "https://github.com/phlupp/pv2hash/wiki/Miner",
+            "profiles": "https://github.com/phlupp/pv2hash/wiki/Leistungsprofile",
+            "battery": "https://github.com/phlupp/pv2hash/wiki/Batterieverhalten",
+            "simulator": "https://github.com/phlupp/pv2hash/wiki/Simulator-Miner",
+            "braiins": "https://github.com/phlupp/pv2hash/wiki/Braiins-OS%2B",
+        },
     }
 
 
