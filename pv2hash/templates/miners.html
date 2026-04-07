@@ -26,6 +26,23 @@
         <option value="p4" {% if current == 'p4' %}selected{% endif %}>p4</option>
     {%- endmacro %}
 
+
+    {% macro inline_icon(name) -%}
+        {% if name == 'network' %}
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 5c-4.97 0-9 4.03-9 9h2.5a6.5 6.5 0 0 1 13 0H21c0-4.97-4.03-9-9-9Zm0 4a5 5 0 0 0-5 5h2.5a2.5 2.5 0 0 1 5 0H17a5 5 0 0 0-5-5Zm0 5.5a1.5 1.5 0 1 0 0 3a1.5 1.5 0 0 0 0-3Z"/>
+        </svg>
+        {% elif name == 'play' %}
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M8 6.5v11l9-5.5l-9-5.5Z"/>
+        </svg>
+        {% elif name == 'pause' %}
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M8 6h3.5v12H8zm4.5 0H16v12h-3.5z"/>
+        </svg>
+        {% endif %}
+    {%- endmacro %}
+
     <div class="layout">
         <aside class="sidebar">
             <div class="brand">
@@ -279,6 +296,9 @@
                 {% set runtime_serial = rt.get("serial_number") or miner.serial_number or None %}
                 {% set runtime_model = rt.get("model") or miner.model or None %}
                 {% set runtime_firmware = rt.get("firmware_version") or miner.firmware_version or None %}
+                {% set runtime_state_normalized = (runtime_state|string)|lower %}
+                {% set is_running = runtime_state_normalized not in ['paused', 'stopped', 'off', 'idle', 'unknown'] %}
+                {% set has_error_state = runtime_state_normalized in ['error', 'fault', 'failed'] %}
                 {% set min_profile = miner.min_regulated_profile if miner.min_regulated_profile is defined else 'off' %}
                 {% set charge_profile = miner.battery_charge_profile if miner.battery_charge_profile is defined else 'p1' %}
                 {% set discharge_profile = miner.battery_discharge_profile if miner.battery_discharge_profile is defined else 'p1' %}
@@ -290,8 +310,21 @@
                 <article class="card miner-card" data-miner-card data-miner-id="{{ miner.id }}" data-editing="false">
                     <div class="card-head">
                         <div>
-                            <h2>{{ miner.name }}</h2>
-                            <p class="card-subtitle">{{ driver_label }}</p>
+                            <h2 class="miner-card-title">
+                                <span class="miner-state-icons" aria-label="Minerstatus">
+                                    <span class="status-dot {% if miner.enabled %}is-enabled{% else %}is-disabled{% endif %}" data-runtime-field="icon-enabled" title="Freigabe"></span>
+                                    <span class="status-icon status-icon-network {% if reachable %}is-active{% else %}is-inactive{% endif %}" data-runtime-field="icon-reachable" title="Erreichbarkeit">{{ inline_icon('network') }}</span>
+                                    <span class="status-icon status-icon-run {% if is_running %}is-active{% else %}is-paused{% endif %}" data-runtime-field="icon-run" title="Laufstatus">
+                                        <span data-runtime-field="icon-run-glyph">{{ inline_icon('play') if is_running else inline_icon('pause') }}</span>
+                                    </span>
+                                </span>
+                                <span>{{ miner.name }}</span>
+                            </h2>
+                            <p class="card-subtitle" data-driver-label="{{ driver_label }}">
+                                <span>{{ driver_label }}</span>
+                                {% if runtime_model %}<span> · {{ runtime_model }}</span>{% endif %}
+                                {% if runtime_serial %}<span> · SN {{ runtime_serial }}</span>{% endif %}
+                            </p>
                         </div>
                         <div class="topbar-actions">
                             <button class="btn btn-small" type="button" data-toggle-target="miner-config-{{ miner.id }}" data-editing-card="{{ miner.id }}">Konfigurieren</button>
@@ -303,7 +336,7 @@
                         </div>
                     </div>
 
-                    <div class="miner-summary-grid">
+                    <div class="miner-summary-grid miner-summary-grid-compact">
                         <div class="miner-summary-item">
                             <span class="label">Status</span>
                             <strong data-runtime-field="summary-state">{% if reachable %}erreichbar{% else %}nicht erreichbar{% endif %} · {{ runtime_state }}</strong>
@@ -316,20 +349,17 @@
                             <span class="label">Aktuelle Leistung</span>
                             <strong data-runtime-field="summary-power">{% if current_power_w is not none %}{{ '%.0f'|format(current_power_w) }} W{% else %}–{% endif %}</strong>
                         </div>
-                        <div class="miner-summary-item">
-                            <span class="label">Freigabe</span>
-                            <strong data-runtime-field="summary-enabled">{{ 'aktiv' if miner.enabled else 'deaktiviert' }}</strong>
-                        </div>
                     </div>
 
                     <div class="kv compact-kv top-gap">
                         <div class="kv-row"><span>Host / IP</span><strong>{{ miner.host }}</strong></div>
-                        <div class="kv-row"><span>Seriennummer</span><strong data-runtime-field="summary-serial">{{ runtime_serial or '—' }}</strong></div>
-                        <div class="kv-row"><span>Modell</span><strong data-runtime-field="summary-model">{{ runtime_model or '—' }}</strong></div>
-                        <div class="kv-row"><span>Firmware</span><strong data-runtime-field="summary-firmware">{{ runtime_firmware or '—' }}</strong></div>
                         <div class="kv-row"><span>Priorität</span><strong>{{ miner.priority }}</strong></div>
                         <div class="kv-row"><span>Min. Regelprofil</span><strong>{{ min_profile }}</strong></div>
-                        <div class="kv-row"><span>Letzter Fehler</span><strong data-runtime-field="summary-error">{{ last_error or '—' }}</strong></div>
+                    </div>
+
+                    <div class="alert danger subtle top-gap miner-error-banner" data-runtime-field="error-row" {% if not (has_error_state and last_error) %}hidden{% endif %}>
+                        <strong>Letzter Fehler:</strong>
+                        <span data-runtime-field="summary-error">{{ last_error or '—' }}</span>
                     </div>
 
                     <div class="measurement-config-panel top-gap" id="miner-config-{{ miner.id }}" hidden>
@@ -513,15 +543,13 @@
                             <section class="card type-subcard top-gap">
                                 <div class="card-head">
                                     <div>
-                                        <h2>Geräte- und Laufzeitdaten</h2>
-                                        <p class="card-subtitle">Vom Gerät gelesene Angaben und technische Laufzeitinformationen.</p>
+                                        <h2>Laufzeitdaten</h2>
+                                        <p class="card-subtitle">Technische Laufzeitinformationen des Miners.</p>
                                     </div>
                                 </div>
 
                                 <div class="kv compact-kv top-gap">
-                                    <div class="kv-row"><span>Seriennummer</span><strong data-runtime-field="detail-serial">{{ runtime_serial or '—' }}</strong></div>
-                                    <div class="kv-row"><span>Modell</span><strong data-runtime-field="detail-model">{{ runtime_model or '—' }}</strong></div>
-                                    <div class="kv-row"><span>Firmware Version</span><strong data-runtime-field="detail-firmware">{{ runtime_firmware or '—' }}</strong></div>
+                                    <div class="kv-row"><span>Host / IP</span><strong>{{ miner.host }}</strong></div>
                                     <div class="kv-row"><span>API-Version</span><strong data-runtime-field="detail-api">{{ api_version or '—' }}</strong></div>
                                     <div class="kv-row"><span>Control-Mode</span><strong data-runtime-field="detail-control-mode">{{ control_mode or '—' }}</strong></div>
                                     <div class="kv-row"><span>Autotuning</span><strong data-runtime-field="detail-autotuning">{% if autotuning_enabled is sameas true %}an{% elif autotuning_enabled is sameas false %}aus{% else %}—{% endif %}</strong></div>
@@ -661,23 +689,68 @@
             return `Min ${fmt(min)} · Default ${fmt(def)} · Max ${fmt(max)}`;
         }
 
+        function isErrorState(miner) {
+            const state = String(miner.runtime_state || '').toLowerCase();
+            return ['error', 'fault', 'failed'].includes(state);
+        }
+
+        function isRunningState(miner) {
+            const state = String(miner.runtime_state || '').toLowerCase();
+            return !['paused', 'stopped', 'off', 'idle', 'unknown'].includes(state);
+        }
+
+        function updateHeaderSubtitle(card, miner) {
+            const subtitle = card.querySelector('.card-subtitle');
+            if (!subtitle) {
+                return;
+            }
+            const driverLabel = subtitle.dataset.driverLabel || subtitle.textContent || '';
+            const parts = [driverLabel];
+            if (miner.model) {
+                parts.push(miner.model);
+            }
+            if (miner.serial_number) {
+                parts.push(`SN ${miner.serial_number}`);
+            }
+            subtitle.textContent = parts.filter(Boolean).join(' · ');
+        }
+
         function updateMinerCard(card, miner) {
+            const errorState = isErrorState(miner);
+            const runningState = isRunningState(miner);
+
             card.querySelectorAll('[data-runtime-field="summary-state"]').forEach((el) => el.textContent = formatSummaryState(miner));
             card.querySelectorAll('[data-runtime-field="summary-profile"]').forEach((el) => el.textContent = miner.profile || 'off');
             card.querySelectorAll('[data-runtime-field="summary-power"]').forEach((el) => el.textContent = formatPower(miner.power_w));
-            card.querySelectorAll('[data-runtime-field="summary-enabled"]').forEach((el) => el.textContent = miner.enabled ? 'aktiv' : 'deaktiviert');
             card.querySelectorAll('[data-runtime-field="summary-error"]').forEach((el) => el.textContent = miner.last_error || '—');
-            card.querySelectorAll('[data-runtime-field="summary-serial"]').forEach((el) => el.textContent = miner.serial_number || '—');
-            card.querySelectorAll('[data-runtime-field="summary-model"]').forEach((el) => el.textContent = miner.model || '—');
-            card.querySelectorAll('[data-runtime-field="summary-firmware"]').forEach((el) => el.textContent = miner.firmware_version || '—');
-            card.querySelectorAll('[data-runtime-field="detail-serial"]').forEach((el) => el.textContent = miner.serial_number || '—');
-            card.querySelectorAll('[data-runtime-field="detail-model"]').forEach((el) => el.textContent = miner.model || '—');
-            card.querySelectorAll('[data-runtime-field="detail-firmware"]').forEach((el) => el.textContent = miner.firmware_version || '—');
             card.querySelectorAll('[data-runtime-field="detail-api"]').forEach((el) => el.textContent = miner.api_version || '—');
             card.querySelectorAll('[data-runtime-field="detail-control-mode"]').forEach((el) => el.textContent = miner.control_mode || '—');
             card.querySelectorAll('[data-runtime-field="detail-autotuning"]').forEach((el) => el.textContent = formatAutotuning(miner.autotuning_enabled));
             card.querySelectorAll('[data-runtime-field="detail-power-target"]').forEach((el) => el.textContent = formatPowerTarget(miner));
             card.querySelectorAll('[data-runtime-field="detail-last-seen"]').forEach((el) => el.textContent = miner.last_seen || '—');
+
+            card.querySelectorAll('[data-runtime-field="icon-enabled"]').forEach((el) => {
+                el.classList.toggle('is-enabled', Boolean(miner.enabled));
+                el.classList.toggle('is-disabled', !miner.enabled);
+            });
+            card.querySelectorAll('[data-runtime-field="icon-reachable"]').forEach((el) => {
+                el.classList.toggle('is-active', Boolean(miner.reachable));
+                el.classList.toggle('is-inactive', !miner.reachable);
+            });
+            card.querySelectorAll('[data-runtime-field="icon-run"]').forEach((el) => {
+                el.classList.toggle('is-active', runningState);
+                el.classList.toggle('is-paused', !runningState);
+            });
+            card.querySelectorAll('[data-runtime-field="icon-run-glyph"]').forEach((el) => {
+                el.innerHTML = runningState
+                    ? '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 6.5v11l9-5.5l-9-5.5Z"></path></svg>'
+                    : '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 6h3.5v12H8zm4.5 0H16v12h-3.5z"></path></svg>';
+            });
+            card.querySelectorAll('[data-runtime-field="error-row"]').forEach((el) => {
+                el.hidden = !(errorState && miner.last_error);
+            });
+
+            updateHeaderSubtitle(card, miner);
         }
 
         async function pollMinerStatus() {

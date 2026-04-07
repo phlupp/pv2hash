@@ -978,10 +978,76 @@ select:focus {
     padding-bottom: 18px;
 }
 
+
+.miner-card-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.miner-state-icons {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.status-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 999px;
+    display: inline-block;
+    box-shadow: 0 0 0 3px rgba(255,255,255,.04);
+}
+
+.status-dot.is-enabled {
+    background: rgba(77, 212, 135, 0.95);
+}
+
+.status-dot.is-disabled {
+    background: rgba(255, 99, 132, 0.92);
+}
+
+.status-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+}
+
+.status-icon svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+    fill: currentColor;
+}
+
+.status-icon.is-active {
+    color: rgba(77, 212, 135, 0.95);
+}
+
+.status-icon.is-inactive,
+.status-icon.is-paused {
+    color: rgba(255,255,255,.42);
+}
+
+.miner-error-banner {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-bottom: 0;
+}
+
 .miner-summary-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
+}
+
+.miner-summary-grid-compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .miner-summary-item {
