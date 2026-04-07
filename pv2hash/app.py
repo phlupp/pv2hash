@@ -550,15 +550,28 @@ async def save_settings(request: Request):
 async def sources_page(request: Request):
     from pv2hash.netutils import get_local_ipv4_addresses
 
+    source_debug = services.get_source_debug_info()
     context = {
         "request": request,
         "source": state.config["source"],
         "battery": state.config.get("battery", {}),
+        "snapshot": state.snapshot,
+        "source_debug": source_debug,
+        "source_device_label": _resolve_sma_device_label(source_debug),
+        "source_device_serial_number": source_debug.get("last_packet_serial_number") if source_debug else None,
+        "source_device_susy_id": source_debug.get("last_packet_susy_id") if source_debug else None,
         "saved": request.query_params.get("saved") == "1",
         "local_interface_ips": get_local_ipv4_addresses(),
         "modbus_register_types": MODBUS_REGISTER_TYPES,
         "modbus_value_types": MODBUS_VALUE_TYPES,
         "modbus_endian_types": MODBUS_ENDIAN_TYPES,
+        "wiki_links": {
+            "overview": "https://github.com/phlupp/pv2hash/wiki/Messungen",
+            "nap": "https://github.com/phlupp/pv2hash/wiki/Netz-Messung",
+            "sma": "https://github.com/phlupp/pv2hash/wiki/SMA-Energy-Meter",
+            "battery": "https://github.com/phlupp/pv2hash/wiki/Batterie",
+            "battery_modbus": "https://github.com/phlupp/pv2hash/wiki/Batterie-Modbus-TCP",
+        },
     }
     return templates.TemplateResponse(
         request=request,
