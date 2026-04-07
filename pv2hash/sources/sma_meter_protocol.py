@@ -49,6 +49,7 @@ class SmaMeterProtocolSource(EnergySource):
     COSPHI_INDEXES = {13}
     KNOWN_SUSY_DEVICE_NAMES = {
         270: "SMA Energy Meter",
+        349: "SMA Energy Meter 2.0",
         372: "SMA Home Manager 2.0",
     }
 
@@ -182,7 +183,7 @@ class SmaMeterProtocolSource(EnergySource):
                 return self._fallback_snapshot()
 
             self.debug_info["last_protocol"] = "0x6069"
-            snapshot = self._parse_emeter_packet(data)
+            snapshot = self._parse_emeter_packet(data, proto_index=proto_index)
             self.last_snapshot = snapshot
             self.last_live_packet_at = snapshot.updated_at
             self.debug_info["parsed_packets"] += 1
@@ -366,26 +367,33 @@ class SmaMeterProtocolSource(EnergySource):
 
         logger.debug("---- SMA packet dump end ----")
 
-    def _parse_emeter_packet(self, packet: bytes) -> EnergySnapshot:
-        if len(packet) < 32:
-            raise ValueError(f"Packet too short: {len(packet)}")
+    def _parse_emeter_packet(self, packet: bytes, *, proto_index: int) -> EnergySnapshot:
+        if proto_index < 0:
+            raise ValueError("Invalid protocol offset")
 
-        protocol_id = struct.unpack(">H", packet[16:18])[0]
+        min_len = proto_index + 12
+        if len(packet) < min_len:
+            raise ValueError(
+                f"Packet too short for protocol block at offset {proto_index}: {len(packet)}"
+            )
+
+        protocol_id = struct.unpack(">H", packet[proto_index:proto_index + 2])[0]
         if protocol_id != 0x6069:
             raise ValueError(f"Unexpected protocol id: 0x{protocol_id:04x}")
 
-        susy_id = struct.unpack(">H", packet[18:20])[0]
-        serial_number = struct.unpack(">I", packet[20:24])[0]
-        measuring_time_ms = struct.unpack(">I", packet[24:28])[0]
-        device_address_hex = packet[18:24].hex()
+        susy_id = struct.unpack(">H", packet[proto_index + 2:proto_index + 4])[0]
+        serial_number = struct.unpack(">I", packet[proto_index + 4:proto_index + 8])[0]
+        measuring_time_ms = struct.unpack(">I", packet[proto_index + 8:proto_index + 12])[0]
+        device_address_hex = packet[proto_index + 2:proto_index + 8].hex()
 
         self.debug_info["last_packet_device_address_hex"] = device_address_hex
         self.debug_info["last_packet_susy_id"] = susy_id
         self.debug_info["last_packet_serial_number"] = serial_number
         self.debug_info["last_packet_measuring_time_ms"] = measuring_time_ms
         self.debug_info["last_packet_device_name"] = self._resolve_device_name(susy_id)
+        self.debug_info["last_protocol_offset"] = proto_index
 
-        pos = 28
+        pos = proto_index + 12
         active_plus_w: float | None = None
         active_minus_w: float | None = None
         entries: list[dict] = []
