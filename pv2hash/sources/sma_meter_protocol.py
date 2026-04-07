@@ -51,6 +51,7 @@ class SmaMeterProtocolSource(EnergySource):
         270: "SMA Energy Meter",
         349: "SMA Energy Meter 2.0",
         372: "SMA Home Manager 2.0",
+        502: "SMA Energy Meter 2.0",
     }
 
     def __init__(

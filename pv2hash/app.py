@@ -108,6 +108,7 @@ def _resolve_sma_device_label(source_debug: dict | None) -> str | None:
         270: "SMA Energy Meter",
         349: "SMA Energy Meter 2.0",
         372: "SMA Home Manager 2.0",
+        502: "SMA Energy Meter 2.0",
     }
     return known.get(susy_id_int, f"SMA Gerät (SUSy-ID {susy_id_int})")
 
