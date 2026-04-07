@@ -74,7 +74,7 @@
                 <div class="brand-mark">PV</div>
                 <div>
                     <div class="brand-title">PV2Hash</div>
-                    <div class="brand-subtitle">{{ source.name }}</div>
+                    <div class="brand-subtitle">Messungen</div>
                 </div>
             </div>
 
@@ -92,7 +92,7 @@
             <header class="topbar">
                 <div>
                     <h1>Messungen</h1>
-                    <p>Netz-Messung und Batterie fachlich konfigurieren, nur mit den jeweils passenden Feldern.</p>
+                    <p>Netz-Messung und Batterie fachlich konfigurieren, jeweils nur mit den passenden Feldern.</p>
                 </div>
                 <div class="topbar-actions">
                     {{ help_link(wiki_links.overview, 'Wiki: Messungen') }}
@@ -105,263 +105,257 @@
             </section>
             {% endif %}
 
-            <section class="grid grid-2 measurement-summary-grid">
-                <article class="card measurement-summary-card">
-                    <div class="card-head">
-                        <div>
-                            <h2>Netz-Messung</h2>
-                            <p class="card-subtitle">Eine aktive Messung für den Netzanschlusspunkt.</p>
-                        </div>
-                        {{ help_link(wiki_links.nap) }}
-                    </div>
-                    <div class="kv compact-kv">
-                        <div class="kv-row"><span>Profil</span><strong>{{ 'SMA Energy Meter' if source_type == 'sma_meter_protocol' else 'Simulierter Netzanschlusspunkt' }}</strong></div>
-                        <div class="kv-row"><span>Name</span><strong>{{ source.name or '—' }}</strong></div>
-                        <div class="kv-row"><span>Status</span><strong>{{ 'aktiv' if source.enabled else 'deaktiviert' }}</strong></div>
-                        {% if source_type == 'sma_meter_protocol' %}
-                        <div class="kv-row"><span>Gerät</span><strong>{{ source_device_label or '—' }}</strong></div>
-                        <div class="kv-row"><span>Seriennummer</span><strong>{{ source_device_serial_number or '—' }}</strong></div>
-                        <div class="kv-row"><span>SUSy-ID</span><strong>{{ source_device_susy_id or '—' }}</strong></div>
-                        {% endif %}
-                        <div class="kv-row"><span>Netzleistung</span><strong>{% if snapshot %}{{ '%.0f'|format(snapshot.grid_power_w) }} W{% else %}—{% endif %}</strong></div>
-                        <div class="kv-row"><span>Qualität</span><strong>{{ snapshot.quality if snapshot else '—' }}</strong></div>
-                    </div>
-                </article>
-
-                <article class="card measurement-summary-card">
-                    <div class="card-head">
-                        <div>
-                            <h2>Batterie</h2>
-                            <p class="card-subtitle">Eine optionale Batterie mit eigenen Messwerten.</p>
-                        </div>
-                        {{ help_link(wiki_links.battery) }}
-                    </div>
-                    <div class="kv compact-kv">
-                        <div class="kv-row"><span>Profil</span><strong>{{ 'Keine Batterie' if battery_type == 'none' else 'Modbus TCP Batterie' }}</strong></div>
-                        <div class="kv-row"><span>Name</span><strong>{{ battery.name if battery and battery.name is defined else 'Batterie' }}</strong></div>
-                        <div class="kv-row"><span>Status</span><strong>{{ 'aktiv' if battery and battery.enabled else 'deaktiviert' }}</strong></div>
-                        <div class="kv-row"><span>SOC</span><strong>{% if snapshot and snapshot.battery_soc_pct is not none %}{{ '%.1f'|format(snapshot.battery_soc_pct) }} %{% else %}—{% endif %}</strong></div>
-                        <div class="kv-row"><span>Ladeleistung</span><strong>{% if snapshot and snapshot.battery_charge_power_w is not none %}{{ '%.0f'|format(snapshot.battery_charge_power_w) }} W{% else %}—{% endif %}</strong></div>
-                        <div class="kv-row"><span>Entladeleistung</span><strong>{% if snapshot and snapshot.battery_discharge_power_w is not none %}{{ '%.0f'|format(snapshot.battery_discharge_power_w) }} W{% else %}—{% endif %}</strong></div>
-                    </div>
-                </article>
-            </section>
-
             <form method="post" action="/sources">
-                <details class="card disclosure-card" id="nap-config-card">
-                    <summary class="disclosure-summary">
-                        <div>
-                            <strong>Netz-Messung konfigurieren</strong>
-                            <small>Profil wählen und nur die dazu passenden Eingabefelder anzeigen.</small>
-                        </div>
-                        <span class="summary-action">Konfigurieren</span>
-                    </summary>
-
-                    <div class="disclosure-body">
-                        <section class="card type-subcard">
-                            <div class="card-head">
-                                <div>
-                                    <h2>Grunddaten</h2>
-                                    <p class="card-subtitle">Hier wird festgelegt, wie der Netzanschlusspunkt gemessen wird.</p>
-                                </div>
+                <section class="grid grid-2 measurement-summary-grid">
+                    <article class="card measurement-summary-card">
+                        <div class="card-head">
+                            <div>
+                                <h2>Netz-Messung</h2>
+                                <p class="card-subtitle">Eine aktive Messung für den Netzanschlusspunkt.</p>
+                            </div>
+                            <div class="topbar-actions">
+                                <button class="btn btn-small" type="button" data-toggle-target="nap-config-panel">Konfigurieren</button>
                                 {{ help_link(wiki_links.nap) }}
                             </div>
-
-                            <div class="form-grid">
-                                <label>
-                                    <span>Name</span>
-                                    <input type="text" name="source_name" value="{{ source.name }}">
-                                </label>
-
-                                <label>
-                                    <span>Messprofil</span>
-                                    <select name="source_type" id="sourceTypeSelect">
-                                        <option value="simulator" {% if source_type == 'simulator' %}selected{% endif %}>Simulierter Netzanschlusspunkt</option>
-                                        <option value="sma_meter_protocol" {% if source_type == 'sma_meter_protocol' %}selected{% endif %}>SMA Energy Meter</option>
-                                    </select>
-                                    <small class="help">Das Profil bestimmt, welche weiteren Eingabefelder benötigt werden.</small>
-                                </label>
-
-                                <label class="checkbox-row">
-                                    <input type="checkbox" name="source_enabled" {% if source.enabled %}checked{% endif %}>
-                                    <span>Netz-Messung aktiviert</span>
-                                </label>
-                            </div>
-                        </section>
-
-                        <section class="card type-subcard top-gap" data-source-types="simulator">
-                            <div class="card-head">
-                                <h2>Simulierter Netzanschlusspunkt</h2>
-                            </div>
-                            <div class="info-note">
-                                Für den Simulator sind aktuell keine weiteren Pflichtfelder auf dieser Seite nötig. Die Laufzeitwerte kommen aus dem Simulator-Profil im Backend.
-                            </div>
-                        </section>
-
-                        <section class="card type-subcard top-gap" data-source-types="sma_meter_protocol">
-                            <div class="card-head">
-                                <div>
-                                    <h2>SMA Energy Meter</h2>
-                                    <p class="card-subtitle">Multicast-Empfang und Telegrammprüfung für den Netzanschlusspunkt.</p>
-                                </div>
-                                {{ help_link(wiki_links.sma) }}
-                            </div>
-
-                            <div class="form-grid">
-                                <label>
-                                    <span>Multicast-IP</span>
-                                    <input type="text" name="multicast_ip" value="{{ source_settings.multicast_ip if source_settings and source_settings.multicast_ip is defined else '239.12.255.254' }}">
-                                    <small class="help">Standard bei SMA: 239.12.255.254</small>
-                                </label>
-
-                                <label>
-                                    <span>Bind-Port</span>
-                                    <input type="number" name="bind_port" value="{{ source_settings.bind_port if source_settings and source_settings.bind_port is defined else 9522 }}">
-                                </label>
-
-                                <label>
-                                    <span>Lokale Interface-IP</span>
-                                    {% set selected_ip = source_settings.interface_ip if source_settings and source_settings.interface_ip is defined else '0.0.0.0' %}
-                                    <select name="interface_ip">
-                                        {% for item in local_interface_ips %}
-                                        <option value="{{ item.address }}" {% if item.address == selected_ip %}selected{% endif %}>{{ item.label }}</option>
-                                        {% endfor %}
-                                    </select>
-                                    <small class="help">Möglichst die echte IP im SMA-LAN wählen, nicht 0.0.0.0.</small>
-                                </label>
-
-                                <label>
-                                    <span>Geräte-IP-Filter (optional)</span>
-                                    <input type="text" name="device_ip" value="{{ source_settings.device_ip if source_settings and source_settings.device_ip is defined else '' }}">
-                                    <small class="help">Hilft bei mehreren SMA-Geräten im Netz.</small>
-                                </label>
-
-                                <label>
-                                    <span>Paket-Timeout (Sekunden)</span>
-                                    <input type="number" step="0.1" name="packet_timeout_seconds" value="{{ source_settings.packet_timeout_seconds if source_settings and source_settings.packet_timeout_seconds is defined else 1.0 }}">
-                                </label>
-
-                                <label>
-                                    <span>Stale nach (Sekunden)</span>
-                                    <input type="number" step="0.1" name="stale_after_seconds" value="{{ source_settings.stale_after_seconds if source_settings and source_settings.stale_after_seconds is defined else 8.0 }}">
-                                </label>
-
-                                <label>
-                                    <span>Offline nach (Sekunden)</span>
-                                    <input type="number" step="0.1" name="offline_after_seconds" value="{{ source_settings.offline_after_seconds if source_settings and source_settings.offline_after_seconds is defined else 30.0 }}">
-                                </label>
-
-                                <label class="checkbox-row form-grid-span-2">
-                                    <input type="checkbox" name="debug_dump_obis" {% if source_settings and source_settings.debug_dump_obis %}checked{% endif %}>
-                                    <span>OBIS-Debug in Konsole aktivieren</span>
-                                    <small class="help">Nur für Fehlersuche aktivieren. Schreibt vollständige SMA-Telegramm-Dumps ins Log.</small>
-                                </label>
-                            </div>
-                        </section>
-                    </div>
-                </details>
-
-                <details class="card disclosure-card top-gap" id="battery-config-card">
-                    <summary class="disclosure-summary">
-                        <div>
-                            <strong>Batterie konfigurieren</strong>
-                            <small>Profil wählen und nur die wirklich erforderlichen Felder anzeigen.</small>
                         </div>
-                        <span class="summary-action">Konfigurieren</span>
-                    </summary>
 
-                    <div class="disclosure-body">
-                        <section class="card type-subcard">
-                            <div class="card-head">
-                                <div>
-                                    <h2>Grunddaten</h2>
-                                    <p class="card-subtitle">Eine optionale Batterie mit eigenen Messwerten.</p>
+                        <div class="kv compact-kv">
+                            <div class="kv-row"><span>Profil</span><strong>{{ source_profile_label }}</strong></div>
+                            <div class="kv-row"><span>Status</span><strong>{{ 'aktiv' if source.enabled else 'deaktiviert' }}</strong></div>
+                            {% if source_type == 'sma_meter_protocol' %}
+                            <div class="kv-row"><span>Gerät</span><strong>{{ source_device_label or '—' }}</strong></div>
+                            <div class="kv-row"><span>Seriennummer</span><strong>{{ source_device_serial_number or '—' }}</strong></div>
+                            <div class="kv-row"><span>SUSy-ID</span><strong>{{ source_device_susy_id or '—' }}</strong></div>
+                            {% endif %}
+                        </div>
+
+                        <div class="measurement-config-panel top-gap" id="nap-config-panel" hidden>
+                            <section class="card type-subcard">
+                                <div class="card-head">
+                                    <div>
+                                        <h2>Grunddaten</h2>
+                                        <p class="card-subtitle">Hier wird festgelegt, wie der Netzanschlusspunkt gemessen wird.</p>
+                                    </div>
                                 </div>
+
+                                <div class="form-grid">
+                                    <label>
+                                        <span>Messprofil</span>
+                                        <select name="source_type" id="sourceTypeSelect">
+                                            <option value="simulator" {% if source_type == 'simulator' %}selected{% endif %}>Simulierter Netzanschlusspunkt</option>
+                                            <option value="sma_meter_protocol" {% if source_type == 'sma_meter_protocol' %}selected{% endif %}>SMA Energy Meter</option>
+                                        </select>
+                                        <small class="help">Das Profil bestimmt, welche weiteren Eingabefelder benötigt werden.</small>
+                                    </label>
+
+                                    <label class="checkbox-row">
+                                        <input type="checkbox" name="source_enabled" {% if source.enabled %}checked{% endif %}>
+                                        <span>Netz-Messung aktiviert</span>
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section class="card type-subcard top-gap" data-source-types="simulator">
+                                <div class="card-head">
+                                    <div>
+                                        <h2>Simulierter Netzanschlusspunkt</h2>
+                                        <p class="card-subtitle">Einfache lineare Simulation zwischen Netzbezug und Einspeisung.</p>
+                                    </div>
+                                    {{ help_link(wiki_links.nap) }}
+                                </div>
+                                <div class="form-grid">
+                                    <label>
+                                        <span>Startwert Netzbezug (W)</span>
+                                        <input type="number" step="1" name="simulator_import_power_w" value="{{ source_settings.simulator_import_power_w if source_settings and source_settings.simulator_import_power_w is defined else 1000.0 }}">
+                                        <small class="help">Positiver Startwert für den simulierten Netzbezug.</small>
+                                    </label>
+
+                                    <label>
+                                        <span>Endwert Einspeisung (W)</span>
+                                        <input type="number" step="1" name="simulator_export_power_w" value="{{ source_settings.simulator_export_power_w if source_settings and source_settings.simulator_export_power_w is defined else 10000.0 }}">
+                                        <small class="help">Positiver Endwert für die simulierte Einspeisung.</small>
+                                    </label>
+
+                                    <label>
+                                        <span>Änderungsgeschwindigkeit (W / Minute)</span>
+                                        <input type="number" step="1" name="simulator_ramp_rate_w_per_minute" value="{{ source_settings.simulator_ramp_rate_w_per_minute if source_settings and source_settings.simulator_ramp_rate_w_per_minute is defined else 600.0 }}">
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section class="card type-subcard top-gap" data-source-types="sma_meter_protocol">
+                                <div class="card-head">
+                                    <div>
+                                        <h2>SMA Energy Meter</h2>
+                                        <p class="card-subtitle">Multicast-Empfang und Telegrammprüfung für den Netzanschlusspunkt.</p>
+                                    </div>
+                                    {{ help_link(wiki_links.sma) }}
+                                </div>
+
+                                <div class="form-grid">
+                                    <label>
+                                        <span>Multicast-IP</span>
+                                        <input type="text" name="multicast_ip" value="{{ source_settings.multicast_ip if source_settings and source_settings.multicast_ip is defined else '239.12.255.254' }}">
+                                        <small class="help">Standard bei SMA: 239.12.255.254</small>
+                                    </label>
+
+                                    <label>
+                                        <span>Bind-Port</span>
+                                        <input type="number" name="bind_port" value="{{ source_settings.bind_port if source_settings and source_settings.bind_port is defined else 9522 }}">
+                                    </label>
+
+                                    <label>
+                                        <span>Lokale Interface-IP</span>
+                                        {% set selected_ip = source_settings.interface_ip if source_settings and source_settings.interface_ip is defined else '0.0.0.0' %}
+                                        <select name="interface_ip">
+                                            {% for item in local_interface_ips %}
+                                            <option value="{{ item.address }}" {% if item.address == selected_ip %}selected{% endif %}>{{ item.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <small class="help">Möglichst die echte IP im SMA-LAN wählen, nicht 0.0.0.0.</small>
+                                    </label>
+
+                                    <label>
+                                        <span>Geräte-IP-Filter (optional)</span>
+                                        <input type="text" name="device_ip" value="{{ source_settings.device_ip if source_settings and source_settings.device_ip is defined else '' }}">
+                                        <small class="help">Hilft bei mehreren SMA-Geräten im Netz.</small>
+                                    </label>
+
+                                    <label>
+                                        <span>Paket-Timeout (Sekunden)</span>
+                                        <input type="number" step="0.1" name="packet_timeout_seconds" value="{{ source_settings.packet_timeout_seconds if source_settings and source_settings.packet_timeout_seconds is defined else 1.0 }}">
+                                    </label>
+
+                                    <label>
+                                        <span>Stale nach (Sekunden)</span>
+                                        <input type="number" step="0.1" name="stale_after_seconds" value="{{ source_settings.stale_after_seconds if source_settings and source_settings.stale_after_seconds is defined else 8.0 }}">
+                                    </label>
+
+                                    <label>
+                                        <span>Offline nach (Sekunden)</span>
+                                        <input type="number" step="0.1" name="offline_after_seconds" value="{{ source_settings.offline_after_seconds if source_settings and source_settings.offline_after_seconds is defined else 30.0 }}">
+                                    </label>
+
+                                    <label class="checkbox-row form-grid-span-2">
+                                        <input type="checkbox" name="debug_dump_obis" {% if source_settings and source_settings.debug_dump_obis %}checked{% endif %}>
+                                        <span>OBIS-Debug in Konsole aktivieren</span>
+                                        <small class="help">Nur für Fehlersuche aktivieren. Schreibt vollständige SMA-Telegramm-Dumps ins Log.</small>
+                                    </label>
+                                </div>
+                            </section>
+
+                            <div class="actions top-gap split">
+                                <span></span>
+                                <button class="btn" type="submit">Netz-Messung speichern</button>
+                            </div>
+                        </div>
+                    </article>
+
+                    <article class="card measurement-summary-card">
+                        <div class="card-head">
+                            <div>
+                                <h2>Batterie</h2>
+                                <p class="card-subtitle">Eine optionale Batterie mit eigenen Messwerten.</p>
+                            </div>
+                            <div class="topbar-actions">
+                                <button class="btn btn-small" type="button" data-toggle-target="battery-config-panel">Konfigurieren</button>
                                 {{ help_link(wiki_links.battery) }}
                             </div>
+                        </div>
 
-                            <div class="form-grid">
-                                <label>
-                                    <span>Name</span>
-                                    <input type="text" name="battery_name" value="{{ battery.name if battery and battery.name is defined else 'Batterie' }}">
-                                </label>
+                        <div class="kv compact-kv">
+                            <div class="kv-row"><span>Profil</span><strong>{{ battery_profile_label }}</strong></div>
+                            <div class="kv-row"><span>Status</span><strong>{{ 'aktiv' if battery_type != 'none' and battery and battery.enabled else 'deaktiviert' }}</strong></div>
+                        </div>
 
-                                <label>
-                                    <span>Batterieprofil</span>
-                                    <select name="battery_type" id="batteryTypeSelect">
-                                        <option value="none" {% if battery_type == 'none' %}selected{% endif %}>Keine Batterie</option>
-                                        <option value="battery_modbus" {% if battery_type == 'battery_modbus' %}selected{% endif %}>Modbus TCP Batterie</option>
-                                    </select>
-                                    <small class="help">Das Profil bestimmt die nachfolgenden Eingabefelder.</small>
-                                </label>
-
-                                <label class="checkbox-row">
-                                    <input type="checkbox" name="battery_enabled" {% if battery and battery.enabled %}checked{% endif %}>
-                                    <span>Batterie aktiviert</span>
-                                </label>
-                            </div>
-                        </section>
-
-                        <section class="card type-subcard top-gap" data-battery-types="none">
-                            <div class="card-head">
-                                <h2>Keine Batterie</h2>
-                            </div>
-                            <div class="info-note">
-                                Es werden keine zusätzlichen Batterie-Messwerte erfasst. Die Reglerlogik arbeitet dann nur mit der Netz-Messung.
-                            </div>
-                        </section>
-
-                        <section class="card type-subcard top-gap" data-battery-types="battery_modbus">
-                            <div class="card-head">
-                                <div>
-                                    <h2>Modbus TCP Batterie</h2>
-                                    <p class="card-subtitle">Verbindung und Decoder für SOC, Ladeleistung und Entladeleistung.</p>
+                        <div class="measurement-config-panel top-gap" id="battery-config-panel" hidden>
+                            <section class="card type-subcard">
+                                <div class="card-head">
+                                    <div>
+                                        <h2>Grunddaten</h2>
+                                        <p class="card-subtitle">Eine optionale Batterie mit eigenen Messwerten.</p>
+                                    </div>
                                 </div>
-                                {{ help_link(wiki_links.battery_modbus) }}
+
+                                <div class="form-grid">
+                                    <label>
+                                        <span>Batterieprofil</span>
+                                        <select name="battery_type" id="batteryTypeSelect">
+                                            <option value="none" {% if battery_type == 'none' %}selected{% endif %}>Keine Batterie</option>
+                                            <option value="battery_modbus" {% if battery_type == 'battery_modbus' %}selected{% endif %}>Modbus TCP Batterie</option>
+                                        </select>
+                                        <small class="help">Das Profil bestimmt die nachfolgenden Eingabefelder.</small>
+                                    </label>
+
+                                    <label class="checkbox-row">
+                                        <input type="checkbox" name="battery_enabled" id="batteryEnabledCheckbox" {% if battery and battery.enabled and battery_type != 'none' %}checked{% endif %}>
+                                        <span>Batterie aktiviert</span>
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section class="card type-subcard top-gap" data-battery-types="none">
+                                <div class="card-head">
+                                    <h2>Keine Batterie</h2>
+                                </div>
+                                <div class="info-note">
+                                    Es werden keine zusätzlichen Batterie-Messwerte erfasst. Die Reglerlogik arbeitet dann nur mit der Netz-Messung.
+                                </div>
+                            </section>
+
+                            <section class="card type-subcard top-gap" data-battery-types="battery_modbus">
+                                <div class="card-head">
+                                    <div>
+                                        <h2>Modbus TCP Batterie</h2>
+                                        <p class="card-subtitle">Verbindung und Decoder für SOC, Ladeleistung und Entladeleistung.</p>
+                                    </div>
+                                    {{ help_link(wiki_links.battery_modbus) }}
+                                </div>
+
+                                <div class="form-grid">
+                                    <label>
+                                        <span>IP / Hostname</span>
+                                        <input type="text" name="battery_host" value="{{ battery_settings.host if battery_settings and battery_settings.host is defined else '' }}">
+                                    </label>
+
+                                    <label>
+                                        <span>Port</span>
+                                        <input type="number" name="battery_port" value="{{ battery_settings.port if battery_settings and battery_settings.port is defined else 502 }}">
+                                    </label>
+
+                                    <label>
+                                        <span>Unit-ID</span>
+                                        <input type="number" name="battery_unit_id" value="{{ battery_settings.unit_id if battery_settings and battery_settings.unit_id is defined else 1 }}">
+                                        <small class="help">Oft 1, je nach Gerät aber abweichend.</small>
+                                    </label>
+
+                                    <label>
+                                        <span>Poll-Zeit (ms)</span>
+                                        <input type="number" name="battery_poll_interval_ms" value="{{ battery_settings.poll_interval_ms if battery_settings and battery_settings.poll_interval_ms is defined else 1000 }}">
+                                    </label>
+
+                                    <label>
+                                        <span>Request-Timeout (Sekunden)</span>
+                                        <input type="number" step="0.1" name="battery_request_timeout_seconds" value="{{ battery_settings.request_timeout_seconds if battery_settings and battery_settings.request_timeout_seconds is defined else 1.0 }}">
+                                    </label>
+                                </div>
+
+                                <div class="top-gap">
+                                    <small class="help">Unterstützt pro Wert: Registerart, Adresse, Datentyp, Endianness und Faktor. Für <code>int8</code>/<code>uint8</code> wird das erste Byte nach der gewählten Endianness ausgewertet.</small>
+                                </div>
+                            </section>
+
+                            {{ modbus_value_block('SOC', 'battery_soc', battery_soc) }}
+                            {{ modbus_value_block('Ladeleistung', 'battery_charge_power', battery_charge) }}
+                            {{ modbus_value_block('Entladeleistung', 'battery_discharge_power', battery_discharge) }}
+
+                            <div class="actions top-gap split">
+                                <span></span>
+                                <button class="btn" type="submit">Batterie speichern</button>
                             </div>
-
-                            <div class="form-grid">
-                                <label>
-                                    <span>IP / Hostname</span>
-                                    <input type="text" name="battery_host" value="{{ battery_settings.host if battery_settings and battery_settings.host is defined else '' }}">
-                                </label>
-
-                                <label>
-                                    <span>Port</span>
-                                    <input type="number" name="battery_port" value="{{ battery_settings.port if battery_settings and battery_settings.port is defined else 502 }}">
-                                </label>
-
-                                <label>
-                                    <span>Unit-ID</span>
-                                    <input type="number" name="battery_unit_id" value="{{ battery_settings.unit_id if battery_settings and battery_settings.unit_id is defined else 1 }}">
-                                    <small class="help">Oft 1, je nach Gerät aber abweichend.</small>
-                                </label>
-
-                                <label>
-                                    <span>Poll-Zeit (ms)</span>
-                                    <input type="number" name="battery_poll_interval_ms" value="{{ battery_settings.poll_interval_ms if battery_settings and battery_settings.poll_interval_ms is defined else 1000 }}">
-                                </label>
-
-                                <label>
-                                    <span>Request-Timeout (Sekunden)</span>
-                                    <input type="number" step="0.1" name="battery_request_timeout_seconds" value="{{ battery_settings.request_timeout_seconds if battery_settings and battery_settings.request_timeout_seconds is defined else 1.0 }}">
-                                </label>
-                            </div>
-
-                            <div class="top-gap">
-                                <small class="help">Unterstützt pro Wert: Registerart, Adresse, Datentyp, Endianness und Faktor. Für <code>int8</code>/<code>uint8</code> wird das erste Byte nach der gewählten Endianness ausgewertet.</small>
-                            </div>
-                        </section>
-
-                        {{ modbus_value_block('SOC', 'battery_soc', battery_soc) }}
-                        {{ modbus_value_block('Ladeleistung', 'battery_charge_power', battery_charge) }}
-                        {{ modbus_value_block('Entladeleistung', 'battery_discharge_power', battery_discharge) }}
-                    </div>
-                </details>
-
-                <div class="actions top-gap">
-                    <button class="btn" type="submit">Messungen speichern</button>
-                </div>
+                        </div>
+                    </article>
+                </section>
             </form>
         </main>
     </div>
@@ -389,8 +383,43 @@
             update();
         }
 
+        function bindPanelToggles() {
+            document.querySelectorAll('[data-toggle-target]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    const target = document.getElementById(button.getAttribute('data-toggle-target'));
+                    if (!target) {
+                        return;
+                    }
+                    const willShow = target.hidden;
+                    target.hidden = !willShow;
+                    button.textContent = willShow ? 'Konfiguration verbergen' : 'Konfigurieren';
+                });
+            });
+        }
+
+        function syncBatteryEnabled() {
+            const typeSelect = document.getElementById('batteryTypeSelect');
+            const enabledCheckbox = document.getElementById('batteryEnabledCheckbox');
+            if (!typeSelect || !enabledCheckbox) {
+                return;
+            }
+
+            const update = () => {
+                const noBattery = typeSelect.value === 'none';
+                if (noBattery) {
+                    enabledCheckbox.checked = false;
+                }
+                enabledCheckbox.disabled = noBattery;
+            };
+
+            typeSelect.addEventListener('change', update);
+            update();
+        }
+
         syncTypeSections('sourceTypeSelect', 'data-source-types');
         syncTypeSections('batteryTypeSelect', 'data-battery-types');
+        bindPanelToggles();
+        syncBatteryEnabled();
     </script>
 </body>
 </html>

@@ -113,6 +113,25 @@ def _resolve_sma_device_label(source_debug: dict | None) -> str | None:
     return known.get(susy_id_int, f"SMA Gerät (SUSy-ID {susy_id_int})")
 
 
+def _resolve_measurement_profile_label(source_type: str | None) -> str:
+    normalized = str(source_type or "simulator").strip().lower()
+    labels = {
+        "simulator": "Simulierter Netzanschlusspunkt",
+        "sma_meter_protocol": "SMA Energy Meter",
+    }
+    return labels.get(normalized, normalized or "Unbekannt")
+
+
+
+def _resolve_battery_profile_label(battery_type: str | None) -> str:
+    normalized = str(battery_type or "none").strip().lower()
+    labels = {
+        "none": "Keine Batterie",
+        "battery_modbus": "Modbus TCP Batterie",
+    }
+    return labels.get(normalized, normalized or "Unbekannt")
+
+
 def _parse_modbus_value_form(form, prefix: str) -> dict:
     register_type = str(form.get(f"{prefix}_register_type", "holding")).strip().lower()
     if register_type not in MODBUS_REGISTER_TYPES:
@@ -551,12 +570,17 @@ async def sources_page(request: Request):
     from pv2hash.netutils import get_local_ipv4_addresses
 
     source_debug = services.get_source_debug_info()
+    source_cfg = state.config["source"]
+    battery_cfg = state.config.get("battery", {})
+
     context = {
         "request": request,
-        "source": state.config["source"],
-        "battery": state.config.get("battery", {}),
+        "source": source_cfg,
+        "battery": battery_cfg,
         "snapshot": state.snapshot,
         "source_debug": source_debug,
+        "source_profile_label": _resolve_measurement_profile_label(source_cfg.get("type", "simulator")),
+        "battery_profile_label": _resolve_battery_profile_label(battery_cfg.get("type", "none")),
         "source_device_label": _resolve_sma_device_label(source_debug),
         "source_device_serial_number": source_debug.get("last_packet_serial_number") if source_debug else None,
         "source_device_susy_id": source_debug.get("last_packet_susy_id") if source_debug else None,
@@ -584,12 +608,11 @@ async def sources_page(request: Request):
 async def save_source(request: Request):
     form = await request.form()
 
-    source_type = form.get("source_type", "simulator")
-    source_name = form.get("source_name", "Source")
+    source_type = str(form.get("source_type", "simulator")).strip()
     source_enabled = form.get("source_enabled") == "on"
 
     state.config["source"]["type"] = source_type
-    state.config["source"]["name"] = source_name
+    state.config["source"]["name"] = _resolve_measurement_profile_label(source_type)
     state.config["source"]["enabled"] = source_enabled
     state.config["source"].setdefault("settings", {})
     state.config["source"]["settings"]["multicast_ip"] = form.get(
@@ -610,14 +633,22 @@ async def save_source(request: Request):
     )
     state.config["source"]["settings"]["device_ip"] = form.get("device_ip", "").strip()
     state.config["source"]["settings"]["debug_dump_obis"] = form.get("debug_dump_obis") == "on"
+    state.config["source"]["settings"]["simulator_import_power_w"] = _safe_float(
+        form.get("simulator_import_power_w", 1000.0), 1000.0
+    )
+    state.config["source"]["settings"]["simulator_export_power_w"] = _safe_float(
+        form.get("simulator_export_power_w", 10000.0), 10000.0
+    )
+    state.config["source"]["settings"]["simulator_ramp_rate_w_per_minute"] = _safe_float(
+        form.get("simulator_ramp_rate_w_per_minute", 600.0), 600.0
+    )
 
     battery_type = str(form.get("battery_type", "none")).strip()
-    battery_name = str(form.get("battery_name", "Batterie")).strip() or "Batterie"
-    battery_enabled = form.get("battery_enabled") == "on"
+    battery_enabled = (form.get("battery_enabled") == "on") and battery_type != "none"
 
     state.config.setdefault("battery", {})
     state.config["battery"]["type"] = battery_type
-    state.config["battery"]["name"] = battery_name
+    state.config["battery"]["name"] = _resolve_battery_profile_label(battery_type)
     state.config["battery"]["enabled"] = battery_enabled
     state.config["battery"].setdefault("settings", {})
     state.config["battery"]["settings"]["host"] = str(form.get("battery_host", "")).strip()
@@ -635,9 +666,8 @@ async def save_source(request: Request):
 
     save_config(state.config)
     logger.info(
-        "Source settings saved: type=%s name=%s battery_type=%s battery_enabled=%s",
+        "Source settings saved: type=%s battery_type=%s battery_enabled=%s",
         source_type,
-        source_name,
         battery_type,
         battery_enabled,
     )
