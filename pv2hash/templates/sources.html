@@ -21,45 +21,49 @@
             <h3>{{ title }}</h3>
         </div>
 
-        <div class="form-grid">
-            <label>
-                <span>Registerart</span>
-                <select name="{{ prefix }}_register_type">
-                    {% for item in modbus_register_types %}
-                    <option value="{{ item }}" {% if (value_cfg.register_type if value_cfg and value_cfg.register_type is defined else 'holding') == item %}selected{% endif %}>{{ item }}</option>
-                    {% endfor %}
-                </select>
-            </label>
+        <div class="modbus-config-grid">
+            <div class="form-grid form-grid-inline modbus-config-row modbus-config-row-head">
+                <label>
+                    <span>Adresse</span>
+                    <input type="number" name="{{ prefix }}_address" value="{{ value_cfg.address if value_cfg and value_cfg.address is defined and value_cfg.address is not none else '' }}">
+                </label>
 
-            <label>
-                <span>Adresse</span>
-                <input type="number" name="{{ prefix }}_address" value="{{ value_cfg.address if value_cfg and value_cfg.address is defined and value_cfg.address is not none else '' }}">
-                <small class="help">Leer lassen, wenn dieser Wert aktuell nicht abgefragt werden soll.</small>
-            </label>
+                <label>
+                    <span>Registerart</span>
+                    <select name="{{ prefix }}_register_type">
+                        {% for item in modbus_register_types %}
+                        <option value="{{ item }}" {% if (value_cfg.register_type if value_cfg and value_cfg.register_type is defined else 'holding') == item %}selected{% endif %}>{{ item }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
 
-            <label>
-                <span>Wertetyp</span>
-                <select name="{{ prefix }}_value_type">
-                    {% for item in modbus_value_types %}
-                    <option value="{{ item }}" {% if (value_cfg.value_type if value_cfg and value_cfg.value_type is defined else 'uint16') == item %}selected{% endif %}>{{ item }}</option>
-                    {% endfor %}
-                </select>
-            </label>
+            <div class="form-grid form-grid-inline modbus-config-row modbus-config-row-tail">
+                <label>
+                    <span>Wertetyp</span>
+                    <select name="{{ prefix }}_value_type">
+                        {% for item in modbus_value_types %}
+                        <option value="{{ item }}" {% if (value_cfg.value_type if value_cfg and value_cfg.value_type is defined else 'uint16') == item %}selected{% endif %}>{{ item }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
 
-            <label>
-                <span>Endian</span>
-                <select name="{{ prefix }}_endian">
-                    {% for item in modbus_endian_types %}
-                    <option value="{{ item }}" {% if (value_cfg.endian if value_cfg and value_cfg.endian is defined else 'big_endian') == item %}selected{% endif %}>{{ item }}</option>
-                    {% endfor %}
-                </select>
-            </label>
+                <label>
+                    <span>Endian</span>
+                    <select name="{{ prefix }}_endian">
+                        {% for item in modbus_endian_types %}
+                        <option value="{{ item }}" {% if (value_cfg.endian if value_cfg and value_cfg.endian is defined else 'big_endian') == item %}selected{% endif %}>{{ item }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
 
-            <label>
-                <span>Faktor</span>
-                <input type="number" step="any" name="{{ prefix }}_factor" value="{{ value_cfg.factor if value_cfg and value_cfg.factor is defined else 1.0 }}">
-                <small class="help">Messwert wird mit diesem Faktor multipliziert.</small>
-            </label>
+                <label>
+                    <span>Faktor</span>
+                    <input type="number" step="any" name="{{ prefix }}_factor" value="{{ value_cfg.factor if value_cfg and value_cfg.factor is defined else 1.0 }}">
+                </label>
+            </div>
+
+            <small class="help">Leer lassen, wenn dieser Wert aktuell nicht abgefragt werden soll. Der Messwert wird mit dem Faktor multipliziert.</small>
         </div>
     </div>
     {%- endmacro %}
@@ -100,14 +104,14 @@
             </header>
 
             {% if saved %}
-            <section class="alert success">
-                Messungen gespeichert und Runtime neu geladen.
+            <section class="alert success" id="measurementsSavedNotice">
+                Messungen gespeichert und Runtime neu geladen. Gerätedaten der Netz-Messung werden automatisch nachgeladen, sobald neue Telegramme vorliegen.
             </section>
             {% endif %}
 
             <form method="post" action="/sources">
                 <section class="grid grid-2 measurement-summary-grid">
-                    <article class="card measurement-summary-card">
+                    <article class="card measurement-summary-card" id="napMeasurementCard" data-source-type="{{ source_type }}" data-source-device-label="{{ source_device_label or "" }}" data-source-serial="{{ source_device_serial_number or "" }}" data-source-susy="{{ source_device_susy_id or "" }}">
                         <div class="card-head">
                             <div>
                                 <h2>Netz-Messung</h2>
@@ -121,7 +125,6 @@
 
                         <div class="kv compact-kv">
                             <div class="kv-row"><span>Profil</span><strong>{{ source_profile_label }}</strong></div>
-                            <div class="kv-row"><span>Status</span><strong>{{ 'aktiv' if source.enabled else 'deaktiviert' }}</strong></div>
                             {% if source_type == 'sma_meter_protocol' %}
                             <div class="kv-row"><span>Gerät</span><strong>{{ source_device_label or '—' }}</strong></div>
                             <div class="kv-row"><span>Seriennummer</span><strong>{{ source_device_serial_number or '—' }}</strong></div>
@@ -148,10 +151,6 @@
                                         <small class="help">Das Profil bestimmt, welche weiteren Eingabefelder benötigt werden.</small>
                                     </label>
 
-                                    <label class="checkbox-row">
-                                        <input type="checkbox" name="source_enabled" {% if source.enabled %}checked{% endif %}>
-                                        <span>Netz-Messung aktiviert</span>
-                                    </label>
                                 </div>
                             </section>
 
@@ -312,36 +311,37 @@
                                     {{ help_link(wiki_links.battery_modbus) }}
                                 </div>
 
-                                <div class="form-grid">
-                                    <label>
-                                        <span>IP / Hostname</span>
-                                        <input type="text" name="battery_host" value="{{ battery_settings.host if battery_settings and battery_settings.host is defined else '' }}">
-                                    </label>
+                                <div class="battery-config-grid">
+                                    <div class="form-grid form-grid-inline battery-connection-grid">
+                                        <label>
+                                            <span>IP / Hostname</span>
+                                            <input type="text" name="battery_host" value="{{ battery_settings.host if battery_settings and battery_settings.host is defined else '' }}">
+                                        </label>
 
-                                    <label>
-                                        <span>Port</span>
-                                        <input type="number" name="battery_port" value="{{ battery_settings.port if battery_settings and battery_settings.port is defined else 502 }}">
-                                    </label>
+                                        <label class="field-narrow">
+                                            <span>Port</span>
+                                            <input type="number" name="battery_port" value="{{ battery_settings.port if battery_settings and battery_settings.port is defined else 502 }}">
+                                        </label>
 
-                                    <label>
-                                        <span>Unit-ID</span>
-                                        <input type="number" name="battery_unit_id" value="{{ battery_settings.unit_id if battery_settings and battery_settings.unit_id is defined else 1 }}">
-                                        <small class="help">Oft 1, je nach Gerät aber abweichend.</small>
-                                    </label>
+                                        <label class="field-narrow">
+                                            <span>Unit-ID</span>
+                                            <input type="number" name="battery_unit_id" value="{{ battery_settings.unit_id if battery_settings and battery_settings.unit_id is defined else 1 }}">
+                                        </label>
+                                    </div>
 
-                                    <label>
-                                        <span>Poll-Zeit (ms)</span>
-                                        <input type="number" name="battery_poll_interval_ms" value="{{ battery_settings.poll_interval_ms if battery_settings and battery_settings.poll_interval_ms is defined else 1000 }}">
-                                    </label>
+                                    <div class="form-grid form-grid-inline battery-timing-grid top-gap-sm">
+                                        <label>
+                                            <span>Poll-Zeit (ms)</span>
+                                            <input type="number" name="battery_poll_interval_ms" value="{{ battery_settings.poll_interval_ms if battery_settings and battery_settings.poll_interval_ms is defined else 1000 }}">
+                                        </label>
 
-                                    <label>
-                                        <span>Request-Timeout (Sekunden)</span>
-                                        <input type="number" step="0.1" name="battery_request_timeout_seconds" value="{{ battery_settings.request_timeout_seconds if battery_settings and battery_settings.request_timeout_seconds is defined else 1.0 }}">
-                                    </label>
-                                </div>
+                                        <label>
+                                            <span>Request-Timeout (Sekunden)</span>
+                                            <input type="number" step="0.1" name="battery_request_timeout_seconds" value="{{ battery_settings.request_timeout_seconds if battery_settings and battery_settings.request_timeout_seconds is defined else 1.0 }}">
+                                        </label>
+                                    </div>
 
-                                <div class="top-gap">
-                                    <small class="help">Unterstützt pro Wert: Registerart, Adresse, Datentyp, Endianness und Faktor. Für <code>int8</code>/<code>uint8</code> wird das erste Byte nach der gewählten Endianness ausgewertet.</small>
+                                    <small class="help top-gap-sm">Oft ist die Unit-ID <code>1</code>, je nach Gerät aber abweichend. Unterstützt pro Wert: Registerart, Adresse, Datentyp, Endianness und Faktor. Für <code>int8</code>/<code>uint8</code> wird das erste Byte nach der gewählten Endianness ausgewertet.</small>
                                 </div>
                             </section>
 
@@ -416,6 +416,65 @@
             update();
         }
 
+
+        async function autoRefreshMeasurementIdentity() {
+            const card = document.getElementById('napMeasurementCard');
+            const notice = document.getElementById('measurementsSavedNotice');
+            if (!card || !notice) {
+                return;
+            }
+
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('saved') !== '1') {
+                sessionStorage.removeItem('pv2hash-measurements-refresh-attempts');
+                return;
+            }
+
+            if (card.dataset.sourceType !== 'sma_meter_protocol') {
+                sessionStorage.removeItem('pv2hash-measurements-refresh-attempts');
+                return;
+            }
+
+            const currentSerial = (card.dataset.sourceSerial || '').trim();
+            const currentSusy = (card.dataset.sourceSusy || '').trim();
+            const currentLabel = (card.dataset.sourceDeviceLabel || '').trim();
+            if (currentSerial && currentSusy && currentLabel) {
+                sessionStorage.removeItem('pv2hash-measurements-refresh-attempts');
+                return;
+            }
+
+            const maxAttempts = 8;
+            const attemptKey = 'pv2hash-measurements-refresh-attempts';
+            const attempts = Number(sessionStorage.getItem(attemptKey) || '0');
+            if (attempts >= maxAttempts) {
+                sessionStorage.removeItem(attemptKey);
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/status', { cache: 'no-store' });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const debug = payload.source_debug || {};
+                const serial = String(debug.last_packet_serial_number || '').trim();
+                const susy = String(debug.last_packet_susy_id || '').trim();
+                const label = String(debug.last_packet_device_name || '').trim();
+                if (serial || susy || label) {
+                    sessionStorage.removeItem(attemptKey);
+                    window.location.reload();
+                    return;
+                }
+            } catch (error) {
+                console.debug('Messungen-Autorefresh wartet noch auf neue Netz-Messdaten.', error);
+            }
+
+            sessionStorage.setItem(attemptKey, String(attempts + 1));
+            window.setTimeout(() => window.location.reload(), 2500);
+        }
+
+        autoRefreshMeasurementIdentity();
         syncTypeSections('sourceTypeSelect', 'data-source-types');
         syncTypeSections('batteryTypeSelect', 'data-battery-types');
         bindPanelToggles();

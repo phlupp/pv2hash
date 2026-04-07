@@ -609,11 +609,10 @@ async def save_source(request: Request):
     form = await request.form()
 
     source_type = str(form.get("source_type", "simulator")).strip()
-    source_enabled = form.get("source_enabled") == "on"
 
     state.config["source"]["type"] = source_type
     state.config["source"]["name"] = _resolve_measurement_profile_label(source_type)
-    state.config["source"]["enabled"] = source_enabled
+    state.config["source"]["enabled"] = True
     state.config["source"].setdefault("settings", {})
     state.config["source"]["settings"]["multicast_ip"] = form.get(
         "multicast_ip", "239.12.255.254"

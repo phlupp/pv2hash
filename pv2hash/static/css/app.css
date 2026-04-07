@@ -922,3 +922,46 @@ select:focus {
         align-items: flex-start;
     }
 }
+
+
+.form-grid-inline {
+    align-items: end;
+}
+
+.top-gap-sm {
+    margin-top: 10px;
+}
+
+.battery-connection-grid {
+    grid-template-columns: minmax(0, 2.2fr) minmax(90px, 0.7fr) minmax(90px, 0.7fr);
+}
+
+.battery-timing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.field-narrow input {
+    max-width: 100%;
+}
+
+.modbus-config-grid {
+    display: grid;
+    gap: 10px;
+}
+
+.modbus-config-row-head {
+    grid-template-columns: minmax(120px, 0.9fr) minmax(0, 1.2fr);
+}
+
+.modbus-config-row-tail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+    .battery-connection-grid,
+    .battery-timing-grid,
+    .modbus-config-row-head,
+    .modbus-config-row-tail {
+        grid-template-columns: 1fr;
+    }
+}
