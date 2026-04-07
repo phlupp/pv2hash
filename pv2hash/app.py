@@ -332,10 +332,10 @@ def _parse_profile_values(form, driver: str) -> dict[str, dict[str, float]]:
     _, default_p1, default_p2, default_p3, default_p4 = _driver_profile_defaults(driver)
 
     return {
-        "p1": {"power_w": float(form.get("profile_p1_power_w", default_p1))},
-        "p2": {"power_w": float(form.get("profile_p2_power_w", default_p2))},
-        "p3": {"power_w": float(form.get("profile_p3_power_w", default_p3))},
-        "p4": {"power_w": float(form.get("profile_p4_power_w", default_p4))},
+        "p1": {"power_w": _safe_int(form.get("profile_p1_power_w", default_p1), default_p1)},
+        "p2": {"power_w": _safe_int(form.get("profile_p2_power_w", default_p2), default_p2)},
+        "p3": {"power_w": _safe_int(form.get("profile_p3_power_w", default_p3), default_p3)},
+        "p4": {"power_w": _safe_int(form.get("profile_p4_power_w", default_p4), default_p4)},
     }
 
 def _validate_profile_values(
@@ -740,18 +740,18 @@ async def add_miner(request: Request):
             "profiles": profile_values,
             "min_regulated_profile": min_regulated_profile,
             "use_battery_when_charging": form.get("use_battery_when_charging") == "on",
-            "battery_charge_soc_min": _safe_float(
-                form.get("battery_charge_soc_min", 95.0),
-                95.0,
+            "battery_charge_soc_min": _safe_int(
+                form.get("battery_charge_soc_min", 95),
+                95,
             ),
             "battery_charge_profile": _normalize_battery_override_profile(
                 form.get("battery_charge_profile", "p1"),
                 "p1",
             ),
             "use_battery_when_discharging": form.get("use_battery_when_discharging") == "on",
-            "battery_discharge_soc_min": _safe_float(
-                form.get("battery_discharge_soc_min", 80.0),
-                80.0,
+            "battery_discharge_soc_min": _safe_int(
+                form.get("battery_discharge_soc_min", 80),
+                80,
             ),
             "battery_discharge_profile": _normalize_battery_override_profile(
                 form.get("battery_discharge_profile", "p1"),
@@ -808,12 +808,12 @@ async def update_miner(request: Request):
             miner["profiles"] = profile_values
             miner["min_regulated_profile"] = min_regulated_profile
             miner["use_battery_when_charging"] = form.get("use_battery_when_charging") == "on"
-            miner["battery_charge_soc_min"] = _safe_float(
+            miner["battery_charge_soc_min"] = _safe_int(
                 form.get(
                     "battery_charge_soc_min",
-                    miner.get("battery_charge_soc_min", 95.0),
+                    miner.get("battery_charge_soc_min", 95),
                 ),
-                float(miner.get("battery_charge_soc_min", 95.0)),
+                int(float(miner.get("battery_charge_soc_min", 95))),
             )
             miner["battery_charge_profile"] = _normalize_battery_override_profile(
                 form.get(
@@ -823,12 +823,12 @@ async def update_miner(request: Request):
                 str(miner.get("battery_charge_profile", "p1")),
             )
             miner["use_battery_when_discharging"] = form.get("use_battery_when_discharging") == "on"
-            miner["battery_discharge_soc_min"] = _safe_float(
+            miner["battery_discharge_soc_min"] = _safe_int(
                 form.get(
                     "battery_discharge_soc_min",
-                    miner.get("battery_discharge_soc_min", 80.0),
+                    miner.get("battery_discharge_soc_min", 80),
                 ),
-                float(miner.get("battery_discharge_soc_min", 80.0)),
+                int(float(miner.get("battery_discharge_soc_min", 80))),
             )
             miner["battery_discharge_profile"] = _normalize_battery_override_profile(
                 form.get(

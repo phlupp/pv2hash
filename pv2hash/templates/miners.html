@@ -70,7 +70,6 @@
                     <p>Bestehende Miner kompakt verwalten und neue Miner erst nach Auswahl des Treibers anlegen.</p>
                 </div>
                 <div class="topbar-actions">
-                    <button class="btn btn-small" type="button" data-toggle-target="add-miner-panel">Neuen Miner hinzufügen</button>
                     {{ help_link(wiki_links.overview, 'Wiki: Miner') }}
                 </div>
             </header>
@@ -93,7 +92,7 @@
                         <strong>Neuen Miner hinzufügen</strong>
                         <small>Erst Treiber wählen, dann nur die passenden Felder ausfüllen.</small>
                     </div>
-                    <span class="summary-action">Treiber auswählen</span>
+                    <button class="btn btn-small" type="button" data-toggle-target="add-miner-panel">Neuen Miner hinzufügen</button>
                 </div>
 
                 <div class="disclosure-body" id="add-miner-panel" {% if not error_message %}hidden{% endif %}>
@@ -180,23 +179,23 @@
                             <div class="form-grid miner-profile-grid">
                                 <label>
                                     <span>P1 Leistung (W)</span>
-                                    <input type="number" name="profile_p1_power_w" value="900" min="1">
+                                    <input type="number" name="profile_p1_power_w" value="900" min="1" step="1" inputmode="numeric">
                                     <small class="help">Kleinste echte Leistungsstufe.</small>
                                 </label>
 
                                 <label>
                                     <span>P2 Leistung (W)</span>
-                                    <input type="number" name="profile_p2_power_w" value="1800" min="1">
+                                    <input type="number" name="profile_p2_power_w" value="1800" min="1" step="1" inputmode="numeric">
                                 </label>
 
                                 <label>
                                     <span>P3 Leistung (W)</span>
-                                    <input type="number" name="profile_p3_power_w" value="3000" min="1">
+                                    <input type="number" name="profile_p3_power_w" value="3000" min="1" step="1" inputmode="numeric">
                                 </label>
 
                                 <label>
                                     <span>P4 Leistung (W)</span>
-                                    <input type="number" name="profile_p4_power_w" value="4200" min="1">
+                                    <input type="number" name="profile_p4_power_w" value="4200" min="1" step="1" inputmode="numeric">
                                 </label>
 
                                 <label>
@@ -230,7 +229,7 @@
                                     <div class="form-grid miner-battery-row">
                                         <label>
                                             <span>Ab SOC (%)</span>
-                                            <input type="number" name="battery_charge_soc_min" value="95" min="0" max="100" step="0.1">
+                                            <input type="number" name="battery_charge_soc_min" value="95" min="0" max="100" step="1" inputmode="numeric">
                                         </label>
 
                                         <label>
@@ -254,7 +253,7 @@
                                     <div class="form-grid miner-battery-row">
                                         <label>
                                             <span>Bis SOC (%)</span>
-                                            <input type="number" name="battery_discharge_soc_min" value="80" min="0" max="100" step="0.1">
+                                            <input type="number" name="battery_discharge_soc_min" value="80" min="0" max="100" step="1" inputmode="numeric">
                                         </label>
 
                                         <label>
@@ -336,11 +335,7 @@
                         </div>
                     </div>
 
-                    <div class="miner-summary-grid miner-summary-grid-compact">
-                        <div class="miner-summary-item">
-                            <span class="label">Status</span>
-                            <strong data-runtime-field="summary-state">{% if reachable %}erreichbar{% else %}nicht erreichbar{% endif %} · {{ runtime_state }}</strong>
-                        </div>
+                    <div class="miner-summary-grid miner-summary-grid-compact miner-summary-grid-slim">
                         <div class="miner-summary-item">
                             <span class="label">Aktuelles Profil</span>
                             <strong data-runtime-field="summary-profile">{{ current_profile }}</strong>
@@ -351,7 +346,9 @@
                         </div>
                     </div>
 
-                    <div class="kv compact-kv top-gap">
+                    <div class="runtime-hidden-fields" hidden><span data-runtime-field="summary-state">{% if reachable %}erreichbar{% else %}nicht erreichbar{% endif %} · {{ runtime_state }}</span></div>
+
+                                <div class="kv compact-kv top-gap">
                         <div class="kv-row"><span>Host / IP</span><strong>{{ miner.host }}</strong></div>
                         <div class="kv-row"><span>Priorität</span><strong>{{ miner.priority }}</strong></div>
                         <div class="kv-row"><span>Min. Regelprofil</span><strong>{{ min_profile }}</strong></div>
@@ -451,23 +448,23 @@
                                 <div class="form-grid miner-profile-grid">
                                     <label>
                                         <span>P1 Leistung (W)</span>
-                                        <input type="number" name="profile_p1_power_w" value="{{ profile_p1 }}" min="1">
+                                        <input type="number" name="profile_p1_power_w" value="{{ profile_p1 }}" min="1" step="1" inputmode="numeric">
                                         <small class="help">Kleinste echte Leistungsstufe.</small>
                                     </label>
 
                                     <label>
                                         <span>P2 Leistung (W)</span>
-                                        <input type="number" name="profile_p2_power_w" value="{{ profile_p2 }}" min="1">
+                                        <input type="number" name="profile_p2_power_w" value="{{ profile_p2 }}" min="1" step="1" inputmode="numeric">
                                     </label>
 
                                     <label>
                                         <span>P3 Leistung (W)</span>
-                                        <input type="number" name="profile_p3_power_w" value="{{ profile_p3 }}" min="1">
+                                        <input type="number" name="profile_p3_power_w" value="{{ profile_p3 }}" min="1" step="1" inputmode="numeric">
                                     </label>
 
                                     <label>
                                         <span>P4 Leistung (W)</span>
-                                        <input type="number" name="profile_p4_power_w" value="{{ profile_p4 }}" min="1">
+                                        <input type="number" name="profile_p4_power_w" value="{{ profile_p4 }}" min="1" step="1" inputmode="numeric">
                                     </label>
 
                                     <label>
@@ -501,7 +498,7 @@
                                         <div class="form-grid miner-battery-row">
                                             <label>
                                                 <span>Ab SOC (%)</span>
-                                                <input type="number" name="battery_charge_soc_min" value="{{ miner.battery_charge_soc_min if miner.battery_charge_soc_min is defined else 95 }}" min="0" max="100" step="0.1">
+                                                <input type="number" name="battery_charge_soc_min" value="{{ miner.battery_charge_soc_min if miner.battery_charge_soc_min is defined else 95 }}" min="0" max="100" step="1" inputmode="numeric">
                                             </label>
 
                                             <label>
@@ -525,7 +522,7 @@
                                         <div class="form-grid miner-battery-row">
                                             <label>
                                                 <span>Bis SOC (%)</span>
-                                                <input type="number" name="battery_discharge_soc_min" value="{{ miner.battery_discharge_soc_min if miner.battery_discharge_soc_min is defined else 80 }}" min="0" max="100" step="0.1">
+                                                <input type="number" name="battery_discharge_soc_min" value="{{ miner.battery_discharge_soc_min if miner.battery_discharge_soc_min is defined else 80 }}" min="0" max="100" step="1" inputmode="numeric">
                                             </label>
 
                                             <label>
