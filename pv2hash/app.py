@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import platform
+import shutil
+import socket
+import sys
 from copy import deepcopy
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
+from pathlib import Path
+from urllib.parse import quote_plus
 from uuid import uuid4
 
 from fastapi import FastAPI, Form, Request
@@ -12,7 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from pv2hash.config.store import load_config, save_config
+from pv2hash.config.store import CONFIG_PATH, load_config, save_config
 from pv2hash.logging_ext.setup import (
     get_log_file_path,
     get_logger,
@@ -68,30 +76,12 @@ def _safe_float(value, default: float) -> float:
         return default
 
 
-def _self_update_snapshot(update_status: dict | None = None) -> dict:
-    try:
-        return self_update_manager.snapshot(
-            auto_update_enabled=bool(state.config["system"].get("auto_update_enabled", False)),
-            update_status=update_status,
-        )
-    except TypeError:
-        try:
-            return self_update_manager.snapshot(update_status=update_status)
-        except TypeError:
-            return self_update_manager.snapshot()
+def _update_runner_snapshot(update_status: dict | None = None) -> dict:
+    return self_update_manager.snapshot(update_status=update_status)
 
 
-def _self_update_start_latest(update_status: dict) -> tuple[dict, int]:
-    try:
-        return self_update_manager.start_latest(
-            auto_update_enabled=bool(state.config["system"].get("auto_update_enabled", False)),
-            update_status=update_status,
-        )
-    except TypeError:
-        try:
-            return self_update_manager.start_latest(update_status=update_status)
-        except TypeError:
-            return self_update_manager.start_latest()
+def _update_runner_start_latest(update_status: dict) -> tuple[dict, int]:
+    return self_update_manager.start_latest(update_status=update_status)
 
 
 def _optional_int(value) -> int | None:
@@ -156,6 +146,172 @@ def _resolve_battery_profile_label(battery_type: str | None) -> str:
         "battery_modbus": "Modbus TCP Batterie",
     }
     return labels.get(normalized, normalized or "Unbekannt")
+
+
+def _format_bytes(num_bytes: int | float | None) -> str:
+    if num_bytes is None:
+        return "—"
+    value = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024.0 or unit == "TB":
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024.0
+    return f"{value:.1f} TB"
+
+
+def _format_duration(seconds: float | int | None) -> str:
+    if seconds is None:
+        return "—"
+    total = max(0, int(seconds))
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or days:
+        parts.append(f"{hours}h")
+    if minutes or hours or days:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
+
+
+def _read_cpu_times() -> tuple[int, int] | None:
+    try:
+        first_line = Path('/proc/stat').read_text(encoding='utf-8').splitlines()[0]
+        parts = first_line.split()
+        values = [int(item) for item in parts[1:]]
+        idle = values[3] + (values[4] if len(values) > 4 else 0)
+        total = sum(values)
+        return total, idle
+    except Exception:
+        return None
+
+
+def _read_meminfo() -> tuple[int | None, int | None]:
+    try:
+        values: dict[str, int] = {}
+        for line in Path('/proc/meminfo').read_text(encoding='utf-8').splitlines():
+            if ':' not in line:
+                continue
+            key, raw = line.split(':', 1)
+            number = raw.strip().split()[0]
+            values[key] = int(number) * 1024
+        total = values.get('MemTotal')
+        available = values.get('MemAvailable', values.get('MemFree'))
+        return total, available
+    except Exception:
+        return None, None
+
+
+def _read_uptime_seconds() -> float | None:
+    try:
+        raw = Path('/proc/uptime').read_text(encoding='utf-8').split()[0]
+        return float(raw)
+    except Exception:
+        return None
+
+
+def _build_disk_entries() -> list[dict]:
+    candidates = [
+        ("System", Path('/')),
+        ("Anwendung", Path.cwd()),
+        ("Daten", CONFIG_PATH.parent.resolve()),
+    ]
+    disks: list[dict] = []
+    seen: set[str] = set()
+    for label, target in candidates:
+        try:
+            resolved = target.resolve()
+            key = str(resolved)
+            if key in seen:
+                continue
+            usage = shutil.disk_usage(resolved)
+        except Exception:
+            continue
+        seen.add(key)
+        percent = (usage.used / usage.total * 100.0) if usage.total else 0.0
+        disks.append({
+            'label': label,
+            'path': key,
+            'used_text': _format_bytes(usage.used),
+            'total_text': _format_bytes(usage.total),
+            'percent_text': f"{percent:.0f}%",
+        })
+    return disks
+
+
+_HOST_CPU_SAMPLE: tuple[int, int] | None = None
+
+
+def _sample_cpu_percent() -> float | None:
+    global _HOST_CPU_SAMPLE
+    current = _read_cpu_times()
+    if current is None:
+        return None
+    if _HOST_CPU_SAMPLE is None:
+        _HOST_CPU_SAMPLE = current
+        return None
+    prev_total, prev_idle = _HOST_CPU_SAMPLE
+    total, idle = current
+    _HOST_CPU_SAMPLE = current
+    total_delta = total - prev_total
+    idle_delta = idle - prev_idle
+    if total_delta <= 0:
+        return None
+    usage = (1.0 - max(0, idle_delta) / total_delta) * 100.0
+    return max(0.0, min(100.0, usage))
+
+
+def _get_host_status() -> dict:
+    hostname = socket.gethostname()
+    try:
+        fqdn = socket.getfqdn()
+    except Exception:
+        fqdn = ''
+    cpu_percent = _sample_cpu_percent()
+    mem_total, mem_available = _read_meminfo()
+    mem_used = None
+    mem_percent = None
+    if mem_total is not None and mem_available is not None:
+        mem_used = max(0, mem_total - mem_available)
+        if mem_total > 0:
+            mem_percent = mem_used / mem_total * 100.0
+    try:
+        load_values = os.getloadavg()
+        load_text = ' / '.join(f"{value:.2f}" for value in load_values)
+    except Exception:
+        load_text = '—'
+    return {
+        'hostname': hostname or '—',
+        'fqdn': fqdn if fqdn and fqdn != hostname else '',
+        'cpu_percent': cpu_percent,
+        'cpu_percent_text': f"{cpu_percent:.0f}%" if cpu_percent is not None else '—',
+        'ram_used_bytes': mem_used,
+        'ram_total_bytes': mem_total,
+        'ram_text': (f"{_format_bytes(mem_used)} / {_format_bytes(mem_total)}" if mem_used is not None and mem_total is not None else '—'),
+        'ram_percent': mem_percent,
+        'ram_percent_text': f"{mem_percent:.0f}%" if mem_percent is not None else '—',
+        'load_text': load_text,
+        'uptime_seconds': _read_uptime_seconds(),
+        'uptime_text': _format_duration(_read_uptime_seconds()),
+        'platform_text': f"{platform.system()} {platform.release()}",
+        'python_text': sys.version.split()[0],
+        'disks': _build_disk_entries(),
+    }
+
+
+def _redirect_with_system_message(*, notice: str | None = None, error: str | None = None) -> RedirectResponse:
+    params = []
+    if notice:
+        params.append(f"config_import_notice={quote_plus(notice)}")
+    if error:
+        params.append(f"config_import_error={quote_plus(error)}")
+    suffix = f"?{'&'.join(params)}" if params else ''
+    return RedirectResponse(url=f"/system{suffix}", status_code=303)
 
 
 def _resolve_miner_driver_label(driver: str | None) -> str:
@@ -568,7 +724,6 @@ async def save_settings(request: Request):
     state.config["system"]["instance_name"] = form.get("instance_name", "PV2Hash Node")
     state.config["system"]["log_level"] = _normalize_log_level(form.get("log_level", state.config["system"].get("log_level", "INFO")))
     state.config["system"]["check_updates"] = form.get("check_updates") == "on"
-    state.config["system"]["auto_update_enabled"] = form.get("auto_update_enabled") == "on"
     state.config["system"]["update_repo"] = (
         str(form.get("update_repo", "phlupp/pv2hash")).strip() or "phlupp/pv2hash"
     )
@@ -601,10 +756,9 @@ async def save_settings(request: Request):
     save_config(state.config)
     setup_logging(state.config["system"].get("log_level", "INFO"))
     logger.info(
-        "Settings saved: log_level=%s check_updates=%s auto_update_enabled=%s update_repo=%s",
+        "Settings saved: log_level=%s check_updates=%s update_repo=%s",
         state.config["system"].get("log_level", "INFO"),
         state.config["system"].get("check_updates", True),
-        state.config["system"].get("auto_update_enabled", False),
         state.config["system"].get("update_repo", "phlupp/pv2hash"),
     )
     reload_runtime()
@@ -894,6 +1048,7 @@ async def delete_miner(miner_id: str = Form(...)):
 @app.get("/system")
 async def system_page(request: Request):
     update_status = update_checker.snapshot()
+    host_status = _get_host_status()
 
     context = {
         "request": request,
@@ -903,12 +1058,17 @@ async def system_page(request: Request):
         "last_reload_at": state.last_reload_at,
         "last_live_packet_at": state.last_live_packet_at,
         "source_type": state.config["source"].get("type", "unknown"),
+        "source_profile_label": _resolve_measurement_profile_label(state.config["source"].get("type")),
+        "battery_profile_label": _resolve_battery_profile_label(state.config.get("battery", {}).get("type")),
         "miner_count": len(state.miners),
         "app_version": APP_VERSION,
         "app_version_full": APP_VERSION_FULL,
         "update_status": update_status,
-        "self_update_status": _self_update_snapshot(update_status),
+        "update_runner_status": _update_runner_snapshot(update_status),
         "allowed_log_levels": ("INFO", "DEBUG"),
+        "host_status": host_status,
+        "config_import_notice": request.query_params.get("config_import_notice"),
+        "config_import_error": request.query_params.get("config_import_error"),
     }
     return templates.TemplateResponse(
         request=request,
@@ -926,7 +1086,7 @@ async def system_update_progress_page(request: Request):
         "instance_name": state.config["system"]["instance_name"],
         "app_version_full": APP_VERSION_FULL,
         "update_status": update_status,
-        "self_update_status": _self_update_snapshot(update_status),
+        "update_runner_status": _update_runner_snapshot(update_status),
     }
     return templates.TemplateResponse(
         request=request,
@@ -953,6 +1113,58 @@ async def system_logging(request: Request):
     return RedirectResponse(url="/system", status_code=303)
 
 
+@app.get("/api/system/host-status")
+async def api_system_host_status():
+    return JSONResponse(content=jsonable_encoder(_get_host_status()))
+
+
+@app.get("/system/config/export")
+async def system_config_export():
+    return FileResponse(
+        path=CONFIG_PATH,
+        filename=f"pv2hash-config-{APP_VERSION_FULL}.json",
+        media_type="application/json",
+    )
+
+
+@app.post("/system/config/import")
+async def system_config_import(request: Request):
+    try:
+        form = await request.form()
+        upload = form.get("config_file")
+        if upload is None:
+            return _redirect_with_system_message(error="Keine Konfigurationsdatei ausgewählt.")
+
+        raw_bytes = await upload.read()
+        if not raw_bytes:
+            return _redirect_with_system_message(error="Die ausgewählte Datei ist leer.")
+
+        try:
+            imported_config = json.loads(raw_bytes.decode("utf-8"))
+        except Exception:
+            return _redirect_with_system_message(error="Die Konfigurationsdatei ist kein gültiges JSON.")
+
+        if not isinstance(imported_config, dict):
+            return _redirect_with_system_message(error="Die Konfigurationsdatei muss ein JSON-Objekt enthalten.")
+
+        if CONFIG_PATH.exists():
+            backup_path = CONFIG_PATH.with_name(
+                f"config.backup-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}.json"
+            )
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(CONFIG_PATH, backup_path)
+
+        save_config(imported_config)
+        reloaded_config = load_config()
+        setup_logging(reloaded_config.get("system", {}).get("log_level", "INFO"))
+        reload_runtime()
+        logger.info("Configuration restored from uploaded JSON")
+        return _redirect_with_system_message(notice="Konfiguration wurde importiert und Runtime neu geladen.")
+    except Exception:
+        logger.exception("Failed to import configuration")
+        return _redirect_with_system_message(error="Konfiguration konnte nicht importiert werden.")
+
+
 @app.get("/api/system/update-status")
 async def api_system_update_status():
     return JSONResponse(content=jsonable_encoder(update_checker.snapshot()))
@@ -967,14 +1179,14 @@ async def api_system_update_check():
 @app.get("/api/system/self-update-status")
 async def api_system_self_update_status():
     update_status = update_checker.snapshot()
-    payload = _self_update_snapshot(update_status)
+    payload = _update_runner_snapshot(update_status)
     return JSONResponse(content=jsonable_encoder(payload))
 
 
 @app.post("/api/system/self-update")
 async def api_system_self_update():
     update_status = await update_checker.refresh()
-    payload, status_code = _self_update_start_latest(update_status)
+    payload, status_code = _update_runner_start_latest(update_status)
     response_payload = dict(payload)
     response_payload["progress_url"] = "/system/update-progress"
     return JSONResponse(content=jsonable_encoder(response_payload), status_code=status_code)
