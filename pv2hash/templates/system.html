@@ -31,14 +31,26 @@
             <header class="topbar">
                 <div>
                     <h1>System</h1>
-                    <p>Status, Runtime, Updates und Live-Konsole</p>
+                    <p>Betrieb, Host-System, Updates, Logs und Konfigurationssicherung</p>
                 </div>
             </header>
+
+            {% if config_import_notice %}
+            <section class="alert success">
+                {{ config_import_notice }}
+            </section>
+            {% endif %}
+
+            {% if config_import_error %}
+            <section class="alert danger">
+                {{ config_import_error }}
+            </section>
+            {% endif %}
 
             <section class="grid grid-2">
                 <article class="card">
                     <div class="card-head">
-                        <h2>Status</h2>
+                        <h2>Instanz</h2>
                     </div>
 
                     <div class="kv">
@@ -51,12 +63,12 @@
                             <strong>{{ app_version_full }}</strong>
                         </div>
                         <div class="kv-row">
-                            <span>Log-Level</span>
-                            <strong>{{ log_level }}</strong>
+                            <span>Messung</span>
+                            <strong>{{ source_profile_label }}</strong>
                         </div>
                         <div class="kv-row">
-                            <span>Quelle</span>
-                            <strong>{{ source_type }}</strong>
+                            <span>Batterie</span>
+                            <strong>{{ battery_profile_label }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Miner aktiv</span>
@@ -79,7 +91,62 @@
 
                 <article class="card">
                     <div class="card-head">
-                        <h2>Updates &amp; Aktionen</h2>
+                        <h2>Host-System</h2>
+                    </div>
+
+                    <div class="kv">
+                        <div class="kv-row">
+                            <span>Hostname</span>
+                            <strong id="hostHostname">{{ host_status.hostname }}</strong>
+                        </div>
+                        <div class="kv-row" {% if not host_status.fqdn %}hidden{% endif %} id="hostFqdnRow">
+                            <span>FQDN</span>
+                            <strong id="hostFqdn">{{ host_status.fqdn or "—" }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>CPU-Auslastung</span>
+                            <strong id="hostCpu">{{ host_status.cpu_percent_text }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>RAM</span>
+                            <strong id="hostRam">{{ host_status.ram_text }} ({{ host_status.ram_percent_text }})</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Load Average</span>
+                            <strong id="hostLoad">{{ host_status.load_text }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Uptime</span>
+                            <strong id="hostUptime">{{ host_status.uptime_text }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Plattform</span>
+                            <strong id="hostPlatform">{{ host_status.platform_text }}</strong>
+                        </div>
+                        <div class="kv-row">
+                            <span>Python</span>
+                            <strong id="hostPython">{{ host_status.python_text }}</strong>
+                        </div>
+                    </div>
+
+                    <div class="top-gap">
+                        <div class="update-title">Speicherorte</div>
+                        <div id="hostDiskList" class="kv top-gap-sm">
+                            {% for disk in host_status.disks %}
+                            <div class="kv-row">
+                                <span>{{ disk.label }} ({{ disk.path }})</span>
+                                <strong>{{ disk.used_text }} / {{ disk.total_text }} · {{ disk.percent_text }}</strong>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </article>
+            </section>
+
+            <section class="grid grid-2 top-gap">
+                <article class="card">
+                    <div class="card-head">
+                        <h2>Updates &amp; Wartung</h2>
                     </div>
 
                     <div class="actions start wrap">
@@ -98,7 +165,7 @@
                         </form>
 
                         <button id="checkUpdatesBtn" class="btn btn-secondary" type="button">Jetzt auf Updates prüfen</button>
-                        <button id="selfUpdateBtn" class="btn btn-warning" type="button">Update starten</button>
+                        <button id="updateInstallBtn" class="btn btn-warning" type="button">Update starten</button>
                         <a class="btn btn-info" href="/api/logs/download">Log herunterladen</a>
                     </div>
 
@@ -153,61 +220,87 @@
                                 <div class="update-title">Update über Weboberfläche</div>
                                 <div class="update-subtitle">Manuell gestartetes Update über den Release-Installer</div>
                             </div>
-                            <span id="selfUpdateStateBadge" class="status-pill">Prüfe …</span>
+                            <span id="updateRunnerStateBadge" class="status-pill">Prüfe …</span>
                         </div>
 
                         <div class="kv update-kv">
                             <div class="kv-row">
                                 <span>Installationsmodus</span>
-                                <strong id="selfUpdateInstallMode">{{ update_install_status.install_mode or "—" }}</strong>
+                                <strong id="updateRunnerInstallMode">{{ update_runner_status.install_mode or "—" }}</strong>
                             </div>
                             <div class="kv-row">
                                 <span>Ziel-Release</span>
-                                <strong id="selfUpdateTargetVersion">{{ update_install_status.target_version_full or update_install_status.available_release_version_full or "—" }}</strong>
+                                <strong id="updateRunnerTargetVersion">{{ update_runner_status.target_version_full or update_runner_status.available_release_version_full or "—" }}</strong>
                             </div>
                             <div class="kv-row">
                                 <span>Gestartet am</span>
-                                <strong id="selfUpdateStartedAt">{{ update_install_status.started_at or "—" }}</strong>
+                                <strong id="updateRunnerStartedAt">{{ update_runner_status.started_at or "—" }}</strong>
                             </div>
                             <div class="kv-row">
                                 <span>Beendet am</span>
-                                <strong id="selfUpdateFinishedAt">{{ update_install_status.finished_at or "—" }}</strong>
+                                <strong id="updateRunnerFinishedAt">{{ update_runner_status.finished_at or "—" }}</strong>
                             </div>
                             <div class="kv-row">
-                                <span>Helper</span>
-                                <strong id="selfUpdateHelperPath">{{ update_install_status.helper_path or "—" }}</strong>
+                                <span>Update-Helper</span>
+                                <strong id="updateRunnerHelperPath">{{ update_runner_status.helper_path or "—" }}</strong>
                             </div>
                         </div>
 
-                        <div id="selfUpdateMessage" class="update-message">Lade Update-Status …</div>
-                        <div id="selfUpdateError" class="update-error" hidden></div>
+                        <div id="updateRunnerMessage" class="update-message">Lade Update-Status …</div>
+                        <div id="updateRunnerError" class="update-error" hidden></div>
 
                         <div class="update-links">
-                            <a id="selfUpdateLogLink" class="link-muted" href="/api/logs/download" hidden>PV2Hash-Log herunterladen</a>
+                            <a id="updateRunnerLogLink" class="link-muted" href="/api/logs/download" hidden>PV2Hash-Log herunterladen</a>
                         </div>
                     </div>
                 </article>
-            </section>
 
-            <section class="card">
-                <div class="console-toolbar">
-                    <div class="console-toolbar-left">
-                        <h2>Echtzeit-Logs</h2>
+                <article class="card">
+                    <div class="card-head">
+                        <h2>Sicherung &amp; Wiederherstellung</h2>
                     </div>
 
-                    <div class="console-toolbar-right">
-                        <button id="toggleConsoleBtn" class="btn btn-secondary" type="button">AUSBLENDEN LOGS</button>
-                        <button id="toggleScrollBtn" class="btn btn-warning" type="button">STOPPEN SCROLLING</button>
-                        <button id="clearFilterBtn" class="btn btn-info" type="button">FILTER LÖSCHEN</button>
+                    <p class="muted">Hier kannst du die komplette PV2Hash-Konfiguration sichern oder aus einer JSON-Datei wiederherstellen. Beim Import wird die aktuelle Konfiguration zuvor automatisch gesichert und die Runtime neu geladen.</p>
 
+                    <div class="actions start wrap top-gap">
+                        <a class="btn btn-secondary" href="/system/config/export">Konfiguration herunterladen</a>
+                    </div>
+
+                    <form method="post" action="/system/config/import" enctype="multipart/form-data" class="top-gap">
+                        <div class="form-grid">
+                            <label>
+                                <span>Konfigurationsdatei</span>
+                                <input type="file" name="config_file" accept="application/json,.json" required>
+                                <small class="help">Erwartet eine PV2Hash-Konfiguration im JSON-Format.</small>
+                            </label>
+                        </div>
+                        <div class="actions end top-gap">
+                            <button class="btn btn-warning" type="submit">Konfiguration importieren</button>
+                        </div>
+                    </form>
+                </article>
+            </section>
+
+            <section class="card top-gap">
+                <div class="console-toolbar">
+                    <div class="console-toolbar-left">
+                        <h2>Live-Konsole</h2>
+                        <p class="muted">Aktuelle Log-Ausgabe aus dem Ringbuffer der Anwendung</p>
+                    </div>
+                    <div class="console-toolbar-right">
                         <label class="console-filter-label" for="logFilterInput">Filter</label>
-                        <input id="logFilterInput" class="console-filter-input" type="text" placeholder="Logs filtern...">
+                        <input id="logFilterInput" class="console-filter-input" type="text" placeholder="Suche in Logzeilen …">
+                        <button id="clearFilterBtn" class="btn btn-secondary" type="button">Filter löschen</button>
+                        <button id="toggleScrollBtn" class="btn btn-secondary" type="button">STOPPEN SCROLLING</button>
+                        <button id="toggleConsoleBtn" class="btn btn-secondary" type="button">AUSBLENDEN LOGS</button>
                     </div>
                 </div>
 
-                <div id="consoleWrap" class="console-wrap">
+                <div class="console-wrap" id="consoleWrap">
                     <div id="logConsole" class="console-output">
-                        <div class="log-line"><span class="log-message">Lade Logs...</span></div>
+                        <div class="log-row">
+                            <div class="log-message-full">Lade Logs...</div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -216,13 +309,25 @@
 
     <script>
         const logConsole = document.getElementById("logConsole");
-        const logFilterInput = document.getElementById("logFilterInput");
+        const consoleWrap = document.getElementById("consoleWrap");
         const toggleConsoleBtn = document.getElementById("toggleConsoleBtn");
         const toggleScrollBtn = document.getElementById("toggleScrollBtn");
+        const logFilterInput = document.getElementById("logFilterInput");
         const clearFilterBtn = document.getElementById("clearFilterBtn");
-        const consoleWrap = document.getElementById("consoleWrap");
+
+        const hostHostname = document.getElementById("hostHostname");
+        const hostFqdnRow = document.getElementById("hostFqdnRow");
+        const hostFqdn = document.getElementById("hostFqdn");
+        const hostCpu = document.getElementById("hostCpu");
+        const hostRam = document.getElementById("hostRam");
+        const hostLoad = document.getElementById("hostLoad");
+        const hostUptime = document.getElementById("hostUptime");
+        const hostPlatform = document.getElementById("hostPlatform");
+        const hostPython = document.getElementById("hostPython");
+        const hostDiskList = document.getElementById("hostDiskList");
+
         const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
-        const selfUpdateBtn = document.getElementById("selfUpdateBtn");
+        const updateInstallBtn = document.getElementById("updateInstallBtn");
         const updateStateBadge = document.getElementById("updateStateBadge");
         const updateLocalVersion = document.getElementById("updateLocalVersion");
         const updateReleaseVersion = document.getElementById("updateReleaseVersion");
@@ -234,15 +339,16 @@
         const updateReleaseLink = document.getElementById("updateReleaseLink");
         const updateCommandWrap = document.getElementById("updateCommandWrap");
         const updateCommand = document.getElementById("updateCommand");
-        const selfUpdateStateBadge = document.getElementById("selfUpdateStateBadge");
-        const selfUpdateInstallMode = document.getElementById("selfUpdateInstallMode");
-        const selfUpdateTargetVersion = document.getElementById("selfUpdateTargetVersion");
-        const selfUpdateStartedAt = document.getElementById("selfUpdateStartedAt");
-        const selfUpdateFinishedAt = document.getElementById("selfUpdateFinishedAt");
-        const selfUpdateHelperPath = document.getElementById("selfUpdateHelperPath");
-        const selfUpdateMessage = document.getElementById("selfUpdateMessage");
-        const selfUpdateError = document.getElementById("selfUpdateError");
-        const selfUpdateLogLink = document.getElementById("selfUpdateLogLink");
+
+        const updateRunnerStateBadge = document.getElementById("updateRunnerStateBadge");
+        const updateRunnerInstallMode = document.getElementById("updateRunnerInstallMode");
+        const updateRunnerTargetVersion = document.getElementById("updateRunnerTargetVersion");
+        const updateRunnerStartedAt = document.getElementById("updateRunnerStartedAt");
+        const updateRunnerFinishedAt = document.getElementById("updateRunnerFinishedAt");
+        const updateRunnerHelperPath = document.getElementById("updateRunnerHelperPath");
+        const updateRunnerMessage = document.getElementById("updateRunnerMessage");
+        const updateRunnerError = document.getElementById("updateRunnerError");
+        const updateRunnerLogLink = document.getElementById("updateRunnerLogLink");
 
         let autoScroll = true;
         let consoleVisible = true;
@@ -259,13 +365,36 @@
             if (!value) {
                 return "—";
             }
-
             const parsed = new Date(value);
             if (Number.isNaN(parsed.getTime())) {
                 return value;
             }
-
             return parsed.toLocaleString("de-DE");
+        }
+
+        function renderHostStatus(data) {
+            hostHostname.textContent = data.hostname || "—";
+            if (data.fqdn) {
+                hostFqdnRow.hidden = false;
+                hostFqdn.textContent = data.fqdn;
+            } else {
+                hostFqdnRow.hidden = true;
+                hostFqdn.textContent = "—";
+            }
+            hostCpu.textContent = data.cpu_percent_text || "—";
+            hostRam.textContent = data.ram_text && data.ram_percent_text ? `${data.ram_text} (${data.ram_percent_text})` : (data.ram_text || "—");
+            hostLoad.textContent = data.load_text || "—";
+            hostUptime.textContent = data.uptime_text || "—";
+            hostPlatform.textContent = data.platform_text || "—";
+            hostPython.textContent = data.python_text || "—";
+
+            const disks = Array.isArray(data.disks) ? data.disks : [];
+            hostDiskList.innerHTML = disks.map((disk) => `
+                <div class="kv-row">
+                    <span>${escapeHtml(disk.label)} (${escapeHtml(disk.path)})</span>
+                    <strong>${escapeHtml(disk.used_text)} / ${escapeHtml(disk.total_text)} · ${escapeHtml(disk.percent_text)}</strong>
+                </div>
+            `).join("") || '<div class="kv-row"><span>Speicherorte</span><strong>—</strong></div>';
         }
 
         function renderUpdateStatus(data) {
@@ -273,12 +402,11 @@
             const status = data && data.status ? data.status : "unknown";
             const badgeMap = {
                 disabled: { label: "Deaktiviert", className: "status-neutral" },
-                checking: { label: "Prüfe …", className: "status-info" },
-                up_to_date: { label: "Aktuell", className: "status-good" },
+                checking: { label: "Prüft …", className: "status-info" },
                 update_available: { label: "Update verfügbar", className: "status-warn" },
+                up_to_date: { label: "Aktuell", className: "status-good" },
                 ahead_of_release: { label: "Lokaler Stand neuer", className: "status-info" },
-                error: { label: "Fehler", className: "status-bad" },
-                idle: { label: "Unbekannt", className: "status-neutral" }
+                error: { label: "Fehler", className: "status-bad" }
             };
             const badge = badgeMap[status] || { label: status, className: "status-neutral" };
 
@@ -308,27 +436,22 @@
                 updateMessage.textContent = "Update-Prüfung ist in der Konfiguration deaktiviert.";
                 return;
             }
-
             if (status === "checking") {
                 updateMessage.textContent = "GitHub Releases werden gerade geprüft …";
                 return;
             }
-
             if (status === "update_available") {
                 updateMessage.textContent = `Es ist ein neueres Release verfügbar: ${data.release_version_full || data.release_tag}.`;
                 return;
             }
-
             if (status === "up_to_date") {
                 updateMessage.textContent = "Die lokale Installation entspricht dem aktuellen Latest Release.";
                 return;
             }
-
             if (status === "ahead_of_release") {
                 updateMessage.textContent = "Der lokale Stand ist neuer als das aktuelle Latest Release auf GitHub.";
                 return;
             }
-
             if (status === "error") {
                 updateMessage.textContent = "Die Update-Prüfung ist fehlgeschlagen.";
                 if (data.error) {
@@ -337,14 +460,12 @@
                 }
                 return;
             }
-
             updateMessage.textContent = "Kein Update-Status vorhanden.";
         }
 
-        function renderSelfUpdateStatus(data) {
+        function renderUpdateRunnerStatus(data) {
             const status = data && data.status ? data.status : "unknown";
             const badgeMap = {
-                disabled: { label: "Deaktiviert", className: "status-neutral" },
                 unavailable: { label: "Nicht bereit", className: "status-neutral" },
                 idle: { label: "Bereit", className: "status-info" },
                 starting: { label: "Startet …", className: "status-info" },
@@ -354,29 +475,39 @@
             };
             const badge = badgeMap[status] || { label: status, className: "status-neutral" };
 
-            selfUpdateStateBadge.textContent = badge.label;
-            selfUpdateStateBadge.className = `status-pill ${badge.className}`;
-            selfUpdateInstallMode.textContent = data.install_mode || "—";
-            selfUpdateTargetVersion.textContent = data.target_version_full || data.available_release_version_full || "—";
-            selfUpdateStartedAt.textContent = formatDate(data.started_at);
-            selfUpdateFinishedAt.textContent = formatDate(data.finished_at);
-            selfUpdateHelperPath.textContent = data.helper_path || "—";
-            selfUpdateMessage.textContent = data.message || "—";
-            selfUpdateError.hidden = !data.last_error;
-            selfUpdateError.textContent = data.last_error || "";
-            selfUpdateLogLink.hidden = !data.running && !data.last_error;
+            updateRunnerStateBadge.textContent = badge.label;
+            updateRunnerStateBadge.className = `status-pill ${badge.className}`;
+            updateRunnerInstallMode.textContent = data.install_mode || "—";
+            updateRunnerTargetVersion.textContent = data.target_version_full || data.available_release_version_full || "—";
+            updateRunnerStartedAt.textContent = formatDate(data.started_at);
+            updateRunnerFinishedAt.textContent = formatDate(data.finished_at);
+            updateRunnerHelperPath.textContent = data.helper_path || "—";
+            updateRunnerMessage.textContent = data.message || "—";
+            updateRunnerError.hidden = !data.last_error;
+            updateRunnerError.textContent = data.last_error || "";
+            updateRunnerLogLink.hidden = !data.running && !data.last_error;
 
             const updateAvailable = lastUpdateStatus && lastUpdateStatus.status === "update_available";
             const buttonEnabled = !!(data.can_start && updateAvailable);
-            selfUpdateBtn.disabled = !buttonEnabled;
+            updateInstallBtn.disabled = !buttonEnabled;
 
             if (data.running) {
-                selfUpdateBtn.disabled = true;
-                selfUpdateBtn.textContent = "Update läuft …";
+                updateInstallBtn.disabled = true;
+                updateInstallBtn.textContent = "Update läuft …";
             } else if (buttonEnabled && data.available_release_version_full) {
-                selfUpdateBtn.textContent = `Jetzt auf ${data.available_release_version_full} aktualisieren`;
+                updateInstallBtn.textContent = `Jetzt auf ${data.available_release_version_full} aktualisieren`;
             } else {
-                selfUpdateBtn.textContent = "Update starten";
+                updateInstallBtn.textContent = "Update starten";
+            }
+        }
+
+        async function fetchHostStatus() {
+            try {
+                const response = await fetch("/api/system/host-status", { cache: "no-store" });
+                const data = await response.json();
+                renderHostStatus(data);
+            } catch (err) {
+                // Host-Status ist nice-to-have. Bestehende Werte einfach stehen lassen.
             }
         }
 
@@ -401,7 +532,7 @@
                 });
                 const data = await response.json();
                 renderUpdateStatus(data);
-                await fetchSelfUpdateStatus();
+                await fetchUpdateRunnerStatus();
             } catch (err) {
                 updateStateBadge.textContent = "Fehler";
                 updateStateBadge.className = "status-pill status-bad";
@@ -411,19 +542,19 @@
             }
         }
 
-        async function fetchSelfUpdateStatus() {
+        async function fetchUpdateRunnerStatus() {
             try {
                 const response = await fetch("/api/system/self-update-status", { cache: "no-store" });
                 const data = await response.json();
-                renderSelfUpdateStatus(data);
+                renderUpdateRunnerStatus(data);
             } catch (err) {
-                selfUpdateStateBadge.textContent = "Fehler";
-                selfUpdateStateBadge.className = "status-pill status-bad";
-                selfUpdateMessage.textContent = "Fehler beim Laden des Update-Status.";
+                updateRunnerStateBadge.textContent = "Fehler";
+                updateRunnerStateBadge.className = "status-pill status-bad";
+                updateRunnerMessage.textContent = "Fehler beim Laden des Update-Status.";
             }
         }
 
-        async function startSelfUpdate() {
+        async function startUpdateInstall() {
             const release = lastUpdateStatus && (lastUpdateStatus.release_version_full || lastUpdateStatus.release_tag)
                 ? (lastUpdateStatus.release_version_full || lastUpdateStatus.release_tag)
                 : "das aktuelle Release";
@@ -432,22 +563,21 @@
                 return;
             }
 
-            selfUpdateBtn.disabled = true;
+            updateInstallBtn.disabled = true;
             try {
                 const response = await fetch("/api/system/self-update", {
                     method: "POST",
                     headers: { "Accept": "application/json" }
                 });
                 const data = await response.json();
-                renderSelfUpdateStatus(data);
-
+                renderUpdateRunnerStatus(data);
                 if (response.ok && data.progress_url) {
                     window.location.href = data.progress_url;
                 }
             } catch (err) {
-                selfUpdateStateBadge.textContent = "Fehler";
-                selfUpdateStateBadge.className = "status-pill status-bad";
-                selfUpdateMessage.textContent = "Update konnte nicht gestartet werden.";
+                updateRunnerStateBadge.textContent = "Fehler";
+                updateRunnerStateBadge.className = "status-pill status-bad";
+                updateRunnerMessage.textContent = "Update konnte nicht gestartet werden.";
             }
         }
 
@@ -492,13 +622,10 @@
 
         function renderLogs() {
             const filter = logFilterInput.value.trim().toLowerCase();
-
             const filtered = !filter
                 ? allLines
                 : allLines.filter(line => line.toLowerCase().includes(filter));
-
             logConsole.innerHTML = filtered.map(renderLevel).join("");
-
             if (autoScroll) {
                 consoleWrap.scrollTop = consoleWrap.scrollHeight;
             }
@@ -525,12 +652,14 @@
 
         logFilterInput.addEventListener("input", renderLogs);
         checkUpdatesBtn.addEventListener("click", runUpdateCheck);
-        selfUpdateBtn.addEventListener("click", startSelfUpdate);
+        updateInstallBtn.addEventListener("click", startUpdateInstall);
 
+        fetchHostStatus();
         fetchLogs();
-        fetchUpdateStatus().then(fetchSelfUpdateStatus);
+        fetchUpdateStatus().then(fetchUpdateRunnerStatus);
+        setInterval(fetchHostStatus, 15000);
         setInterval(fetchLogs, 2000);
-        setInterval(fetchSelfUpdateStatus, 3000);
+        setInterval(fetchUpdateRunnerStatus, 3000);
     </script>
 </body>
 </html>

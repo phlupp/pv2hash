@@ -51,19 +51,19 @@
                         </div>
                         <div class="kv-row">
                             <span>Ziel-Release</span>
-                            <strong id="progressTargetVersion">{{ update_install_status.target_version_full or update_install_status.available_release_version_full or "—" }}</strong>
+                            <strong id="progressTargetVersion">{{ update_runner_status.target_version_full or update_runner_status.available_release_version_full or "—" }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Release-Tag</span>
-                            <strong id="progressReleaseTag">{{ update_install_status.target_tag or update_status.release_tag or "—" }}</strong>
+                            <strong id="progressReleaseTag">{{ update_runner_status.target_tag or update_status.release_tag or "—" }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Gestartet am</span>
-                            <strong id="progressStartedAt">{{ update_install_status.started_at or "—" }}</strong>
+                            <strong id="progressStartedAt">{{ update_runner_status.started_at or "—" }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Beendet am</span>
-                            <strong id="progressFinishedAt">{{ update_install_status.finished_at or "—" }}</strong>
+                            <strong id="progressFinishedAt">{{ update_runner_status.finished_at or "—" }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Release-Status</span>
@@ -99,7 +99,7 @@
 
         let reconnecting = false;
         let redirectScheduled = false;
-        let lastUpdateInstall = null;
+        let lastSelfUpdate = null;
         let lastUpdateStatus = null;
 
         function formatDate(value) {
@@ -131,31 +131,31 @@
             }, 3000);
         }
 
-        function renderProgress(updateInstall, updateStatus) {
-            lastUpdateInstall = updateInstall || {};
+        function renderProgress(selfUpdate, updateStatus) {
+            lastSelfUpdate = selfUpdate || {};
             lastUpdateStatus = updateStatus || {};
             reconnecting = false;
             progressReconnectNote.hidden = true;
             progressError.hidden = true;
             progressError.textContent = "";
 
-            const selfStatus = updateInstall && updateInstall.status ? updateInstall.status : "unknown";
+            const selfStatus = selfUpdate && selfUpdate.status ? selfUpdate.status : "unknown";
             const releaseStatus = updateStatus && updateStatus.status ? updateStatus.status : "unknown";
-            const currentVersion = (updateStatus && updateStatus.local_version_full) || (updateInstall && updateInstall.current_version_full) || "—";
-            const targetVersion = (updateInstall && updateInstall.target_version_full) || (updateInstall && updateInstall.available_release_version_full) || (updateStatus && updateStatus.release_version_full) || "—";
-            const targetTag = (updateInstall && updateInstall.target_tag) || (updateStatus && updateStatus.release_tag) || "—";
+            const currentVersion = (updateStatus && updateStatus.local_version_full) || (selfUpdate && selfUpdate.current_version_full) || "—";
+            const targetVersion = (selfUpdate && selfUpdate.target_version_full) || (selfUpdate && selfUpdate.available_release_version_full) || (updateStatus && updateStatus.release_version_full) || "—";
+            const targetTag = (selfUpdate && selfUpdate.target_tag) || (updateStatus && updateStatus.release_tag) || "—";
 
             progressLocalVersion.textContent = currentVersion;
             progressTargetVersion.textContent = targetVersion;
             progressReleaseTag.textContent = targetTag;
-            progressStartedAt.textContent = formatDate(updateInstall && updateInstall.started_at);
-            progressFinishedAt.textContent = formatDate(updateInstall && updateInstall.finished_at);
+            progressStartedAt.textContent = formatDate(selfUpdate && selfUpdate.started_at);
+            progressFinishedAt.textContent = formatDate(selfUpdate && selfUpdate.finished_at);
             progressReleaseState.textContent = releaseStatus;
-            progressMessage.textContent = updateInstall && updateInstall.message ? updateInstall.message : "—";
+            progressMessage.textContent = selfUpdate && selfUpdate.message ? selfUpdate.message : "—";
 
-            if (updateInstall && updateInstall.last_error) {
+            if (selfUpdate && selfUpdate.last_error) {
                 progressError.hidden = false;
-                progressError.textContent = updateInstall.last_error;
+                progressError.textContent = selfUpdate.last_error;
             }
 
             if (selfStatus === "success") {
@@ -196,7 +196,7 @@
             if (selfStatus === "unavailable") {
                 setBadge("Nicht bereit", "status-neutral");
                 progressTitle.textContent = "Update ist nicht verfügbar";
-                progressSubtitle.textContent = "Bitte prüfe Installationsmodus und Helper.";
+                progressSubtitle.textContent = "Bitte prüfe Installationsmodus und Update-Helper.";
                 return;
             }
 
@@ -223,11 +223,11 @@
 
         async function pollProgress() {
             try {
-                const [updateInstall, updateStatus] = await Promise.all([
+                const [selfUpdate, updateStatus] = await Promise.all([
                     fetchJson("/api/system/self-update-status"),
                     fetchJson("/api/system/update-status")
                 ]);
-                renderProgress(updateInstall, updateStatus);
+                renderProgress(selfUpdate, updateStatus);
             } catch (err) {
                 reconnecting = true;
                 setBadge("Neustart …", "status-info");
