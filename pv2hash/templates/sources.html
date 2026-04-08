@@ -111,7 +111,7 @@
 
             <form method="post" action="/sources">
                 <section class="grid grid-2 measurement-summary-grid">
-                    <article class="card measurement-summary-card" id="napMeasurementCard" data-source-type="{{ source_type }}" data-source-device-label="{{ source_device_label or "" }}" data-source-serial="{{ source_device_serial_number or "" }}" data-source-susy="{{ source_device_susy_id or "" }}">
+                    <article class="card measurement-summary-card" id="napMeasurementCard" data-dirty-scope="nap" data-source-type="{{ source_type }}" data-source-device-label="{{ source_device_label or "" }}" data-source-serial="{{ source_device_serial_number or "" }}" data-source-susy="{{ source_device_susy_id or "" }}">
                         <div class="card-head">
                             <div>
                                 <h2>Netz-Messung</h2>
@@ -244,13 +244,13 @@
                             </section>
 
                             <div class="actions top-gap split">
-                                <span></span>
-                                <button class="btn" type="submit">Netz-Messung speichern</button>
+                                <span class="dirty-indicator" data-dirty-indicator hidden>Ungespeicherte Änderungen</span>
+                                <button class="btn" type="submit" data-dirty-submit>Netz-Messung speichern</button>
                             </div>
                         </div>
                     </article>
 
-                    <article class="card measurement-summary-card">
+                    <article class="card measurement-summary-card" data-dirty-scope="battery">
                         <div class="card-head">
                             <div>
                                 <h2>Batterie</h2>
@@ -350,8 +350,8 @@
                             {{ modbus_value_block('Entladeleistung', 'battery_discharge_power', battery_discharge) }}
 
                             <div class="actions top-gap split">
-                                <span></span>
-                                <button class="btn" type="submit">Batterie speichern</button>
+                                <span class="dirty-indicator" data-dirty-indicator hidden>Ungespeicherte Änderungen</span>
+                                <button class="btn" type="submit" data-dirty-submit>Batterie speichern</button>
                             </div>
                         </div>
                     </article>
@@ -414,6 +414,57 @@
 
             typeSelect.addEventListener('change', update);
             update();
+        }
+
+        function serializeDirtyFields(container) {
+            const fields = Array.from(container.querySelectorAll('input, select, textarea'))
+                .filter((field) => field.name && !field.disabled && !['submit', 'button', 'reset', 'file'].includes(field.type));
+            return JSON.stringify(fields.map((field) => {
+                if (field.type === 'checkbox' || field.type === 'radio') {
+                    return [field.name, field.checked];
+                }
+                return [field.name, field.value];
+            }));
+        }
+
+        function bindDirtyScopes() {
+            document.querySelectorAll('[data-dirty-scope]').forEach((scope) => {
+                const hint = scope.querySelector('[data-dirty-indicator]');
+                const submitButtons = scope.querySelectorAll('[data-dirty-submit]');
+                let baseline = serializeDirtyFields(scope);
+
+                const refresh = () => {
+                    const dirty = serializeDirtyFields(scope) !== baseline;
+                    if (hint) {
+                        hint.hidden = !dirty;
+                    }
+                    submitButtons.forEach((button) => button.classList.toggle('is-dirty', dirty));
+                    scope.dataset.dirty = dirty ? 'true' : 'false';
+                };
+
+                scope.querySelectorAll('input, select, textarea').forEach((field) => {
+                    if (!field.name || ['submit', 'button', 'reset', 'file'].includes(field.type)) {
+                        return;
+                    }
+                    field.addEventListener('input', refresh);
+                    field.addEventListener('change', refresh);
+                });
+
+                scope.querySelectorAll('[data-dirty-submit]').forEach((button) => {
+                    button.addEventListener('click', () => {
+                        baseline = serializeDirtyFields(scope);
+                    });
+                });
+
+                const finalizeBaseline = () => {
+                    baseline = serializeDirtyFields(scope);
+                    refresh();
+                };
+
+                refresh();
+                window.requestAnimationFrame(finalizeBaseline);
+                window.setTimeout(finalizeBaseline, 120);
+            });
         }
 
 
@@ -479,6 +530,7 @@
         syncTypeSections('batteryTypeSelect', 'data-battery-types');
         bindPanelToggles();
         syncBatteryEnabled();
+        bindDirtyScopes();
     </script>
 </body>
 </html>

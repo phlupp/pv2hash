@@ -96,7 +96,7 @@
                 </div>
 
                 <div class="disclosure-body" id="add-miner-panel" {% if not error_message %}hidden{% endif %}>
-                    <form method="post" action="/miners/add" class="form-grid miner-config-form" data-driver-form data-apply-driver-defaults="true">
+                    <form method="post" action="/miners/add" class="form-grid miner-config-form" data-driver-form data-apply-driver-defaults="true" data-dirty-form>
                         <section class="card type-subcard">
                             <div class="card-head">
                                 <div>
@@ -269,8 +269,8 @@
                         </section>
 
                         <div class="actions top-gap split">
-                            <span></span>
-                            <button class="btn" type="submit">Miner anlegen</button>
+                            <span class="dirty-indicator" data-dirty-indicator hidden>Ungespeicherte Änderungen</span>
+                            <button class="btn" type="submit" data-dirty-submit>Miner anlegen</button>
                         </div>
                     </form>
                 </div>
@@ -360,7 +360,7 @@
                     </div>
 
                     <div class="measurement-config-panel top-gap" id="miner-config-{{ miner.id }}" hidden>
-                        <form method="post" action="/miners/update" class="form-grid miner-config-form" data-driver-form>
+                        <form method="post" action="/miners/update" class="form-grid miner-config-form" data-driver-form data-dirty-form>
                             <input type="hidden" name="miner_id" value="{{ miner.id }}">
 
                             <section class="card type-subcard">
@@ -556,8 +556,8 @@
                             </section>
 
                             <div class="actions top-gap split wrap">
-                                <span></span>
-                                <button class="btn" type="submit">Miner speichern</button>
+                                <span class="dirty-indicator" data-dirty-indicator hidden>Ungespeicherte Änderungen</span>
+                                <button class="btn" type="submit" data-dirty-submit>Miner speichern</button>
                             </div>
                         </form>
 
@@ -721,6 +721,57 @@
             document.querySelectorAll('[data-driver-form]').forEach((form) => syncDriverSectionsForForm(form));
         }
 
+        function serializeDirtyFields(container) {
+            const fields = Array.from(container.querySelectorAll('input, select, textarea'))
+                .filter((field) => field.name && !field.disabled && !['submit', 'button', 'reset', 'file'].includes(field.type));
+            return JSON.stringify(fields.map((field) => {
+                if (field.type === 'checkbox' || field.type === 'radio') {
+                    return [field.name, field.checked];
+                }
+                return [field.name, field.value];
+            }));
+        }
+
+        function bindDirtyForms() {
+            document.querySelectorAll('[data-dirty-form]').forEach((form) => {
+                const hint = form.querySelector('[data-dirty-indicator]');
+                const submitButtons = form.querySelectorAll('[data-dirty-submit]');
+                let baseline = serializeDirtyFields(form);
+
+                const refresh = () => {
+                    const dirty = serializeDirtyFields(form) !== baseline;
+                    if (hint) {
+                        hint.hidden = !dirty;
+                    }
+                    submitButtons.forEach((button) => button.classList.toggle('is-dirty', dirty));
+                    form.dataset.dirty = dirty ? 'true' : 'false';
+                };
+
+                form.querySelectorAll('input, select, textarea').forEach((field) => {
+                    if (!field.name || ['submit', 'button', 'reset', 'file'].includes(field.type)) {
+                        return;
+                    }
+                    field.addEventListener('input', refresh);
+                    field.addEventListener('change', refresh);
+                });
+
+                submitButtons.forEach((button) => {
+                    button.addEventListener('click', () => {
+                        baseline = serializeDirtyFields(form);
+                    });
+                });
+
+                const finalizeBaseline = () => {
+                    baseline = serializeDirtyFields(form);
+                    refresh();
+                };
+
+                refresh();
+                window.requestAnimationFrame(finalizeBaseline);
+                window.setTimeout(finalizeBaseline, 120);
+            });
+        }
+
         function formatPower(value) {
             if (value === null || value === undefined || value === '') {
                 return '–';
@@ -848,6 +899,7 @@
 
         bindPanelToggles();
         bindDriverSections();
+        bindDirtyForms();
         pollMinerStatus();
         window.setInterval(pollMinerStatus, 5000);
     </script>
