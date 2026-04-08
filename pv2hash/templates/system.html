@@ -98,7 +98,7 @@
                         </form>
 
                         <button id="checkUpdatesBtn" class="btn btn-secondary" type="button">Jetzt auf Updates prüfen</button>
-                        <button id="selfUpdateBtn" class="btn btn-warning" type="button">Self-Update starten</button>
+                        <button id="selfUpdateBtn" class="btn btn-warning" type="button">Update starten</button>
                         <a class="btn btn-info" href="/api/logs/download">Log herunterladen</a>
                     </div>
 
@@ -150,40 +150,36 @@
                     <div class="update-panel top-gap update-divider">
                         <div class="update-head">
                             <div>
-                                <div class="update-title">Self-Update</div>
-                                <div class="update-subtitle">Manuelles In-App-Update über den Release-Installer</div>
+                                <div class="update-title">Update über Weboberfläche</div>
+                                <div class="update-subtitle">Manuell gestartetes Update über den Release-Installer</div>
                             </div>
                             <span id="selfUpdateStateBadge" class="status-pill">Prüfe …</span>
                         </div>
 
                         <div class="kv update-kv">
                             <div class="kv-row">
-                                <span>Self-Update aktiviert</span>
-                                <strong id="selfUpdateEnabled">{{ "ja" if self_update_status.enabled else "nein" }}</strong>
-                            </div>
-                            <div class="kv-row">
                                 <span>Installationsmodus</span>
-                                <strong id="selfUpdateInstallMode">{{ self_update_status.install_mode or "—" }}</strong>
+                                <strong id="selfUpdateInstallMode">{{ update_install_status.install_mode or "—" }}</strong>
                             </div>
                             <div class="kv-row">
                                 <span>Ziel-Release</span>
-                                <strong id="selfUpdateTargetVersion">{{ self_update_status.target_version_full or self_update_status.available_release_version_full or "—" }}</strong>
+                                <strong id="selfUpdateTargetVersion">{{ update_install_status.target_version_full or update_install_status.available_release_version_full or "—" }}</strong>
                             </div>
                             <div class="kv-row">
                                 <span>Gestartet am</span>
-                                <strong id="selfUpdateStartedAt">{{ self_update_status.started_at or "—" }}</strong>
+                                <strong id="selfUpdateStartedAt">{{ update_install_status.started_at or "—" }}</strong>
                             </div>
                             <div class="kv-row">
                                 <span>Beendet am</span>
-                                <strong id="selfUpdateFinishedAt">{{ self_update_status.finished_at or "—" }}</strong>
+                                <strong id="selfUpdateFinishedAt">{{ update_install_status.finished_at or "—" }}</strong>
                             </div>
                             <div class="kv-row">
                                 <span>Helper</span>
-                                <strong id="selfUpdateHelperPath">{{ self_update_status.helper_path or "—" }}</strong>
+                                <strong id="selfUpdateHelperPath">{{ update_install_status.helper_path or "—" }}</strong>
                             </div>
                         </div>
 
-                        <div id="selfUpdateMessage" class="update-message">Lade Self-Update-Status …</div>
+                        <div id="selfUpdateMessage" class="update-message">Lade Update-Status …</div>
                         <div id="selfUpdateError" class="update-error" hidden></div>
 
                         <div class="update-links">
@@ -239,7 +235,6 @@
         const updateCommandWrap = document.getElementById("updateCommandWrap");
         const updateCommand = document.getElementById("updateCommand");
         const selfUpdateStateBadge = document.getElementById("selfUpdateStateBadge");
-        const selfUpdateEnabled = document.getElementById("selfUpdateEnabled");
         const selfUpdateInstallMode = document.getElementById("selfUpdateInstallMode");
         const selfUpdateTargetVersion = document.getElementById("selfUpdateTargetVersion");
         const selfUpdateStartedAt = document.getElementById("selfUpdateStartedAt");
@@ -361,7 +356,6 @@
 
             selfUpdateStateBadge.textContent = badge.label;
             selfUpdateStateBadge.className = `status-pill ${badge.className}`;
-            selfUpdateEnabled.textContent = data.enabled ? "ja" : "nein";
             selfUpdateInstallMode.textContent = data.install_mode || "—";
             selfUpdateTargetVersion.textContent = data.target_version_full || data.available_release_version_full || "—";
             selfUpdateStartedAt.textContent = formatDate(data.started_at);
@@ -378,11 +372,11 @@
 
             if (data.running) {
                 selfUpdateBtn.disabled = true;
-                selfUpdateBtn.textContent = "Self-Update läuft …";
+                selfUpdateBtn.textContent = "Update läuft …";
             } else if (buttonEnabled && data.available_release_version_full) {
                 selfUpdateBtn.textContent = `Jetzt auf ${data.available_release_version_full} aktualisieren`;
             } else {
-                selfUpdateBtn.textContent = "Self-Update starten";
+                selfUpdateBtn.textContent = "Update starten";
             }
         }
 
@@ -425,7 +419,7 @@
             } catch (err) {
                 selfUpdateStateBadge.textContent = "Fehler";
                 selfUpdateStateBadge.className = "status-pill status-bad";
-                selfUpdateMessage.textContent = "Fehler beim Laden des Self-Update-Status.";
+                selfUpdateMessage.textContent = "Fehler beim Laden des Update-Status.";
             }
         }
 
@@ -453,7 +447,7 @@
             } catch (err) {
                 selfUpdateStateBadge.textContent = "Fehler";
                 selfUpdateStateBadge.className = "status-pill status-bad";
-                selfUpdateMessage.textContent = "Self-Update konnte nicht gestartet werden.";
+                selfUpdateMessage.textContent = "Update konnte nicht gestartet werden.";
             }
         }
 

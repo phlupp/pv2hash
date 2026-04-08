@@ -17,7 +17,7 @@ fail() {
 
 require_root() {
     if [[ "${EUID}" -ne 0 ]]; then
-        fail "Der Self-Update-Helper muss als root laufen."
+        fail "Der Update-Helper muss als root laufen."
     fi
 }
 
@@ -43,7 +43,7 @@ parse_install_info() {
     INSTALL_SCRIPT="${APP_ROOT}/current/scripts/install_release.sh"
     SELF_UPDATE_LOG="${LOG_DIR}/self_update.log"
 
-    [[ "${PV2HASH_INSTALL_MODE:-}" == "release" ]] || fail "Self-Update ist nur für Release-Installationen verfügbar."
+    [[ "${PV2HASH_INSTALL_MODE:-}" == "release" ]] || fail "Update über die Weboberfläche ist nur für Release-Installationen verfügbar."
     [[ -x "${INSTALL_SCRIPT}" ]] || fail "Release-Installer nicht gefunden: ${INSTALL_SCRIPT}"
 
     mkdir -p "${DATA_DIR}" "${LOG_DIR}"
@@ -123,7 +123,7 @@ cleanup_stale_lock() {
     fi
 
     if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
-        fail "Es läuft bereits ein Self-Update."
+        fail "Es läuft bereits ein Update."
     fi
 
     rm -rf "${LOCK_DIR}"
@@ -133,7 +133,7 @@ acquire_lock() {
     cleanup_stale_lock
 
     if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
-        fail "Es läuft bereits ein Self-Update."
+        fail "Es läuft bereits ein Update."
     fi
 
     printf '%s\n' "$$" > "${LOCK_PID_FILE}"
@@ -160,11 +160,11 @@ main() {
     acquire_lock
     trap release_lock EXIT
 
-    write_state "running" "Self-Update auf $(tag_to_version_full "${TAG}") läuft …" "" "" ""
+    write_state "running" "Update auf $(tag_to_version_full "${TAG}") läuft …" "" "" ""
 
     set +e
     {
-        echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Starte Self-Update auf ${TAG}"
+        echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Starte Update auf ${TAG}"
         REPO="${PV2HASH_REPO:-phlupp/pv2hash}" \
         TAG="${TAG}" \
         APP_ROOT="${APP_ROOT}" \
@@ -191,7 +191,7 @@ main() {
     error_tail="$(tail -n 20 "${SELF_UPDATE_LOG}" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')"
     write_state \
         "error" \
-        "Self-Update ist fehlgeschlagen. Details siehe Self-Update-Log." \
+        "Update ist fehlgeschlagen. Details siehe Update-Log." \
         "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         "${error_tail}" \
         ""

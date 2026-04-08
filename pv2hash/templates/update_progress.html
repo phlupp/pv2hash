@@ -35,7 +35,7 @@
                     <div class="update-progress-head">
                         <span id="progressBadge" class="status-pill status-info">Verbinde …</span>
                         <div class="update-progress-title-wrap">
-                            <h2 id="progressTitle">Self-Update wird vorbereitet</h2>
+                            <h2 id="progressTitle">Update wird vorbereitet</h2>
                             <p id="progressSubtitle" class="muted">Bitte dieses Browserfenster geöffnet lassen.</p>
                         </div>
                     </div>
@@ -51,19 +51,19 @@
                         </div>
                         <div class="kv-row">
                             <span>Ziel-Release</span>
-                            <strong id="progressTargetVersion">{{ self_update_status.target_version_full or self_update_status.available_release_version_full or "—" }}</strong>
+                            <strong id="progressTargetVersion">{{ update_install_status.target_version_full or update_install_status.available_release_version_full or "—" }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Release-Tag</span>
-                            <strong id="progressReleaseTag">{{ self_update_status.target_tag or update_status.release_tag or "—" }}</strong>
+                            <strong id="progressReleaseTag">{{ update_install_status.target_tag or update_status.release_tag or "—" }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Gestartet am</span>
-                            <strong id="progressStartedAt">{{ self_update_status.started_at or "—" }}</strong>
+                            <strong id="progressStartedAt">{{ update_install_status.started_at or "—" }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Beendet am</span>
-                            <strong id="progressFinishedAt">{{ self_update_status.finished_at or "—" }}</strong>
+                            <strong id="progressFinishedAt">{{ update_install_status.finished_at or "—" }}</strong>
                         </div>
                         <div class="kv-row">
                             <span>Release-Status</span>
@@ -99,7 +99,7 @@
 
         let reconnecting = false;
         let redirectScheduled = false;
-        let lastSelfUpdate = null;
+        let lastUpdateInstall = null;
         let lastUpdateStatus = null;
 
         function formatDate(value) {
@@ -131,31 +131,31 @@
             }, 3000);
         }
 
-        function renderProgress(selfUpdate, updateStatus) {
-            lastSelfUpdate = selfUpdate || {};
+        function renderProgress(updateInstall, updateStatus) {
+            lastUpdateInstall = updateInstall || {};
             lastUpdateStatus = updateStatus || {};
             reconnecting = false;
             progressReconnectNote.hidden = true;
             progressError.hidden = true;
             progressError.textContent = "";
 
-            const selfStatus = selfUpdate && selfUpdate.status ? selfUpdate.status : "unknown";
+            const selfStatus = updateInstall && updateInstall.status ? updateInstall.status : "unknown";
             const releaseStatus = updateStatus && updateStatus.status ? updateStatus.status : "unknown";
-            const currentVersion = (updateStatus && updateStatus.local_version_full) || (selfUpdate && selfUpdate.current_version_full) || "—";
-            const targetVersion = (selfUpdate && selfUpdate.target_version_full) || (selfUpdate && selfUpdate.available_release_version_full) || (updateStatus && updateStatus.release_version_full) || "—";
-            const targetTag = (selfUpdate && selfUpdate.target_tag) || (updateStatus && updateStatus.release_tag) || "—";
+            const currentVersion = (updateStatus && updateStatus.local_version_full) || (updateInstall && updateInstall.current_version_full) || "—";
+            const targetVersion = (updateInstall && updateInstall.target_version_full) || (updateInstall && updateInstall.available_release_version_full) || (updateStatus && updateStatus.release_version_full) || "—";
+            const targetTag = (updateInstall && updateInstall.target_tag) || (updateStatus && updateStatus.release_tag) || "—";
 
             progressLocalVersion.textContent = currentVersion;
             progressTargetVersion.textContent = targetVersion;
             progressReleaseTag.textContent = targetTag;
-            progressStartedAt.textContent = formatDate(selfUpdate && selfUpdate.started_at);
-            progressFinishedAt.textContent = formatDate(selfUpdate && selfUpdate.finished_at);
+            progressStartedAt.textContent = formatDate(updateInstall && updateInstall.started_at);
+            progressFinishedAt.textContent = formatDate(updateInstall && updateInstall.finished_at);
             progressReleaseState.textContent = releaseStatus;
-            progressMessage.textContent = selfUpdate && selfUpdate.message ? selfUpdate.message : "—";
+            progressMessage.textContent = updateInstall && updateInstall.message ? updateInstall.message : "—";
 
-            if (selfUpdate && selfUpdate.last_error) {
+            if (updateInstall && updateInstall.last_error) {
                 progressError.hidden = false;
-                progressError.textContent = selfUpdate.last_error;
+                progressError.textContent = updateInstall.last_error;
             }
 
             if (selfStatus === "success") {
@@ -174,7 +174,7 @@
 
             if (selfStatus === "starting") {
                 setBadge("Startet …", "status-info");
-                progressTitle.textContent = "Self-Update startet";
+                progressTitle.textContent = "Update startet";
                 progressSubtitle.textContent = "Der Installer wird vorbereitet.";
                 return;
             }
@@ -188,14 +188,14 @@
 
             if (selfStatus === "disabled") {
                 setBadge("Deaktiviert", "status-neutral");
-                progressTitle.textContent = "Self-Update ist deaktiviert";
-                progressSubtitle.textContent = "Bitte aktiviere es in den Einstellungen.";
+                progressTitle.textContent = "Update ist nicht verfügbar";
+                progressSubtitle.textContent = "Bitte prüfe Installationsmodus und Update-Helper.";
                 return;
             }
 
             if (selfStatus === "unavailable") {
                 setBadge("Nicht bereit", "status-neutral");
-                progressTitle.textContent = "Self-Update ist nicht verfügbar";
+                progressTitle.textContent = "Update ist nicht verfügbar";
                 progressSubtitle.textContent = "Bitte prüfe Installationsmodus und Helper.";
                 return;
             }
@@ -223,11 +223,11 @@
 
         async function pollProgress() {
             try {
-                const [selfUpdate, updateStatus] = await Promise.all([
+                const [updateInstall, updateStatus] = await Promise.all([
                     fetchJson("/api/system/self-update-status"),
                     fetchJson("/api/system/update-status")
                 ]);
-                renderProgress(selfUpdate, updateStatus);
+                renderProgress(updateInstall, updateStatus);
             } catch (err) {
                 reconnecting = true;
                 setBadge("Neustart …", "status-info");

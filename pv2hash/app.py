@@ -542,7 +542,6 @@ async def save_settings(request: Request):
     state.config["system"]["instance_name"] = form.get("instance_name", "PV2Hash Node")
     state.config["system"]["log_level"] = _normalize_log_level(form.get("log_level", state.config["system"].get("log_level", "INFO")))
     state.config["system"]["check_updates"] = form.get("check_updates") == "on"
-    state.config["system"]["auto_update_enabled"] = form.get("auto_update_enabled") == "on"
     state.config["system"]["update_repo"] = (
         str(form.get("update_repo", "phlupp/pv2hash")).strip() or "phlupp/pv2hash"
     )
@@ -575,10 +574,9 @@ async def save_settings(request: Request):
     save_config(state.config)
     setup_logging(state.config["system"].get("log_level", "INFO"))
     logger.info(
-        "Settings saved: log_level=%s check_updates=%s auto_update_enabled=%s update_repo=%s",
+        "Settings saved: log_level=%s check_updates=%s update_repo=%s",
         state.config["system"].get("log_level", "INFO"),
         state.config["system"].get("check_updates", True),
-        state.config["system"].get("auto_update_enabled", False),
         state.config["system"].get("update_repo", "phlupp/pv2hash"),
     )
     reload_runtime()
@@ -868,8 +866,6 @@ async def delete_miner(miner_id: str = Form(...)):
 @app.get("/system")
 async def system_page(request: Request):
     update_status = update_checker.snapshot()
-    auto_update_enabled = bool(state.config["system"].get("auto_update_enabled", False))
-
     context = {
         "request": request,
         "instance_name": state.config["system"]["instance_name"],
@@ -882,8 +878,7 @@ async def system_page(request: Request):
         "app_version": APP_VERSION,
         "app_version_full": APP_VERSION_FULL,
         "update_status": update_status,
-        "self_update_status": self_update_manager.snapshot(
-            auto_update_enabled=auto_update_enabled,
+        "update_install_status": self_update_manager.snapshot(
             update_status=update_status,
         ),
         "allowed_log_levels": ("INFO", "DEBUG"),
@@ -898,15 +893,12 @@ async def system_page(request: Request):
 @app.get("/system/update-progress")
 async def system_update_progress_page(request: Request):
     update_status = update_checker.snapshot()
-    auto_update_enabled = bool(state.config["system"].get("auto_update_enabled", False))
-
     context = {
         "request": request,
         "instance_name": state.config["system"]["instance_name"],
         "app_version_full": APP_VERSION_FULL,
         "update_status": update_status,
-        "self_update_status": self_update_manager.snapshot(
-            auto_update_enabled=auto_update_enabled,
+        "update_install_status": self_update_manager.snapshot(
             update_status=update_status,
         ),
     }
@@ -950,7 +942,6 @@ async def api_system_update_check():
 async def api_system_self_update_status():
     update_status = update_checker.snapshot()
     payload = self_update_manager.snapshot(
-        auto_update_enabled=bool(state.config["system"].get("auto_update_enabled", False)),
         update_status=update_status,
     )
     return JSONResponse(content=jsonable_encoder(payload))
@@ -960,7 +951,6 @@ async def api_system_self_update_status():
 async def api_system_self_update():
     update_status = await update_checker.refresh()
     payload, status_code = self_update_manager.start_latest(
-        auto_update_enabled=bool(state.config["system"].get("auto_update_enabled", False)),
         update_status=update_status,
     )
     response_payload = dict(payload)

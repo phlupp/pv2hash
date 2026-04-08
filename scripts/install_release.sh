@@ -300,7 +300,7 @@ install_self_update_helper() {
     local helper_source="${RELEASE_DIR}/scripts/pv2hash-self-update"
 
     if [[ ! -f "${helper_source}" ]]; then
-        echo "Fehler: Self-Update-Helper im Release nicht gefunden: ${helper_source}"
+        echo "Fehler: Update-Helper im Release nicht gefunden: ${helper_source}"
         exit 1
     fi
 
@@ -370,7 +370,7 @@ show_result() {
     echo "Current:      ${CURRENT_LINK}"
     echo "Data dir:     ${APP_DATA_DIR}"
     echo "Service:      ${SERVICE_NAME}.service"
-    echo "Self-Update:  ${SELF_UPDATE_HELPER_PATH}"
+    echo "Update-Helper:  ${SELF_UPDATE_HELPER_PATH}"
     echo "URL:          http://$(hostname -I | awk '{print $1}'):${PORT}/"
     echo
     echo "Status:       systemctl status ${SERVICE_NAME}"

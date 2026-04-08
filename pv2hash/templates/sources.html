@@ -432,36 +432,48 @@
                 const hint = scope.querySelector('[data-dirty-indicator]');
                 const submitButtons = scope.querySelectorAll('[data-dirty-submit]');
                 let baseline = serializeDirtyFields(scope);
+                let touched = false;
+
+                const applyDirtyState = (dirty) => {
+                    const visibleDirty = touched && dirty;
+                    if (hint) {
+                        hint.hidden = !visibleDirty;
+                    }
+                    submitButtons.forEach((button) => button.classList.toggle('is-dirty', visibleDirty));
+                    scope.dataset.dirty = visibleDirty ? 'true' : 'false';
+                };
 
                 const refresh = () => {
                     const dirty = serializeDirtyFields(scope) !== baseline;
-                    if (hint) {
-                        hint.hidden = !dirty;
-                    }
-                    submitButtons.forEach((button) => button.classList.toggle('is-dirty', dirty));
-                    scope.dataset.dirty = dirty ? 'true' : 'false';
+                    applyDirtyState(dirty);
                 };
 
                 scope.querySelectorAll('input, select, textarea').forEach((field) => {
                     if (!field.name || ['submit', 'button', 'reset', 'file'].includes(field.type)) {
                         return;
                     }
-                    field.addEventListener('input', refresh);
-                    field.addEventListener('change', refresh);
+                    const onUserChange = () => {
+                        touched = true;
+                        refresh();
+                    };
+                    field.addEventListener('input', onUserChange);
+                    field.addEventListener('change', onUserChange);
                 });
 
                 scope.querySelectorAll('[data-dirty-submit]').forEach((button) => {
                     button.addEventListener('click', () => {
                         baseline = serializeDirtyFields(scope);
+                        touched = false;
+                        applyDirtyState(false);
                     });
                 });
 
                 const finalizeBaseline = () => {
                     baseline = serializeDirtyFields(scope);
-                    refresh();
+                    touched = false;
+                    applyDirtyState(false);
                 };
 
-                refresh();
                 window.requestAnimationFrame(finalizeBaseline);
                 window.setTimeout(finalizeBaseline, 120);
             });

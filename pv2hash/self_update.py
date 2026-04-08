@@ -165,11 +165,11 @@ class SelfUpdateManager:
     def _verify_helper_ready(self) -> None:
         if not self.helper_path.exists():
             raise SelfUpdateError(
-                "Self-Update-Helper fehlt. Bitte einmal manuell auf ein Release mit Helper aktualisieren."
+                "Update-Helper fehlt. Bitte einmal manuell auf ein Release mit Helper aktualisieren."
             )
 
         if not os.access(self.helper_path, os.X_OK):
-            raise SelfUpdateError("Self-Update-Helper ist nicht ausführbar.")
+            raise SelfUpdateError("Update-Helper ist nicht ausführbar.")
 
         command = self._probe_command()
         result = subprocess.run(
@@ -261,8 +261,8 @@ class SelfUpdateManager:
             and started_age >= STARTING_TIMEOUT_SECONDS
         ):
             self._write_error_state(
-                message="Self-Update konnte nicht sauber gestartet werden.",
-                last_error="Helper-Start wurde nicht bestätigt. Bitte Self-Update erneut starten.",
+                message="Update konnte nicht sauber gestartet werden.",
+                last_error="Helper-Start wurde nicht bestätigt. Bitte Update erneut starten.",
                 target_tag=target_tag,
                 target_version_full=target_version_full or None,
                 started_at=started_at,
@@ -277,8 +277,8 @@ class SelfUpdateManager:
 
         if base_status == "running" and not lock_exists:
             self._write_error_state(
-                message="Self-Update ist nicht mehr aktiv. Bitte erneut starten.",
-                last_error="Kein aktiver Self-Update-Prozess mehr gefunden.",
+                message="Update ist nicht mehr aktiv. Bitte erneut starten.",
+                last_error="Kein aktiver Update-Prozess mehr gefunden.",
                 target_tag=target_tag,
                 target_version_full=target_version_full or None,
                 started_at=started_at,
@@ -295,7 +295,6 @@ class SelfUpdateManager:
     def snapshot(
         self,
         *,
-        auto_update_enabled: bool,
         update_status: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         install_info = self._read_install_info()
@@ -310,16 +309,13 @@ class SelfUpdateManager:
         lock_exists = self._lock_exists()
         running = base_status in {"starting", "running"}
 
-        if not auto_update_enabled:
-            status = "disabled"
-            message = "Self-Update ist in den Einstellungen deaktiviert."
-        elif not is_release_install:
+        if not is_release_install:
             status = "unavailable"
-            message = "Self-Update ist nur in Release-Installationen verfügbar."
+            message = "Update über die Weboberfläche ist nur in Release-Installationen verfügbar."
         elif not helper_exists:
             status = "unavailable"
             message = (
-                "Self-Update-Helper fehlt. Bitte dieses Release einmal manuell installieren/aktualisieren, "
+                "Update-Helper fehlt. Bitte dieses Release einmal manuell installieren/aktualisieren, "
                 "damit der Helper eingerichtet wird."
             )
         elif base_status in {"starting", "running", "success", "error"}:
@@ -341,18 +337,17 @@ class SelfUpdateManager:
             elif update_status_value == "error":
                 message = "Release-Check ist fehlgeschlagen."
             else:
-                message = "Self-Update ist bereit, aber es liegt noch kein neueres Release vor."
+                message = "Update ist bereit, aber es liegt noch kein neueres Release vor."
 
         can_start = (
-            auto_update_enabled
-            and helper_configured
+            helper_configured
             and not running
             and update_status_value == "update_available"
             and bool(available_release_tag)
         )
 
         return {
-            "enabled": auto_update_enabled,
+            "enabled": True,
             "configured": helper_configured,
             "install_info_exists": bool(install_info),
             "install_mode": install_info.get("PV2HASH_INSTALL_MODE"),
@@ -406,34 +401,23 @@ class SelfUpdateManager:
     def start_latest(
         self,
         *,
-        auto_update_enabled: bool,
         update_status: dict[str, Any],
     ) -> tuple[dict[str, Any], int]:
         snapshot = self.snapshot(
-            auto_update_enabled=auto_update_enabled,
             update_status=update_status,
         )
 
-        if not auto_update_enabled:
-            self._write_error_state(
-                message="Self-Update ist deaktiviert.",
-                last_error="Self-Update ist deaktiviert.",
-            )
-            return (
-                self.snapshot(auto_update_enabled=auto_update_enabled, update_status=update_status),
-                403,
-            )
 
         if snapshot["running"]:
             return snapshot, 409
 
         if update_status.get("status") != "update_available":
             self._write_error_state(
-                message="Es ist aktuell kein neueres Release für ein Self-Update verfügbar.",
+                message="Es ist aktuell kein neueres Release für ein Update verfügbar.",
                 last_error="Kein Update verfügbar.",
             )
             return (
-                self.snapshot(auto_update_enabled=auto_update_enabled, update_status=update_status),
+                self.snapshot(update_status=update_status),
                 409,
             )
 
@@ -444,7 +428,7 @@ class SelfUpdateManager:
                 last_error="Release-Tag fehlt.",
             )
             return (
-                self.snapshot(auto_update_enabled=auto_update_enabled, update_status=update_status),
+                self.snapshot(update_status=update_status),
                 500,
             )
 
@@ -455,7 +439,7 @@ class SelfUpdateManager:
             self._verify_helper_ready()
             self._write_state(
                 status="starting",
-                message=f"Self-Update auf {target_version_full} wird gestartet …",
+                message=f"Update auf {target_version_full} wird gestartet …",
                 target_tag=target_tag,
                 target_version_full=target_version_full,
                 started_at=started_at,
@@ -476,22 +460,22 @@ class SelfUpdateManager:
                 close_fds=True,
             )
             self._confirm_launch(process, target_tag=target_tag)
-            logger.info("Self-update launched: target=%s", target_tag)
+            logger.info("Web update launched: target=%s", target_tag)
         except Exception as exc:
             logger.warning("Self-update launch failed: %s", exc)
             self._write_error_state(
-                message=f"Self-Update konnte nicht gestartet werden: {exc}",
+                message=f"Update konnte nicht gestartet werden: {exc}",
                 last_error=str(exc),
                 target_tag=target_tag,
                 target_version_full=target_version_full,
                 started_at=started_at,
             )
             return (
-                self.snapshot(auto_update_enabled=auto_update_enabled, update_status=update_status),
+                self.snapshot(update_status=update_status),
                 500,
             )
 
         return (
-            self.snapshot(auto_update_enabled=auto_update_enabled, update_status=update_status),
+            self.snapshot(update_status=update_status),
             202,
         )
