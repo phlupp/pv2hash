@@ -222,7 +222,7 @@
                         <p class="muted">Aktuelle Log-Ausgabe aus dem Ringbuffer der Anwendung</p>
                     </div>
                     <div class="console-toolbar-controls">
-                        <div class="console-toolbar-right">
+                        <div class="console-control-row console-control-row-primary">
                             <form method="post" action="/system/logging" class="inline-form console-loglevel-form">
                                 <label class="console-filter-label" for="consoleLogLevel">Log-Level</label>
                                 <select id="consoleLogLevel" name="log_level">
@@ -234,10 +234,12 @@
                             </form>
                             <a class="btn btn-info" href="/api/logs/download">Log herunterladen</a>
                         </div>
-                        <div class="console-toolbar-right">
+                        <div class="console-control-row console-control-row-filter">
                             <label class="console-filter-label" for="logFilterInput">Filter</label>
                             <input id="logFilterInput" class="console-filter-input" type="text" placeholder="Suche in Logzeilen …">
                             <button id="clearFilterBtn" class="btn btn-secondary" type="button">Filter löschen</button>
+                        </div>
+                        <div class="console-control-row console-control-row-actions">
                             <button id="toggleScrollBtn" class="btn btn-secondary" type="button">STOPPEN SCROLLING</button>
                             <button id="toggleConsoleBtn" class="btn btn-secondary" type="button">AUSBLENDEN LOGS</button>
                         </div>

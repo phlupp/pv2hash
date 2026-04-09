@@ -470,10 +470,14 @@ select:focus {
 .console-toolbar {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    gap: 14px;
+    align-items: flex-start;
+    gap: 18px;
     flex-wrap: wrap;
     margin-bottom: 16px;
+}
+
+.console-toolbar-left {
+    flex: 1 1 260px;
 }
 
 .console-toolbar-left h2 {
@@ -482,9 +486,24 @@ select:focus {
 }
 
 .console-toolbar-controls {
+    flex: 1 1 560px;
     display: grid;
     gap: 12px;
-    justify-items: end;
+}
+
+.console-control-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.console-control-row-primary {
+    justify-content: space-between;
+}
+
+.console-control-row-actions {
+    justify-content: flex-end;
 }
 
 .console-loglevel-form {
@@ -492,26 +511,22 @@ select:focus {
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
+    flex: 1 1 420px;
 }
 
 .console-loglevel-form select {
     min-width: 110px;
 }
 
-.console-toolbar-right {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-
 .console-filter-label {
     color: var(--text);
     font-weight: 700;
+    flex: 0 0 auto;
 }
 
 .console-filter-input {
-    width: 240px;
+    flex: 1 1 280px;
+    min-width: 220px;
     max-width: 100%;
 }
 
@@ -562,10 +577,12 @@ select:focus {
     }
 
     .console-toolbar-controls {
-        justify-items: stretch;
+        width: 100%;
     }
 
-    .console-toolbar-right {
+    .console-control-row,
+    .console-control-row-primary,
+    .console-control-row-actions {
         justify-content: flex-start;
     }
 
@@ -573,8 +590,10 @@ select:focus {
         width: 100%;
     }
 
+    .console-loglevel-form select,
     .console-filter-input {
         width: 100%;
+        min-width: 0;
     }
 }
 
