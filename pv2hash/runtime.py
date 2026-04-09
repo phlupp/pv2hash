@@ -31,6 +31,7 @@ class AppState:
     miners: list[MinerInfo] = field(default_factory=list)
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_decision: str | None = None
+    last_decision_at: datetime | None = None
     last_reload_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_live_packet_at: datetime | None = None
     source_reloaded_at: datetime = field(default_factory=lambda: datetime.now(UTC))

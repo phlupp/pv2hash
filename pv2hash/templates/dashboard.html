@@ -133,7 +133,7 @@
                     <h2>Regler-Status</h2>
                 </div>
                 <strong>{{ controller_status_text }}</strong>
-                <small>Quellenstatus: {{ snapshot.quality if snapshot else "—" }}</small>
+                <small>Letzte Entscheidung: {{ last_decision_at_text or "—" }}</small>
             </section>
 
             <section class="card top-gap">

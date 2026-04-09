@@ -76,6 +76,15 @@ def _safe_float(value, default: float) -> float:
         return default
 
 
+def _format_local_time(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        return value.astimezone().strftime("%H:%M:%S")
+    except Exception:
+        return None
+
+
 def _update_runner_snapshot(update_status: dict | None = None) -> dict:
     return self_update_manager.snapshot(update_status=update_status)
 
@@ -639,6 +648,7 @@ async def control_loop() -> None:
             state.snapshot = snapshot
             state.miners = miner_states
             state.last_decision = decision.summary
+            state.last_decision_at = datetime.now(UTC)
 
         except Exception:
             logger.exception("Unhandled error in control loop")
@@ -671,6 +681,7 @@ def reload_runtime() -> None:
     state.snapshot = None
     state.miners = []
     state.last_decision = None
+    state.last_decision_at = None
     state.last_live_packet_at = None
     state.last_reload_at = datetime.now(UTC)
 
@@ -693,6 +704,7 @@ async def dashboard(request: Request):
         "started_at": state.started_at,
         "instance_name": state.config["system"]["instance_name"],
         "last_decision": state.last_decision,
+        "last_decision_at_text": _format_local_time(state.last_decision_at),
         "last_reload_at": state.last_reload_at,
         "source_reloaded_at": state.source_reloaded_at,
         "last_live_packet_at": state.last_live_packet_at,
@@ -702,7 +714,6 @@ async def dashboard(request: Request):
         "source_device_susy_id": source_debug.get("last_packet_susy_id") if source_debug else None,
         "app_version_full": APP_VERSION_FULL,
         "update_check": update_checker.snapshot(),
-        "host_status": _get_host_status(),
     }
 
     return templates.TemplateResponse(
@@ -1205,6 +1216,7 @@ async def api_status():
         "config": state.config,
         "started_at": state.started_at.isoformat(),
         "last_decision": state.last_decision,
+        "last_decision_at": state.last_decision_at.isoformat() if state.last_decision_at else None,
         "last_reload_at": state.last_reload_at.isoformat(),
         "source_debug": services.get_source_debug_info(),
         "battery_source_debug": services.get_battery_source_debug_info(),
