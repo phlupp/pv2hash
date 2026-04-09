@@ -96,6 +96,32 @@
                     <strong>{{ last_decision or "—" }}</strong>
                     <small>Quellenstatus: {{ snapshot.quality if snapshot else "—" }}</small>
                 </article>
+
+                {% set battery_is_charging = snapshot and (snapshot.battery_is_charging or ((snapshot.battery_charge_power_w or 0) > 0)) %}
+                {% set battery_is_discharging = snapshot and (snapshot.battery_is_discharging or ((snapshot.battery_discharge_power_w or 0) > 0)) %}
+                <article class="card stat">
+                    <span class="label">Batterie</span>
+                    {% if snapshot and snapshot.battery_soc_pct is not none %}
+                        <strong class="{{ 'good' if battery_is_charging else ('warn' if battery_is_discharging else '') }}">{{ "%.1f"|format(snapshot.battery_soc_pct) }} %</strong>
+                    {% else %}
+                        <strong>—</strong>
+                    {% endif %}
+                    {% if battery_is_charging %}
+                        <small>Batterie wird geladen ({{ "%.0f"|format(snapshot.battery_charge_power_w or 0) }} W)</small>
+                    {% elif battery_is_discharging %}
+                        <small>Batterie wird entladen ({{ "%.0f"|format(snapshot.battery_discharge_power_w or 0) }} W)</small>
+                    {% elif snapshot and snapshot.battery_soc_pct is not none %}
+                        <small>Batterie inaktiv</small>
+                    {% else %}
+                        <small>Keine Batteriedaten verfügbar</small>
+                    {% endif %}
+                </article>
+
+                <article class="card stat">
+                    <span class="label">Host-System</span>
+                    <strong>{{ host_status.cpu_percent_text }}</strong>
+                    <small>RAM {{ host_status.ram_text }}{% if host_status.ram_percent_text and host_status.ram_percent_text != '—' %} ({{ host_status.ram_percent_text }}){% endif %}</small>
+                </article>
             </section>
 
             <section class="card top-gap">
@@ -144,34 +170,6 @@
                         </tbody>
                     </table>
                 </div>
-            </section>
-
-            <section class="grid grid-2 top-gap">
-                {% set battery_is_charging = snapshot and (snapshot.battery_is_charging or ((snapshot.battery_charge_power_w or 0) > 0)) %}
-                {% set battery_is_discharging = snapshot and (snapshot.battery_is_discharging or ((snapshot.battery_discharge_power_w or 0) > 0)) %}
-                <article class="card stat dashboard-status-card">
-                    <span class="label">Batterie</span>
-                    {% if snapshot and snapshot.battery_soc_pct is not none %}
-                        <strong class="{{ 'good' if battery_is_charging else ('warn' if battery_is_discharging else '') }}">{{ "%.1f"|format(snapshot.battery_soc_pct) }} %</strong>
-                    {% else %}
-                        <strong>—</strong>
-                    {% endif %}
-                    {% if battery_is_charging %}
-                        <small>Batterie wird geladen ({{ "%.0f"|format(snapshot.battery_charge_power_w or 0) }} W)</small>
-                    {% elif battery_is_discharging %}
-                        <small>Batterie wird entladen ({{ "%.0f"|format(snapshot.battery_discharge_power_w or 0) }} W)</small>
-                    {% elif snapshot and snapshot.battery_soc_pct is not none %}
-                        <small>Batterie inaktiv</small>
-                    {% else %}
-                        <small>Keine Batteriedaten verfügbar</small>
-                    {% endif %}
-                </article>
-
-                <article class="card stat dashboard-status-card">
-                    <span class="label">Host-System</span>
-                    <strong>{{ host_status.cpu_percent_text }}</strong>
-                    <small>RAM {{ host_status.ram_text }}{% if host_status.ram_percent_text and host_status.ram_percent_text != '—' %} ({{ host_status.ram_percent_text }}){% endif %}</small>
-                </article>
             </section>
         </main>
     </div>
