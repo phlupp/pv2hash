@@ -681,7 +681,6 @@ async def dashboard(request: Request):
     miner_count = len(state.miners)
 
     source_debug = services.get_source_debug_info()
-    host_status = _get_host_status()
 
     context = {
         "request": request,
@@ -703,7 +702,7 @@ async def dashboard(request: Request):
         "source_device_susy_id": source_debug.get("last_packet_susy_id") if source_debug else None,
         "app_version_full": APP_VERSION_FULL,
         "update_check": update_checker.snapshot(),
-        "host_status": host_status,
+        "host_status": _get_host_status(),
     }
 
     return templates.TemplateResponse(
