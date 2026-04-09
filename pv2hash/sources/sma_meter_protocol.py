@@ -62,6 +62,7 @@ class SmaMeterProtocolSource(EnergySource):
         packet_timeout_seconds: float = 1.0,
         stale_after_seconds: float = 8.0,
         offline_after_seconds: float = 30.0,
+        device_serial_number: str | int | None = "",
         device_ip: str = "",
         debug_dump_obis: bool = False,
     ) -> None:
@@ -71,7 +72,9 @@ class SmaMeterProtocolSource(EnergySource):
         self.packet_timeout_seconds = packet_timeout_seconds
         self.stale_after_seconds = stale_after_seconds
         self.offline_after_seconds = offline_after_seconds
+        self.device_serial_number = self._normalize_serial_number(device_serial_number)
         self.device_ip = device_ip.strip()
+        self._seen_devices: dict[str, dict] = {}
 
         self.last_snapshot: EnergySnapshot | None = None
         self.last_live_packet_at: datetime | None = None
@@ -93,7 +96,11 @@ class SmaMeterProtocolSource(EnergySource):
             "last_error": None,
             "last_packet_decision": None,
             "last_packet_rejected_reason": None,
+            "device_serial_number_filter": self.device_serial_number or None,
             "device_ip_filter": self.device_ip or None,
+            "seen_devices": [],
+            "selected_device_name": None,
+            "selected_device_susy_id": None,
             "multicast_ip": self.multicast_ip,
             "bind_port": self.bind_port,
             "interface_ip": self.interface_ip,
@@ -162,11 +169,12 @@ class SmaMeterProtocolSource(EnergySource):
         self.debug_info["effective_interface_ip"] = effective_interface_ip
 
         logger.info(
-            "SMA meter protocol source initialized: multicast=%s port=%s interface=%s effective_interface=%s device_filter=%s",
+            "SMA meter protocol source initialized: multicast=%s port=%s interface=%s effective_interface=%s serial_filter=%s device_ip_filter=%s",
             self.multicast_ip,
             self.bind_port,
             self.interface_ip,
             effective_interface_ip,
+            self.device_serial_number or "-",
             self.device_ip or "-",
         )
 
@@ -184,13 +192,6 @@ class SmaMeterProtocolSource(EnergySource):
             self.debug_info["last_packet_decision"] = None
             self.debug_info["last_packet_rejected_reason"] = None
 
-            if self.device_ip and sender_ip != self.device_ip:
-                self.debug_info["ignored_packets"] += 1
-                self.debug_info["last_protocol"] = "filtered_ip"
-                self.debug_info["last_packet_decision"] = "filtered"
-                self.debug_info["last_packet_rejected_reason"] = "sender_ip_mismatch"
-                return self._fallback_snapshot()
-
             proto_index = data.find(self.EMETER_PROTOCOL_ID)
             if proto_index < 0:
                 other_index = data.find(b"\x60\x65")
@@ -204,7 +205,23 @@ class SmaMeterProtocolSource(EnergySource):
                 return self._fallback_snapshot()
 
             self.debug_info["last_protocol"] = "0x6069"
-            snapshot = self._parse_emeter_packet(data, proto_index=proto_index)
+            packet_meta = self._parse_packet_meta(data, proto_index=proto_index)
+            self._store_seen_device(packet_meta, sender_ip)
+
+            packet_serial = self._normalize_serial_number(packet_meta["serial_number"])
+            if self.device_serial_number:
+                if packet_serial != self.device_serial_number:
+                    self.debug_info["ignored_packets"] += 1
+                    self.debug_info["last_packet_decision"] = "filtered"
+                    self.debug_info["last_packet_rejected_reason"] = "serial_number_mismatch"
+                    return self._fallback_snapshot()
+            elif self.device_ip and sender_ip != self.device_ip:
+                self.debug_info["ignored_packets"] += 1
+                self.debug_info["last_packet_decision"] = "filtered"
+                self.debug_info["last_packet_rejected_reason"] = "sender_ip_mismatch"
+                return self._fallback_snapshot()
+
+            snapshot = self._parse_emeter_packet(data, proto_index=proto_index, packet_meta=packet_meta)
             self.last_snapshot = snapshot
             self.last_live_packet_at = snapshot.updated_at
             self.debug_info["parsed_packets"] += 1
@@ -283,6 +300,82 @@ class SmaMeterProtocolSource(EnergySource):
         tariff = obis_num & 0xFF
         return channel, index, measurement_type, tariff
 
+    @staticmethod
+    def _normalize_serial_number(value) -> str:
+        text = str(value or "").strip()
+        if text == "":
+            return ""
+        try:
+            return str(int(float(text)))
+        except Exception:
+            return text
+
+    def _apply_packet_meta(self, packet_meta: dict) -> None:
+        susy_id = packet_meta["susy_id"]
+        serial_number = packet_meta["serial_number"]
+        self.debug_info["last_packet_device_address_hex"] = packet_meta["device_address_hex"]
+        self.debug_info["last_packet_susy_id"] = susy_id
+        self.debug_info["last_packet_serial_number"] = serial_number
+        self.debug_info["last_packet_measuring_time_ms"] = packet_meta["measuring_time_ms"]
+        self.debug_info["last_packet_device_name"] = packet_meta["device_name"]
+        self.debug_info["last_protocol_offset"] = packet_meta["proto_index"]
+
+    def _store_seen_device(self, packet_meta: dict, sender_ip: str) -> None:
+        serial_key = self._normalize_serial_number(packet_meta["serial_number"])
+        if serial_key == "":
+            return
+
+        current = self._seen_devices.get(serial_key, {})
+        packet_count = int(current.get("packet_count", 0)) + 1
+        stored = {
+            "serial_number": serial_key,
+            "susy_id": packet_meta["susy_id"],
+            "device_name": packet_meta["device_name"],
+            "sender_ip": sender_ip,
+            "last_seen_at": datetime.now(UTC).isoformat(),
+            "packet_count": packet_count,
+        }
+        self._seen_devices[serial_key] = stored
+        self.debug_info["seen_devices"] = sorted(
+            self._seen_devices.values(),
+            key=lambda item: (
+                str(item.get("device_name") or "").lower(),
+                self._normalize_serial_number(item.get("serial_number")),
+            ),
+        )
+
+        if self.device_serial_number and serial_key == self.device_serial_number:
+            self.debug_info["selected_device_name"] = packet_meta["device_name"]
+            self.debug_info["selected_device_susy_id"] = packet_meta["susy_id"]
+
+    def _parse_packet_meta(self, packet: bytes, *, proto_index: int) -> dict:
+        if proto_index < 0:
+            raise ValueError("Invalid protocol offset")
+
+        min_len = proto_index + 12
+        if len(packet) < min_len:
+            raise ValueError(
+                f"Packet too short for protocol block at offset {proto_index}: {len(packet)}"
+            )
+
+        protocol_id = struct.unpack(">H", packet[proto_index:proto_index + 2])[0]
+        if protocol_id != 0x6069:
+            raise ValueError(f"Unexpected protocol id: 0x{protocol_id:04x}")
+
+        susy_id = struct.unpack(">H", packet[proto_index + 2:proto_index + 4])[0]
+        serial_number = struct.unpack(">I", packet[proto_index + 4:proto_index + 8])[0]
+        measuring_time_ms = struct.unpack(">I", packet[proto_index + 8:proto_index + 12])[0]
+        device_address_hex = packet[proto_index + 2:proto_index + 8].hex()
+
+        return {
+            "proto_index": proto_index,
+            "device_address_hex": device_address_hex,
+            "susy_id": susy_id,
+            "serial_number": serial_number,
+            "measuring_time_ms": measuring_time_ms,
+            "device_name": self._resolve_device_name(susy_id),
+        }
+
     def _format_obis_num(self, obis_num: int) -> str:
         channel, index, measurement_type, tariff = self._extract_obis_parts(obis_num)
         return (
@@ -357,7 +450,7 @@ class SmaMeterProtocolSource(EnergySource):
             packet_meta["measuring_time_ms"],
             len(entries),
             sorted({entry["channel"] for entry in entries}),
-            self.device_ip or "-",
+            self.device_serial_number or self.device_ip or "-",
         )
         logger.debug(
             "grid_inputs has_active_plus=%s active_plus_w=%s has_active_minus=%s active_minus_w=%s",
@@ -388,31 +481,14 @@ class SmaMeterProtocolSource(EnergySource):
 
         logger.debug("---- SMA packet dump end ----")
 
-    def _parse_emeter_packet(self, packet: bytes, *, proto_index: int) -> EnergySnapshot:
-        if proto_index < 0:
-            raise ValueError("Invalid protocol offset")
+    def _parse_emeter_packet(self, packet: bytes, *, proto_index: int, packet_meta: dict | None = None) -> EnergySnapshot:
+        packet_meta = packet_meta or self._parse_packet_meta(packet, proto_index=proto_index)
+        self._apply_packet_meta(packet_meta)
 
-        min_len = proto_index + 12
-        if len(packet) < min_len:
-            raise ValueError(
-                f"Packet too short for protocol block at offset {proto_index}: {len(packet)}"
-            )
-
-        protocol_id = struct.unpack(">H", packet[proto_index:proto_index + 2])[0]
-        if protocol_id != 0x6069:
-            raise ValueError(f"Unexpected protocol id: 0x{protocol_id:04x}")
-
-        susy_id = struct.unpack(">H", packet[proto_index + 2:proto_index + 4])[0]
-        serial_number = struct.unpack(">I", packet[proto_index + 4:proto_index + 8])[0]
-        measuring_time_ms = struct.unpack(">I", packet[proto_index + 8:proto_index + 12])[0]
-        device_address_hex = packet[proto_index + 2:proto_index + 8].hex()
-
-        self.debug_info["last_packet_device_address_hex"] = device_address_hex
-        self.debug_info["last_packet_susy_id"] = susy_id
-        self.debug_info["last_packet_serial_number"] = serial_number
-        self.debug_info["last_packet_measuring_time_ms"] = measuring_time_ms
-        self.debug_info["last_packet_device_name"] = self._resolve_device_name(susy_id)
-        self.debug_info["last_protocol_offset"] = proto_index
+        susy_id = packet_meta["susy_id"]
+        serial_number = packet_meta["serial_number"]
+        measuring_time_ms = packet_meta["measuring_time_ms"]
+        device_address_hex = packet_meta["device_address_hex"]
 
         pos = proto_index + 12
         active_plus_w: float | None = None
@@ -472,6 +548,8 @@ class SmaMeterProtocolSource(EnergySource):
             "susy_id": susy_id,
             "serial_number": serial_number,
             "measuring_time_ms": measuring_time_ms,
+            "device_name": self._resolve_device_name(susy_id),
+            "proto_index": proto_index,
         }
         self._dump_obis_entries(
             entries=entries,

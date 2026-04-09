@@ -128,6 +128,7 @@ def build_source(config: dict) -> EnergySource:
             packet_timeout_seconds=float(settings.get("packet_timeout_seconds", 1.0)),
             stale_after_seconds=float(settings.get("stale_after_seconds", 8.0)),
             offline_after_seconds=float(settings.get("offline_after_seconds", 30.0)),
+            device_serial_number=settings.get("device_serial_number", ""),
             device_ip=settings.get("device_ip", ""),
             debug_dump_obis=bool(settings.get("debug_dump_obis", False)),
         )

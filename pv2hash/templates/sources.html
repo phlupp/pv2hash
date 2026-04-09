@@ -215,9 +215,21 @@
                                     </label>
 
                                     <label>
-                                        <span>Geräte-IP-Filter (optional)</span>
+                                        <span>SMA-Gerät / Seriennummer (empfohlen)</span>
+                                        {% set selected_sma_serial = selected_sma_device_serial if selected_sma_device_serial is defined else (source_settings.device_serial_number if source_settings and source_settings.device_serial_number is defined else '') %}
+                                        <select name="device_serial_number">
+                                            <option value="" {% if not selected_sma_serial %}selected{% endif %}>Kein Filter / erstes passendes SMA-Gerät</option>
+                                            {% for item in sma_discovered_devices %}
+                                            <option value="{{ item.serial_number }}" {% if item.serial_number == selected_sma_serial %}selected{% endif %}>{{ item.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <small class="help">Empfohlen bei mehreren SMA-Geräten. Die Seriennummer kann am Gerät abgelesen werden und bleibt auch bei DHCP-Wechsel stabil.</small>
+                                    </label>
+
+                                    <label>
+                                        <span>Geräte-IP-Filter (optional, Fallback)</span>
                                         <input type="text" name="device_ip" value="{{ source_settings.device_ip if source_settings and source_settings.device_ip is defined else '' }}">
-                                        <small class="help">Hilft bei mehreren SMA-Geräten im Netz.</small>
+                                        <small class="help">Nur noch als Fallback/Experteneinstellung. Wird nur verwendet, wenn keine Seriennummer ausgewählt ist.</small>
                                     </label>
 
                                     <label>

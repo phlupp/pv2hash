@@ -272,6 +272,60 @@ def _resolve_sma_device_label(source_debug: dict | None) -> str | None:
     return known.get(susy_id_int, f"SMA Gerät (SUSy-ID {susy_id_int})")
 
 
+def _normalize_sma_serial_number(value) -> str:
+    text = str(value or "").strip()
+    if text == "":
+        return ""
+    try:
+        return str(int(float(text)))
+    except Exception:
+        return text
+
+
+def _build_sma_device_choices(source_cfg: dict | None, source_debug: dict | None) -> tuple[list[dict], str]:
+    source_settings = (source_cfg or {}).get("settings", {}) or {}
+    selected_serial = _normalize_sma_serial_number(source_settings.get("device_serial_number"))
+    raw_devices = []
+    if source_debug:
+        raw_devices = source_debug.get("seen_devices", []) or []
+
+    choices: list[dict] = []
+    seen_serials: set[str] = set()
+
+    for item in raw_devices:
+        serial = _normalize_sma_serial_number(item.get("serial_number"))
+        if not serial or serial in seen_serials:
+            continue
+        seen_serials.add(serial)
+
+        device_name = str(item.get("device_name") or "SMA Gerät").strip() or "SMA Gerät"
+        sender_ip = str(item.get("sender_ip") or "").strip()
+        label = f"{device_name} – S/N {serial}"
+        if sender_ip:
+            label += f" – {sender_ip}"
+
+        choices.append({
+            "serial_number": serial,
+            "label": label,
+            "sender_ip": sender_ip,
+            "device_name": device_name,
+            "susy_id": item.get("susy_id"),
+        })
+
+    choices.sort(key=lambda item: (str(item.get("device_name") or "").lower(), item["serial_number"]))
+
+    if selected_serial and selected_serial not in seen_serials:
+        choices.insert(0, {
+            "serial_number": selected_serial,
+            "label": f"Aktuell gewählt – S/N {selected_serial} (noch nicht erkannt)",
+            "sender_ip": "",
+            "device_name": "SMA Gerät",
+            "susy_id": None,
+        })
+
+    return choices, selected_serial
+
+
 def _resolve_measurement_profile_label(source_type: str | None) -> str:
     normalized = str(source_type or "simulator").strip().lower()
     labels = {
@@ -935,6 +989,7 @@ async def sources_page(request: Request):
     source_debug = services.get_source_debug_info()
     source_cfg = state.config["source"]
     battery_cfg = state.config.get("battery", {})
+    sma_discovered_devices, selected_sma_device_serial = _build_sma_device_choices(source_cfg, source_debug)
 
     context = {
         "request": request,
@@ -947,6 +1002,8 @@ async def sources_page(request: Request):
         "source_device_label": _resolve_sma_device_label(source_debug),
         "source_device_serial_number": source_debug.get("last_packet_serial_number") if source_debug else None,
         "source_device_susy_id": source_debug.get("last_packet_susy_id") if source_debug else None,
+        "sma_discovered_devices": sma_discovered_devices,
+        "selected_sma_device_serial": selected_sma_device_serial,
         "saved": request.query_params.get("saved") == "1",
         "local_interface_ips": get_local_ipv4_addresses(),
         "modbus_register_types": MODBUS_REGISTER_TYPES,
@@ -992,6 +1049,9 @@ async def save_source(request: Request):
     )
     state.config["source"]["settings"]["offline_after_seconds"] = _safe_float(
         form.get("offline_after_seconds", 30.0), 30.0
+    )
+    state.config["source"]["settings"]["device_serial_number"] = _normalize_sma_serial_number(
+        form.get("device_serial_number", "")
     )
     state.config["source"]["settings"]["device_ip"] = form.get("device_ip", "").strip()
     state.config["source"]["settings"]["debug_dump_obis"] = form.get("debug_dump_obis") == "on"
