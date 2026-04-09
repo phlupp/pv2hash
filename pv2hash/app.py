@@ -10,6 +10,7 @@ import sys
 from copy import deepcopy
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
+from time import monotonic
 from pathlib import Path
 from urllib.parse import quote_plus
 from uuid import uuid4
@@ -83,6 +84,60 @@ def _format_local_time(value: datetime | None) -> str | None:
         return value.astimezone().strftime("%H:%M:%S")
     except Exception:
         return None
+
+
+def _format_controller_summary(summary: str | None) -> str:
+    if not summary:
+        return "—"
+
+    text = str(summary).replace("_", " ")
+    for mode in ("cascade", "equal"):
+        text = text.replace(f" ({mode}, ", " (")
+        text = text.replace(f" ({mode})", "")
+    return text
+
+
+def _build_controller_status() -> dict:
+    control_config = state.config.get("control", {}) if state.config else {}
+    min_switch_interval = max(0.0, float(control_config.get("min_switch_interval_seconds", 0) or 0))
+    last_switch_at = state.last_profile_switch_at
+    last_switch_monotonic = state.last_profile_switch_monotonic
+
+    progress = 1.0
+    ring_state = "ready"
+    inner_text = "frei"
+    hint_text = "Nächste Umschaltung möglich"
+
+    if min_switch_interval <= 0:
+        ring_state = "disabled"
+        inner_text = "aus"
+        hint_text = "Mindest-Schaltintervall aus"
+    elif last_switch_monotonic is None:
+        inner_text = "bereit"
+        hint_text = "Noch keine Umschaltung"
+    else:
+        elapsed = max(0.0, monotonic() - last_switch_monotonic)
+        progress = max(0.0, min(1.0, elapsed / min_switch_interval))
+        remaining = max(0.0, min_switch_interval - elapsed)
+
+        if remaining > 0.05:
+            remaining_seconds = max(1, int(remaining + 0.999))
+            ring_state = "waiting"
+            inner_text = f"{remaining_seconds}s"
+            hint_text = f"Nächste Umschaltung in {remaining_seconds}s"
+        else:
+            ring_state = "ready"
+            inner_text = "frei"
+            hint_text = "Nächste Umschaltung möglich"
+
+    return {
+        "summary_text": _format_controller_summary(state.last_decision),
+        "last_switch_at_text": _format_local_time(last_switch_at),
+        "switch_ring_state": ring_state,
+        "switch_progress": round(progress, 4),
+        "switch_inner_text": inner_text,
+        "switch_hint_text": hint_text,
+    }
 
 
 def _update_runner_snapshot(update_status: dict | None = None) -> dict:
@@ -620,6 +675,10 @@ async def control_loop() -> None:
                 continue
 
             aborted = False
+            profile_switch_requested = len(miners) == len(decision.profiles) and any(
+                getattr(miner.info, "profile", None) != profile
+                for miner, profile in zip(miners, decision.profiles)
+            )
 
             for miner, profile in zip(miners, decision.profiles):
                 if not _runtime_matches(generation, source, battery_source, controller, miners):
@@ -649,6 +708,9 @@ async def control_loop() -> None:
             state.miners = miner_states
             state.last_decision = decision.summary
             state.last_decision_at = datetime.now(UTC)
+            if profile_switch_requested:
+                state.last_profile_switch_at = state.last_decision_at
+                state.last_profile_switch_monotonic = monotonic()
 
         except Exception:
             logger.exception("Unhandled error in control loop")
@@ -682,6 +744,8 @@ def reload_runtime() -> None:
     state.miners = []
     state.last_decision = None
     state.last_decision_at = None
+    state.last_profile_switch_at = None
+    state.last_profile_switch_monotonic = None
     state.last_live_packet_at = None
     state.last_reload_at = datetime.now(UTC)
 
@@ -705,6 +769,7 @@ async def dashboard(request: Request):
         "instance_name": state.config["system"]["instance_name"],
         "last_decision": state.last_decision,
         "last_decision_at_text": _format_local_time(state.last_decision_at),
+        "controller_status": _build_controller_status(),
         "host_status": _get_host_status(),
         "last_reload_at": state.last_reload_at,
         "source_reloaded_at": state.source_reloaded_at,
@@ -1218,6 +1283,7 @@ async def api_status():
         "started_at": state.started_at.isoformat(),
         "last_decision": state.last_decision,
         "last_decision_at": state.last_decision_at.isoformat() if state.last_decision_at else None,
+        "last_profile_switch_at": state.last_profile_switch_at.isoformat() if state.last_profile_switch_at else None,
         "last_reload_at": state.last_reload_at.isoformat(),
         "source_debug": services.get_source_debug_info(),
         "battery_source_debug": services.get_battery_source_debug_info(),

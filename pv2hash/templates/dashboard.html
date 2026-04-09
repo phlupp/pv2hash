@@ -56,8 +56,7 @@
             {% elif battery_soc is none %}
                 {% set battery_state_text = 'Keine Batteriedaten verfügbar' %}
             {% endif %}
-            {% set controller_status_text = (last_decision.split(" (")[0] | replace("_", " ")) if last_decision else "—" %}
-
+            
             <header class="topbar">
                 <div>
                     <h1>Dashboard</h1>
@@ -129,11 +128,21 @@
             </section>
 
             <section class="card stat top-gap">
-                <div class="card-head">
-                    <h2>Regler-Status</h2>
+                <div class="controller-status-layout">
+                    <div class="controller-status-main">
+                        <div class="card-head">
+                            <h2>Regler-Status</h2>
+                        </div>
+                        <strong>{{ controller_status.summary_text }}</strong>
+                        <small>Letzte Umschaltung: {{ controller_status.last_switch_at_text or "—" }}</small>
+                    </div>
+                    <div class="controller-ring-panel">
+                        <div class="controller-ring {{ controller_status.switch_ring_state }}" style="--ring-progress: {{ controller_status.switch_progress }};">
+                            <span>{{ controller_status.switch_inner_text }}</span>
+                        </div>
+                        <small>{{ controller_status.switch_hint_text }}</small>
+                    </div>
                 </div>
-                <strong>{{ controller_status_text }}</strong>
-                <small>Letzte Entscheidung: {{ last_decision_at_text or "—" }}</small>
             </section>
 
             <section class="card top-gap">

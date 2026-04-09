@@ -32,6 +32,8 @@ class AppState:
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_decision: str | None = None
     last_decision_at: datetime | None = None
+    last_profile_switch_at: datetime | None = None
+    last_profile_switch_monotonic: float | None = None
     last_reload_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_live_packet_at: datetime | None = None
     source_reloaded_at: datetime = field(default_factory=lambda: datetime.now(UTC))
