@@ -31,7 +31,7 @@
             <header class="topbar">
                 <div>
                     <h1>Einstellungen</h1>
-                    <p>Basis-Konfiguration für Instanz, Update-Prüfung und Regelung</p>
+                    <p>Basis-Konfiguration für Instanz und Regelung</p>
                 </div>
             </header>
 
@@ -77,48 +77,6 @@
                         </div>
                     </article>
 
-                    <article class="card">
-                        <div class="card-head">
-                            <h2>Updates</h2>
-                        </div>
-
-                        <div class="form-grid">
-                            <label class="checkbox-row">
-                                <input type="checkbox" name="check_updates" {% if config.system.check_updates %}checked{% endif %}>
-                                <span>GitHub Release-Check aktivieren</span>
-                            </label>
-
-                            <label>
-                                <span>GitHub Repo für Release-Check</span>
-                                <input
-                                    type="text"
-                                    name="update_repo"
-                                    value="{{ config.system.update_repo if config.system.update_repo is defined else 'phlupp/pv2hash' }}"
-                                    placeholder="phlupp/pv2hash"
-                                >
-                                <small class="help">Format: owner/repo. Standard ist das PV2Hash-Repo.</small>
-                            </label>
-
-                        </div>
-                    </article>
-
-                    <article class="card">
-                        <div class="card-head">
-                            <h2>Protokollierung</h2>
-                        </div>
-
-                        <div class="form-grid">
-                            <label>
-                                <span>Log-Level</span>
-                                <select name="log_level">
-                                    {% for item in allowed_log_levels %}
-                                    <option value="{{ item }}" {% if item == config.system.log_level %}selected{% endif %}>{{ item }}</option>
-                                    {% endfor %}
-                                </select>
-                                <small class="help">INFO für normalen Betrieb, DEBUG für detaillierte Fehlersuche.</small>
-                            </label>
-                        </div>
-                    </article>
 
                     <article class="card">
                         <div class="card-head">

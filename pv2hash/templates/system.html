@@ -76,117 +76,60 @@
 
                 <article class="card">
                     <div class="card-head">
-                        <h2>Updates &amp; Wartung</h2>
+                        <h2>Updates</h2>
                     </div>
 
-                    <div class="system-update-layout">
-                        <section class="system-update-block">
-                            <div class="update-head">
-                                <div>
-                                    <div class="update-title">Wartung</div>
-                                    <div class="update-subtitle">Direkte Aktionen auf der laufenden Instanz</div>
-                                </div>
+                    <section class="system-update-block">
+                        <div class="update-head system-update-head">
+                            <div>
+                                <div class="update-title">Release-Stand</div>
+                                <div class="update-subtitle">GitHub Releases (Latest)</div>
                             </div>
-
-                            <div class="actions start wrap system-update-actions">
-                                <form method="post" action="/system/reload" class="inline-form">
-                                    <button class="btn" type="submit">Runtime neu laden</button>
-                                </form>
-                                <a class="btn btn-info" href="/api/logs/download">Log herunterladen</a>
+                            <div class="system-update-head-actions">
+                                <span id="updateStateBadge" class="status-pill">Prüfe …</span>
+                                <button id="checkUpdatesBtn" class="btn btn-secondary" type="button">Jetzt auf Updates prüfen</button>
                             </div>
-                        </section>
+                        </div>
 
-                        <section class="system-update-block">
-                            <div class="update-head system-update-head">
-                                <div>
-                                    <div class="update-title">Release-Stand</div>
-                                    <div class="update-subtitle">GitHub Releases (Latest)</div>
-                                </div>
-                                <div class="system-update-head-actions">
-                                    <span id="updateStateBadge" class="status-pill">Prüfe …</span>
-                                    <button id="checkUpdatesBtn" class="btn btn-secondary" type="button">Jetzt auf Updates prüfen</button>
-                                </div>
+                        <div class="kv update-kv">
+                            <div class="kv-row">
+                                <span>Lokale Version</span>
+                                <strong id="updateLocalVersion">{{ update_status.local_version_full or app_version_full }}</strong>
                             </div>
-
-                            <div class="kv update-kv">
-                                <div class="kv-row">
-                                    <span>Lokale Version</span>
-                                    <strong id="updateLocalVersion">{{ update_status.local_version_full or app_version_full }}</strong>
-                                </div>
-                                <div class="kv-row">
-                                    <span>Release-Version</span>
-                                    <strong id="updateReleaseVersion">{{ update_status.release_version_full or "—" }}</strong>
-                                </div>
-                                <div class="kv-row">
-                                    <span>Release-Tag</span>
-                                    <strong id="updateReleaseTag">{{ update_status.release_tag or "—" }}</strong>
-                                </div>
-                                <div class="kv-row">
-                                    <span>Geprüft am</span>
-                                    <strong id="updateCheckedAt">{{ update_status.checked_at or "—" }}</strong>
-                                </div>
-                                <div class="kv-row">
-                                    <span>Veröffentlicht am</span>
-                                    <strong id="updatePublishedAt">{{ update_status.release_published_at or "—" }}</strong>
-                                </div>
+                            <div class="kv-row">
+                                <span>Release-Version</span>
+                                <strong id="updateReleaseVersion">{{ update_status.release_version_full or "—" }}</strong>
                             </div>
-
-                            <div id="updateMessage" class="update-message">Lade Update-Status …</div>
-                            <div id="updateError" class="update-error" hidden></div>
-
-                            <div class="update-links">
-                                <a id="updateReleaseLink" class="link-muted" href="#" target="_blank" rel="noopener" hidden>Release auf GitHub öffnen</a>
+                            <div class="kv-row">
+                                <span>Release-Tag</span>
+                                <strong id="updateReleaseTag">{{ update_status.release_tag or "—" }}</strong>
                             </div>
-
-                            <div id="updateCommandWrap" class="update-command-wrap" hidden>
-                                <div class="update-command-label">Installationsbefehl für dieses Release</div>
-                                <code id="updateCommand" class="update-command"></code>
+                            <div class="kv-row">
+                                <span>Geprüft am</span>
+                                <strong id="updateCheckedAt">{{ update_status.checked_at or "—" }}</strong>
                             </div>
-                        </section>
-
-                        <section class="system-update-block">
-                            <div class="update-head system-update-head">
-                                <div>
-                                    <div class="update-title">Update über Weboberfläche</div>
-                                    <div class="update-subtitle">Manuell gestartetes Update über den Release-Installer</div>
-                                </div>
-                                <div class="system-update-head-actions">
-                                    <span id="updateRunnerStateBadge" class="status-pill">Prüfe …</span>
-                                    <button id="updateInstallBtn" class="btn btn-warning" type="button">Update starten</button>
-                                </div>
+                            <div class="kv-row">
+                                <span>Veröffentlicht am</span>
+                                <strong id="updatePublishedAt">{{ update_status.release_published_at or "—" }}</strong>
                             </div>
+                        </div>
 
-                            <div class="kv update-kv">
-                                <div class="kv-row">
-                                    <span>Installationsmodus</span>
-                                    <strong id="updateRunnerInstallMode">{{ update_runner_status.install_mode or "—" }}</strong>
-                                </div>
-                                <div class="kv-row">
-                                    <span>Ziel-Release</span>
-                                    <strong id="updateRunnerTargetVersion">{{ update_runner_status.target_version_full or update_runner_status.available_release_version_full or "—" }}</strong>
-                                </div>
-                                <div class="kv-row">
-                                    <span>Gestartet am</span>
-                                    <strong id="updateRunnerStartedAt">{{ update_runner_status.started_at or "—" }}</strong>
-                                </div>
-                                <div class="kv-row">
-                                    <span>Beendet am</span>
-                                    <strong id="updateRunnerFinishedAt">{{ update_runner_status.finished_at or "—" }}</strong>
-                                </div>
-                                <div class="kv-row">
-                                    <span>Update-Helper</span>
-                                    <strong id="updateRunnerHelperPath">{{ update_runner_status.helper_path or "—" }}</strong>
-                                </div>
-                            </div>
+                        <div id="updateMessage" class="update-message">Lade Update-Status …</div>
+                        <div id="updateError" class="update-error" hidden></div>
 
-                            <div id="updateRunnerMessage" class="update-message">Lade Update-Status …</div>
-                            <div id="updateRunnerError" class="update-error" hidden></div>
+                        <div class="update-links">
+                            <a id="updateReleaseLink" class="link-muted" href="#" target="_blank" rel="noopener" hidden>Release auf GitHub öffnen</a>
+                        </div>
 
-                            <div class="update-links">
-                                <a id="updateRunnerLogLink" class="link-muted" href="/api/logs/download" hidden>PV2Hash-Log herunterladen</a>
-                            </div>
-                        </section>
-                    </div>
+                        <div id="updateCommandWrap" class="update-command-wrap" hidden>
+                            <div class="update-command-label">Installationsbefehl für dieses Release</div>
+                            <code id="updateCommand" class="update-command"></code>
+                        </div>
+
+                        <div class="actions end wrap top-gap system-update-footer">
+                            <button id="updateInstallBtn" class="btn btn-warning" type="button" disabled>Update starten</button>
+                        </div>
+                    </section>
                 </article>
             </section>
 
@@ -221,6 +164,12 @@
                             <span>Letzter Reload</span>
                             <strong>{{ last_reload_at }}</strong>
                         </div>
+                    </div>
+
+                    <div class="actions start wrap top-gap">
+                        <form method="post" action="/system/reload" class="inline-form">
+                            <button class="btn" type="submit">Runtime neu laden</button>
+                        </form>
                     </div>
                 </article>
 
@@ -280,12 +229,26 @@
                         <h2>Live-Konsole</h2>
                         <p class="muted">Aktuelle Log-Ausgabe aus dem Ringbuffer der Anwendung</p>
                     </div>
-                    <div class="console-toolbar-right">
-                        <label class="console-filter-label" for="logFilterInput">Filter</label>
-                        <input id="logFilterInput" class="console-filter-input" type="text" placeholder="Suche in Logzeilen …">
-                        <button id="clearFilterBtn" class="btn btn-secondary" type="button">Filter löschen</button>
-                        <button id="toggleScrollBtn" class="btn btn-secondary" type="button">STOPPEN SCROLLING</button>
-                        <button id="toggleConsoleBtn" class="btn btn-secondary" type="button">AUSBLENDEN LOGS</button>
+                    <div class="console-toolbar-controls">
+                        <div class="console-toolbar-right">
+                            <form method="post" action="/system/logging" class="inline-form console-loglevel-form">
+                                <label class="console-filter-label" for="consoleLogLevel">Log-Level</label>
+                                <select id="consoleLogLevel" name="log_level">
+                                    {% for item in allowed_log_levels %}
+                                    <option value="{{ item }}" {% if item == log_level %}selected{% endif %}>{{ item }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button class="btn btn-secondary" type="submit">Log-Level setzen</button>
+                            </form>
+                            <a class="btn btn-info" href="/api/logs/download">Log herunterladen</a>
+                        </div>
+                        <div class="console-toolbar-right">
+                            <label class="console-filter-label" for="logFilterInput">Filter</label>
+                            <input id="logFilterInput" class="console-filter-input" type="text" placeholder="Suche in Logzeilen …">
+                            <button id="clearFilterBtn" class="btn btn-secondary" type="button">Filter löschen</button>
+                            <button id="toggleScrollBtn" class="btn btn-secondary" type="button">STOPPEN SCROLLING</button>
+                            <button id="toggleConsoleBtn" class="btn btn-secondary" type="button">AUSBLENDEN LOGS</button>
+                        </div>
                     </div>
                 </div>
 
@@ -308,7 +271,8 @@
         const logFilterInput = document.getElementById("logFilterInput");
         const clearFilterBtn = document.getElementById("clearFilterBtn");
 
-        const hostHostname = document.getElementById("hostHostname");        const hostCpu = document.getElementById("hostCpu");
+        const hostHostname = document.getElementById("hostHostname");
+        const hostCpu = document.getElementById("hostCpu");
         const hostRam = document.getElementById("hostRam");
         const hostLoad = document.getElementById("hostLoad");
         const hostUptime = document.getElementById("hostUptime");
@@ -330,20 +294,12 @@
         const updateCommandWrap = document.getElementById("updateCommandWrap");
         const updateCommand = document.getElementById("updateCommand");
 
-        const updateRunnerStateBadge = document.getElementById("updateRunnerStateBadge");
-        const updateRunnerInstallMode = document.getElementById("updateRunnerInstallMode");
-        const updateRunnerTargetVersion = document.getElementById("updateRunnerTargetVersion");
-        const updateRunnerStartedAt = document.getElementById("updateRunnerStartedAt");
-        const updateRunnerFinishedAt = document.getElementById("updateRunnerFinishedAt");
-        const updateRunnerHelperPath = document.getElementById("updateRunnerHelperPath");
-        const updateRunnerMessage = document.getElementById("updateRunnerMessage");
-        const updateRunnerError = document.getElementById("updateRunnerError");
-        const updateRunnerLogLink = document.getElementById("updateRunnerLogLink");
 
         let autoScroll = true;
         let consoleVisible = true;
         let allLines = [];
         let lastUpdateStatus = null;
+        let lastUpdateRunnerStatus = null;
 
         function escapeHtml(text) {
             const div = document.createElement("div");
@@ -447,41 +403,27 @@
         }
 
         function renderUpdateRunnerStatus(data) {
-            const status = data && data.status ? data.status : "unknown";
-            const badgeMap = {
-                unavailable: { label: "Nicht bereit", className: "status-neutral" },
-                idle: { label: "Bereit", className: "status-info" },
-                starting: { label: "Startet …", className: "status-info" },
-                running: { label: "Läuft", className: "status-warn" },
-                success: { label: "Erfolgreich", className: "status-good" },
-                error: { label: "Fehler", className: "status-bad" }
-            };
-            const badge = badgeMap[status] || { label: status, className: "status-neutral" };
-
-            updateRunnerStateBadge.textContent = badge.label;
-            updateRunnerStateBadge.className = `status-pill ${badge.className}`;
-            updateRunnerInstallMode.textContent = data.install_mode || "—";
-            updateRunnerTargetVersion.textContent = data.target_version_full || data.available_release_version_full || "—";
-            updateRunnerStartedAt.textContent = formatDate(data.started_at);
-            updateRunnerFinishedAt.textContent = formatDate(data.finished_at);
-            updateRunnerHelperPath.textContent = data.helper_path || "—";
-            updateRunnerMessage.textContent = data.message || "—";
-            updateRunnerError.hidden = !data.last_error;
-            updateRunnerError.textContent = data.last_error || "";
-            updateRunnerLogLink.hidden = !data.running && !data.last_error;
+            lastUpdateRunnerStatus = data || {};
 
             const updateAvailable = lastUpdateStatus && lastUpdateStatus.status === "update_available";
-            const buttonEnabled = !!(data.can_start && updateAvailable);
-            updateInstallBtn.disabled = !buttonEnabled;
+            const canStart = !!(data && data.can_start && updateAvailable);
+            const running = !!(data && data.running);
+            const releaseLabel = (data && data.available_release_version_full) || (lastUpdateStatus && (lastUpdateStatus.release_version_full || lastUpdateStatus.release_tag));
 
-            if (data.running) {
+            if (running) {
                 updateInstallBtn.disabled = true;
                 updateInstallBtn.textContent = "Update läuft …";
-            } else if (buttonEnabled && data.available_release_version_full) {
-                updateInstallBtn.textContent = `Jetzt auf ${data.available_release_version_full} aktualisieren`;
-            } else {
-                updateInstallBtn.textContent = "Update starten";
+                return;
             }
+
+            if (canStart && releaseLabel) {
+                updateInstallBtn.disabled = false;
+                updateInstallBtn.textContent = `Jetzt auf ${releaseLabel} aktualisieren`;
+                return;
+            }
+
+            updateInstallBtn.disabled = true;
+            updateInstallBtn.textContent = "Update starten";
         }
 
         async function fetchHostStatus() {
@@ -531,9 +473,8 @@
                 const data = await response.json();
                 renderUpdateRunnerStatus(data);
             } catch (err) {
-                updateRunnerStateBadge.textContent = "Fehler";
-                updateRunnerStateBadge.className = "status-pill status-bad";
-                updateRunnerMessage.textContent = "Fehler beim Laden des Update-Status.";
+                updateInstallBtn.disabled = true;
+                updateInstallBtn.textContent = "Update starten";
             }
         }
 
@@ -558,9 +499,9 @@
                     window.location.href = data.progress_url;
                 }
             } catch (err) {
-                updateRunnerStateBadge.textContent = "Fehler";
-                updateRunnerStateBadge.className = "status-pill status-bad";
-                updateRunnerMessage.textContent = "Update konnte nicht gestartet werden.";
+                updateInstallBtn.disabled = false;
+                updateInstallBtn.textContent = "Update starten";
+                window.alert("Update konnte nicht gestartet werden.");
             }
         }
 

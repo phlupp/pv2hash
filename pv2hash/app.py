@@ -709,7 +709,6 @@ async def settings_page(request: Request):
         "request": request,
         "config": state.config,
         "saved": request.query_params.get("saved") == "1",
-        "allowed_log_levels": ("INFO", "DEBUG"),
     }
     return templates.TemplateResponse(
         request=request,
@@ -723,11 +722,6 @@ async def save_settings(request: Request):
     form = await request.form()
 
     state.config["system"]["instance_name"] = form.get("instance_name", "PV2Hash Node")
-    state.config["system"]["log_level"] = _normalize_log_level(form.get("log_level", state.config["system"].get("log_level", "INFO")))
-    state.config["system"]["check_updates"] = form.get("check_updates") == "on"
-    state.config["system"]["update_repo"] = (
-        str(form.get("update_repo", "phlupp/pv2hash")).strip() or "phlupp/pv2hash"
-    )
     state.config["app"]["refresh_seconds"] = _safe_int(form.get("refresh_seconds", 5), 5)
     state.config["control"]["policy_mode"] = form.get("policy_mode", "coarse")
     state.config["control"]["distribution_mode"] = form.get("distribution_mode", "equal")
@@ -757,10 +751,11 @@ async def save_settings(request: Request):
     save_config(state.config)
     setup_logging(state.config["system"].get("log_level", "INFO"))
     logger.info(
-        "Settings saved: log_level=%s check_updates=%s update_repo=%s",
-        state.config["system"].get("log_level", "INFO"),
-        state.config["system"].get("check_updates", True),
-        state.config["system"].get("update_repo", "phlupp/pv2hash"),
+        "Settings saved: instance=%s refresh_seconds=%s policy_mode=%s distribution_mode=%s",
+        state.config["system"].get("instance_name", "PV2Hash Node"),
+        state.config["app"].get("refresh_seconds", 5),
+        state.config["control"].get("policy_mode", "coarse"),
+        state.config["control"].get("distribution_mode", "equal"),
     )
     reload_runtime()
     return RedirectResponse(url="/settings?saved=1", status_code=303)

@@ -481,6 +481,23 @@ select:focus {
     font-size: 18px;
 }
 
+.console-toolbar-controls {
+    display: grid;
+    gap: 12px;
+    justify-items: end;
+}
+
+.console-loglevel-form {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.console-loglevel-form select {
+    min-width: 110px;
+}
+
 .console-toolbar-right {
     display: flex;
     align-items: center;
@@ -544,8 +561,16 @@ select:focus {
         align-items: stretch;
     }
 
+    .console-toolbar-controls {
+        justify-items: stretch;
+    }
+
     .console-toolbar-right {
         justify-content: flex-start;
+    }
+
+    .console-loglevel-form {
+        width: 100%;
     }
 
     .console-filter-input {
@@ -720,6 +745,10 @@ select:focus {
 
 .system-update-actions {
     gap: 12px;
+}
+
+.system-update-footer {
+    padding-top: 4px;
 }
 
 .update-head {
