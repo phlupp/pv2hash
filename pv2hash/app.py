@@ -705,6 +705,7 @@ async def dashboard(request: Request):
         "instance_name": state.config["system"]["instance_name"],
         "last_decision": state.last_decision,
         "last_decision_at_text": _format_local_time(state.last_decision_at),
+        "host_status": _get_host_status(),
         "last_reload_at": state.last_reload_at,
         "source_reloaded_at": state.source_reloaded_at,
         "last_live_packet_at": state.last_live_packet_at,
