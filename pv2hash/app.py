@@ -124,22 +124,53 @@ def _build_miner_gui_url(host: str | None) -> str | None:
 
 def _build_dashboard_miner_rows() -> list[dict]:
     rows: list[dict] = []
-    for miner in sorted(state.miners, key=lambda item: (item.priority, item.name.lower())):
-        runtime_state_normalized = str(miner.runtime_state or "unknown").lower()
+    runtime_map = {miner.id: miner for miner in state.miners}
+    config_miners = state.config.get("miners", []) if state.config else []
+
+    def _sort_key(miner_cfg: dict) -> tuple[int, int, str]:
+        return (
+            0 if bool(miner_cfg.get("enabled", True)) else 1,
+            int(miner_cfg.get("priority", 100)),
+            str(miner_cfg.get("name", "")).lower(),
+        )
+
+    for miner_cfg in sorted(config_miners, key=_sort_key):
+        runtime_miner = runtime_map.get(miner_cfg.get("id"))
+        enabled = bool(miner_cfg.get("enabled", True))
+        runtime_state_normalized = str(
+            getattr(runtime_miner, "runtime_state", "unknown") or "unknown"
+        ).lower()
         is_running = runtime_state_normalized not in {"paused", "stopped", "off", "idle", "unknown", "unreachable"}
+
+        host = getattr(runtime_miner, "host", None) or str(miner_cfg.get("host", "") or "")
+        name = getattr(runtime_miner, "name", None) or str(miner_cfg.get("name", "") or "")
+        priority = int(getattr(runtime_miner, "priority", miner_cfg.get("priority", 100)) or miner_cfg.get("priority", 100))
+
+        if runtime_miner is not None:
+            profile = str(runtime_miner.profile or "off")
+            power_text = f"{float(runtime_miner.power_w):.0f} W"
+            hashrate_text = _format_hashrate_text(getattr(runtime_miner, "current_hashrate_ghs", None))
+            reachable = bool(runtime_miner.reachable)
+        else:
+            profile = "off"
+            power_text = "0 W"
+            hashrate_text = "—"
+            reachable = False
+
         rows.append(
             {
-                "id": miner.id,
-                "name": miner.name,
-                "priority": miner.priority,
-                "host": miner.host,
-                "host_gui_url": _build_miner_gui_url(miner.host),
-                "profile": miner.profile,
-                "power_text": f"{float(miner.power_w):.0f} W",
-                "hashrate_text": _format_hashrate_text(getattr(miner, "current_hashrate_ghs", None)),
-                "enabled": bool(miner.enabled),
-                "reachable": bool(miner.reachable),
+                "id": str(miner_cfg.get("id", "")),
+                "name": name,
+                "priority": priority,
+                "host": host,
+                "host_gui_url": _build_miner_gui_url(host),
+                "profile": profile,
+                "power_text": power_text,
+                "hashrate_text": hashrate_text,
+                "enabled": enabled,
+                "reachable": reachable,
                 "is_running": is_running,
+                "action_label": "Pause" if enabled else "Aktivieren",
             }
         )
     return rows
@@ -815,7 +846,7 @@ async def dashboard(request: Request):
         "distribution_mode": state.config["control"]["distribution_mode"],
         "started_at": state.started_at,
         "instance_name": state.config["system"]["instance_name"],
-        "miner_paused": request.query_params.get("miner_paused") == "1",
+        "miner_action": request.query_params.get("miner_action", ""),
         "last_decision": state.last_decision,
         "last_decision_at_text": _format_local_time(state.last_decision_at),
         "controller_status": _build_controller_status(),
@@ -1166,27 +1197,36 @@ async def update_miner(request: Request):
     return RedirectResponse(url="/miners?saved=1", status_code=303)
 
 
-@app.post("/miners/pause")
-async def pause_miner_from_dashboard(
+@app.post("/miners/set-enabled")
+async def set_miner_enabled_from_dashboard(
     miner_id: str = Form(...),
+    enabled: str = Form(...),
     next_url: str = Form("/"),
 ):
     target_url = str(next_url or "/").strip() or "/"
+    desired_enabled = str(enabled).strip().lower() in {"1", "true", "on", "yes"}
     found = False
 
     for miner in state.config.get("miners", []):
         if miner.get("id") != miner_id:
             continue
-        miner["enabled"] = False
+        miner["enabled"] = desired_enabled
         found = True
-        logger.info("Miner paused from dashboard: id=%s name=%s host=%s", miner_id, miner.get("name"), miner.get("host"))
+        logger.info(
+            "Miner %s from dashboard: id=%s name=%s host=%s",
+            "activated" if desired_enabled else "paused",
+            miner_id,
+            miner.get("name"),
+            miner.get("host"),
+        )
         break
 
     if found:
         save_config(state.config)
         reload_runtime()
         separator = "&" if "?" in target_url else "?"
-        target_url = f"{target_url}{separator}miner_paused=1"
+        action_name = "enabled" if desired_enabled else "paused"
+        target_url = f"{target_url}{separator}miner_action={action_name}"
 
     return RedirectResponse(url=target_url, status_code=303)
 

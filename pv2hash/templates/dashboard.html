@@ -73,9 +73,13 @@
                 {% set battery_state_text = 'Keine Batteriedaten verfügbar' %}
             {% endif %}
             
-            {% if miner_paused %}
+            {% if miner_action == 'paused' %}
             <section class="alert success">
                 Miner deaktiviert und auf off/pause zurückgesetzt.
+            </section>
+            {% elif miner_action == 'enabled' %}
+            <section class="alert success">
+                Miner wieder aktiviert.
             </section>
             {% endif %}
 
@@ -209,17 +213,18 @@
                                 <td>{{ miner.power_text }}</td>
                                 <td>{{ miner.hashrate_text }}</td>
                                 <td>
-                                    <form method="post" action="/miners/pause" class="inline-form">
+                                    <form method="post" action="/miners/set-enabled" class="inline-form">
                                         <input type="hidden" name="miner_id" value="{{ miner.id }}">
+                                        <input type="hidden" name="enabled" value="{{ '0' if miner.enabled else '1' }}">
                                         <input type="hidden" name="next_url" value="/">
-                                        <button class="btn btn-secondary btn-small" type="submit">Pause</button>
+                                        <button class="btn btn-secondary btn-small" type="submit">{{ miner.action_label }}</button>
                                     </form>
                                 </td>
                             </tr>
                             {% endfor %}
                             {% if not dashboard_miners %}
                             <tr>
-                                <td colspan="8">Keine Miner aktiv.</td>
+                                <td colspan="8">Keine Miner konfiguriert.</td>
                             </tr>
                             {% endif %}
                         </tbody>
