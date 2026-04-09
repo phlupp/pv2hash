@@ -24,7 +24,7 @@ def get_local_ip_addresses() -> list[dict[str, Any]]:
             "ifname": "*",
             "family": "ipv4",
             "address": "0.0.0.0",
-            "label": "Alle Interfaces — 0.0.0.0 (IPv4)",
+            "label": "Automatisch — 0.0.0.0 (IPv4)",
         }
     ]
 

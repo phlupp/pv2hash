@@ -97,6 +97,8 @@ class SmaMeterProtocolSource(EnergySource):
             "multicast_ip": self.multicast_ip,
             "bind_port": self.bind_port,
             "interface_ip": self.interface_ip,
+            "effective_interface_ip": None,
+            "interface_fallback_active": False,
             "multicast_joined": False,
             "active_plus_w": None,
             "active_minus_w": None,
@@ -123,6 +125,27 @@ class SmaMeterProtocolSource(EnergySource):
 
         self.sock = self._create_socket()
 
+    def _join_multicast(self, sock: socket.socket, interface_ip: str) -> str:
+        requested_interface_ip = interface_ip.strip() or "0.0.0.0"
+
+        try:
+            membership = socket.inet_aton(self.multicast_ip) + socket.inet_aton(requested_interface_ip)
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
+            return requested_interface_ip
+        except OSError as exc:
+            if requested_interface_ip == "0.0.0.0":
+                raise
+
+            logger.warning(
+                "Configured SMA interface IP %s is not usable for multicast join (%s). Falling back to 0.0.0.0.",
+                requested_interface_ip,
+                exc,
+            )
+            membership = socket.inet_aton(self.multicast_ip) + socket.inet_aton("0.0.0.0")
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
+            self.debug_info["interface_fallback_active"] = True
+            return "0.0.0.0"
+
     def _create_socket(self) -> socket.socket:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -132,21 +155,18 @@ class SmaMeterProtocolSource(EnergySource):
         except OSError:
             sock.bind(("0.0.0.0", self.bind_port))
 
-        if self.interface_ip == "0.0.0.0":
-            membership = socket.inet_aton(self.multicast_ip) + socket.inet_aton("0.0.0.0")
-        else:
-            membership = socket.inet_aton(self.multicast_ip) + socket.inet_aton(self.interface_ip)
-
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
+        effective_interface_ip = self._join_multicast(sock, self.interface_ip)
         sock.settimeout(self.packet_timeout_seconds)
 
         self.debug_info["multicast_joined"] = True
+        self.debug_info["effective_interface_ip"] = effective_interface_ip
 
         logger.info(
-            "SMA meter protocol source initialized: multicast=%s port=%s interface=%s device_filter=%s",
+            "SMA meter protocol source initialized: multicast=%s port=%s interface=%s effective_interface=%s device_filter=%s",
             self.multicast_ip,
             self.bind_port,
             self.interface_ip,
+            effective_interface_ip,
             self.device_ip or "-",
         )
 

@@ -204,14 +204,14 @@
                                     </label>
 
                                     <label>
-                                        <span>Lokale Interface-IP</span>
+                                        <span>Lokale Interface-IP / Automatisch</span>
                                         {% set selected_ip = source_settings.interface_ip if source_settings and source_settings.interface_ip is defined else '0.0.0.0' %}
                                         <select name="interface_ip">
                                             {% for item in local_interface_ips %}
                                             <option value="{{ item.address }}" {% if item.address == selected_ip %}selected{% endif %}>{{ item.label }}</option>
                                             {% endfor %}
                                         </select>
-                                        <small class="help">Möglichst die echte IP im SMA-LAN wählen, nicht 0.0.0.0.</small>
+                                        <small class="help">Empfohlen: Automatisch (0.0.0.0). Eine feste IP nur bei mehreren Interfaces oder spezieller Netzwerkkonfiguration verwenden.</small>
                                     </label>
 
                                     <label>
