@@ -40,6 +40,23 @@
                 {% endif %}
             {% endfor %}
 
+            {% set battery_soc = snapshot.battery_soc_pct if snapshot and snapshot.battery_soc_pct is not none else none %}
+            {% set battery_charge_power = snapshot.battery_charge_power_w if snapshot and snapshot.battery_charge_power_w is not none else none %}
+            {% set battery_discharge_power = snapshot.battery_discharge_power_w if snapshot and snapshot.battery_discharge_power_w is not none else none %}
+            {% set battery_soc_class = '' %}
+            {% set battery_state_text = 'Batterie inaktiv' %}
+            {% if snapshot and snapshot.battery_is_charging and battery_charge_power is not none %}
+                {% set battery_soc_class = 'good' %}
+                {% set battery_state_text = 'Batterie wird geladen (' ~ ('%.0f'|format(battery_charge_power)) ~ ' W)' %}
+            {% elif snapshot and snapshot.battery_is_discharging and battery_discharge_power is not none %}
+                {% set battery_soc_class = 'warn' %}
+                {% set battery_state_text = 'Batterie wird entladen (' ~ ('%.0f'|format(battery_discharge_power)) ~ ' W)' %}
+            {% elif snapshot and snapshot.battery_is_active %}
+                {% set battery_state_text = 'Batterie aktiv' %}
+            {% elif battery_soc is none %}
+                {% set battery_state_text = 'Keine Batteriedaten verfügbar' %}
+            {% endif %}
+
             <header class="topbar">
                 <div>
                     <h1>Dashboard</h1>
@@ -147,64 +164,32 @@
             </section>
 
             <section class="grid grid-2 top-gap">
-                <article class="card">
-                    <div class="card-head">
-                        <h2>Energie</h2>
+                <article class="card dashboard-focus-card">
+                    <div class="dashboard-focus-head">
+                        <span class="label">Batterie</span>
                     </div>
-
-                    <div class="kv">
-                        <div class="kv-row">
-                            <span>Batterie SOC</span>
-                            <strong>
-                                {% if snapshot and snapshot.battery_soc_pct is not none %}
-                                    {{ "%.1f"|format(snapshot.battery_soc_pct) }} %
-                                {% else %}
-                                    —
-                                {% endif %}
-                            </strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Batterie lädt</span>
-                            <strong>{{ "%.0f"|format(snapshot.battery_charge_power_w) if snapshot and snapshot.battery_charge_power_w is not none else "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Batterie entlädt</span>
-                            <strong>{{ "%.0f"|format(snapshot.battery_discharge_power_w) if snapshot and snapshot.battery_discharge_power_w is not none else "—" }}</strong>
-                        </div>
+                    <div class="dashboard-focus-body">
+                        <strong class="dashboard-focus-value {{ battery_soc_class }}">
+                            {% if battery_soc is not none %}
+                                {{ "%.1f"|format(battery_soc) }} %
+                            {% else %}
+                                —
+                            {% endif %}
+                        </strong>
+                        <small class="dashboard-focus-meta">{{ battery_state_text }}</small>
                     </div>
                 </article>
 
-                <article class="card">
-                    <div class="card-head">
-                        <h2>System</h2>
+                <article class="card dashboard-focus-card">
+                    <div class="dashboard-focus-head">
+                        <span class="label">Host-System</span>
                     </div>
-
-                    <div class="kv">
-                        <div class="kv-row">
-                            <span>Instanz</span>
-                            <strong>{{ instance_name }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Verteilstrategie</span>
-                            <strong>{{ distribution_mode }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Policy</span>
-                            <strong>{{ policy_mode }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Letztes Live-Paket</span>
-                            <strong>{{ last_live_packet_at if last_live_packet_at else "—" }}</strong>
-                        </div>
-                        <div class="kv-row">
-                            <span>Letzter Reload</span>
-                            <strong>{{ last_reload_at }}</strong>
-                        </div>
+                    <div class="dashboard-focus-body">
+                        <strong class="dashboard-focus-value">
+                            CPU {{ host_status.cpu_percent_text }}
+                        </strong>
+                        <small class="dashboard-focus-meta">RAM {{ host_status.ram_text }}{% if host_status.ram_percent_text and host_status.ram_percent_text != '—' %} ({{ host_status.ram_percent_text }}){% endif %}</small>
                     </div>
-
-                    <form method="post" action="/system/reload" class="inline-form top-gap">
-                        <button class="btn" type="submit">Runtime neu laden</button>
-                    </form>
                 </article>
             </section>
         </main>
