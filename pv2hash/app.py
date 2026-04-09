@@ -524,6 +524,7 @@ def _resolve_miner_driver_label(driver: str | None) -> str:
     labels = {
         "simulator": "Simulator",
         "braiins": "Braiins OS+",
+        "whatsminer": "WhatsMiner",
     }
     return labels.get(normalized, normalized or "Unbekannt")
 
@@ -623,6 +624,8 @@ async def _shutdown_retired_miners(miners: list) -> None:
 def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
     if driver == "braiins":
         return 50051, 1200, 2200, 3200, 4200
+    if driver == "whatsminer":
+        return 4028, 1200, 2200, 3200, 4200
     return 4028, 900, 1800, 3000, 4200
 
 
@@ -676,6 +679,7 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
         "driver_labels": {
             "simulator": _resolve_miner_driver_label("simulator"),
             "braiins": _resolve_miner_driver_label("braiins"),
+            "whatsminer": _resolve_miner_driver_label("whatsminer"),
         },
         "wiki_links": {
             "overview": "https://github.com/phlupp/pv2hash/wiki/Miner",
@@ -683,6 +687,7 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
             "battery": "https://github.com/phlupp/pv2hash/wiki/Batterieverhalten",
             "simulator": "https://github.com/phlupp/pv2hash/wiki/Simulator-Miner",
             "braiins": "https://github.com/phlupp/pv2hash/wiki/Braiins-OS%2B",
+            "whatsminer": "https://github.com/phlupp/pv2hash/wiki/WhatsMiner",
         },
     }
 
@@ -708,6 +713,13 @@ def _build_miner_settings(
         elif existing.get("username"):
             settings["username"] = existing["username"]
 
+        if password_raw:
+            settings["password"] = password_raw
+        elif existing.get("password"):
+            settings["password"] = existing["password"]
+
+    if driver == "whatsminer":
+        password_raw = str(form.get("password", "")).strip()
         if password_raw:
             settings["password"] = password_raw
         elif existing.get("password"):
