@@ -1145,6 +1145,15 @@ select:focus {
     gap: 8px;
 }
 
+.miner-state-icons-table {
+    gap: 7px;
+    white-space: nowrap;
+}
+
+.miner-state-icons-table .status-dot {
+    box-shadow: none;
+}
+
 .status-dot {
     width: 11px;
     height: 11px;

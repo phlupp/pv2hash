@@ -97,6 +97,54 @@ def _format_controller_summary(summary: str | None) -> str:
     return text
 
 
+def _format_hashrate_text(current_hashrate_ghs: float | None) -> str:
+    if current_hashrate_ghs is None:
+        return "—"
+
+    try:
+        terahash_per_second = float(current_hashrate_ghs) / 1000.0
+    except Exception:
+        return "—"
+
+    if terahash_per_second >= 100:
+        return f"{terahash_per_second:.0f} TH/s"
+    if terahash_per_second >= 10:
+        return f"{terahash_per_second:.1f} TH/s"
+    return f"{terahash_per_second:.2f} TH/s"
+
+
+def _build_miner_gui_url(host: str | None) -> str | None:
+    value = str(host or "").strip()
+    if not value:
+        return None
+    if "://" in value:
+        return value
+    return f"http://{value}"
+
+
+def _build_dashboard_miner_rows() -> list[dict]:
+    rows: list[dict] = []
+    for miner in sorted(state.miners, key=lambda item: (item.priority, item.name.lower())):
+        runtime_state_normalized = str(miner.runtime_state or "unknown").lower()
+        is_running = runtime_state_normalized not in {"paused", "stopped", "off", "idle", "unknown", "unreachable"}
+        rows.append(
+            {
+                "id": miner.id,
+                "name": miner.name,
+                "priority": miner.priority,
+                "host": miner.host,
+                "host_gui_url": _build_miner_gui_url(miner.host),
+                "profile": miner.profile,
+                "power_text": f"{float(miner.power_w):.0f} W",
+                "hashrate_text": _format_hashrate_text(getattr(miner, "current_hashrate_ghs", None)),
+                "enabled": bool(miner.enabled),
+                "reachable": bool(miner.reachable),
+                "is_running": is_running,
+            }
+        )
+    return rows
+
+
 def _build_controller_status() -> dict:
     control_config = state.config.get("control", {}) if state.config else {}
     min_switch_interval = max(0.0, float(control_config.get("min_switch_interval_seconds", 0) or 0))
@@ -767,9 +815,11 @@ async def dashboard(request: Request):
         "distribution_mode": state.config["control"]["distribution_mode"],
         "started_at": state.started_at,
         "instance_name": state.config["system"]["instance_name"],
+        "miner_paused": request.query_params.get("miner_paused") == "1",
         "last_decision": state.last_decision,
         "last_decision_at_text": _format_local_time(state.last_decision_at),
         "controller_status": _build_controller_status(),
+        "dashboard_miners": _build_dashboard_miner_rows(),
         "host_status": _get_host_status(),
         "last_reload_at": state.last_reload_at,
         "source_reloaded_at": state.source_reloaded_at,
@@ -1114,6 +1164,31 @@ async def update_miner(request: Request):
     save_config(state.config)
     reload_runtime()
     return RedirectResponse(url="/miners?saved=1", status_code=303)
+
+
+@app.post("/miners/pause")
+async def pause_miner_from_dashboard(
+    miner_id: str = Form(...),
+    next_url: str = Form("/"),
+):
+    target_url = str(next_url or "/").strip() or "/"
+    found = False
+
+    for miner in state.config.get("miners", []):
+        if miner.get("id") != miner_id:
+            continue
+        miner["enabled"] = False
+        found = True
+        logger.info("Miner paused from dashboard: id=%s name=%s host=%s", miner_id, miner.get("name"), miner.get("host"))
+        break
+
+    if found:
+        save_config(state.config)
+        reload_runtime()
+        separator = "&" if "?" in target_url else "?"
+        target_url = f"{target_url}{separator}miner_paused=1"
+
+    return RedirectResponse(url=target_url, status_code=303)
 
 
 @app.post("/miners/delete")

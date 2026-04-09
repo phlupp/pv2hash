@@ -382,10 +382,12 @@ class BraiinsMiner(MinerAdapter):
         constraints = bundle.get("constraints") or {}
         details = bundle.get("details") or {}
         status_first = bundle.get("status_first") or {}
+        stats = bundle.get("stats") or {}
         errors = bundle.get("errors") or {}
         tuner_state = bundle.get("tuner_state") or {}
 
         self.info.api_version = self._format_api_version(api_version)
+        self.info.current_hashrate_ghs = self._extract_hashrate_ghs(stats)
 
         bos_version = details.get("bos_version") or {}
         current_fw = bos_version.get("current")
@@ -449,6 +451,7 @@ class BraiinsMiner(MinerAdapter):
     def _set_runtime_defaults(self) -> None:
         self.info.reachable = False
         self.info.runtime_state = "unknown"
+        self.info.current_hashrate_ghs = None
         self.info.api_version = None
         self.info.control_mode = None
         self.info.autotuning_enabled = None
@@ -534,6 +537,63 @@ class BraiinsMiner(MinerAdapter):
             preserving_proto_field_name=True,
             always_print_fields_with_no_presence=False,
         )
+
+    @staticmethod
+    def _extract_hashrate_ghs(stats: dict[str, Any]) -> float | None:
+        if not isinstance(stats, dict):
+            return None
+
+        miner_stats = stats.get("miner_stats") or {}
+        if not isinstance(miner_stats, dict):
+            return None
+
+        real_hashrate = miner_stats.get("real_hashrate") or {}
+        candidates = []
+        if isinstance(real_hashrate, dict):
+            candidates.extend(
+                [
+                    real_hashrate.get("last_1m"),
+                    real_hashrate.get("last_5m"),
+                    real_hashrate.get("last_5s"),
+                    real_hashrate.get("since_restart"),
+                ]
+            )
+        candidates.append(miner_stats.get("nominal_hashrate"))
+
+        for candidate in candidates:
+            value = BraiinsMiner._extract_hashrate_value_ghs(candidate)
+            if value is not None and value >= 0:
+                return value
+
+        return None
+
+    @staticmethod
+    def _extract_hashrate_value_ghs(node: Any) -> float | None:
+        if not isinstance(node, dict):
+            return None
+
+        gigahash = node.get("gigahash_per_second")
+        if gigahash not in (None, ""):
+            try:
+                return float(gigahash)
+            except Exception:
+                return None
+
+        terahash = node.get("terahash_per_second")
+        if terahash not in (None, ""):
+            try:
+                return float(terahash) * 1000.0
+            except Exception:
+                return None
+
+        megahash = node.get("megahash_per_second")
+        if megahash not in (None, ""):
+            try:
+                return float(megahash) / 1000.0
+            except Exception:
+                return None
+
+        return None
 
     @staticmethod
     def _format_api_version(api_version: dict[str, Any]) -> str | None:

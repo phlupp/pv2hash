@@ -45,6 +45,7 @@ class MinerInfo:
 
     reachable: bool = False
     runtime_state: str = "unknown"
+    current_hashrate_ghs: float | None = None
 
     api_version: str | None = None
     control_mode: str | None = None

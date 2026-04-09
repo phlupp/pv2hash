@@ -8,6 +8,22 @@
     <meta http-equiv="refresh" content="5">
 </head>
 <body>
+    {% macro inline_icon(name) -%}
+        {% if name == 'network' %}
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 5c-4.97 0-9 4.03-9 9h2.5a6.5 6.5 0 0 1 13 0H21c0-4.97-4.03-9-9-9Zm0 4a5 5 0 0 0-5 5h2.5a2.5 2.5 0 0 1 5 0H17a5 5 0 0 0-5-5Zm0 5.5a1.5 1.5 0 1 0 0 3a1.5 1.5 0 0 0 0-3Z"/>
+        </svg>
+        {% elif name == 'play' %}
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M8 6.5v11l9-5.5l-9-5.5Z"/>
+        </svg>
+        {% elif name == 'pause' %}
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M8 6h3.5v12H8zm4.5 0H16v12h-3.5z"/>
+        </svg>
+        {% endif %}
+    {%- endmacro %}
+
     <div class="layout">
         <aside class="sidebar">
             <div class="brand">
@@ -57,6 +73,12 @@
                 {% set battery_state_text = 'Keine Batteriedaten verfügbar' %}
             {% endif %}
             
+            {% if miner_paused %}
+            <section class="alert success">
+                Miner deaktiviert und auf off/pause zurückgesetzt.
+            </section>
+            {% endif %}
+
             <header class="topbar">
                 <div>
                     <h1>Dashboard</h1>
@@ -154,36 +176,48 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>Name</th>
                                 <th>Status</th>
-                                <th>Host</th>
-                                <th>Treiber</th>
+                                <th>Name</th>
+                                <th>Prio</th>
+                                <th>Host / IP</th>
                                 <th>Profil</th>
                                 <th>Leistung</th>
-                                <th>Seriennummer</th>
-                                <th>Firmware</th>
+                                <th>Aktuelle Hash-Rate</th>
+                                <th>Aktion</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for miner in miners %}
+                            {% for miner in dashboard_miners %}
                             <tr>
-                                <td>{{ miner.name }}</td>
                                 <td>
-                                    {% if miner.is_active|default(true) %}
-                                        <span class="pill">aktiv</span>
+                                    <span class="miner-state-icons miner-state-icons-table" aria-label="Minerstatus">
+                                        <span class="status-dot {% if miner.enabled %}is-enabled{% else %}is-disabled{% endif %}" title="Freigabe"></span>
+                                        <span class="status-icon status-icon-network {% if miner.reachable %}is-active{% else %}is-inactive{% endif %}" title="Erreichbarkeit">{{ inline_icon('network') }}</span>
+                                        <span class="status-icon status-icon-run {% if miner.is_running %}is-active{% else %}is-paused{% endif %}" title="Laufstatus">{{ inline_icon('play') if miner.is_running else inline_icon('pause') }}</span>
+                                    </span>
+                                </td>
+                                <td>{{ miner.name }}</td>
+                                <td>{{ miner.priority }}</td>
+                                <td>
+                                    {% if miner.host_gui_url %}
+                                    <a href="{{ miner.host_gui_url }}" target="_blank" rel="noopener">{{ miner.host }}</a>
                                     {% else %}
-                                        <span class="pill">inaktiv</span>
+                                    {{ miner.host or '—' }}
                                     {% endif %}
                                 </td>
-                                <td>{{ miner.host }}</td>
-                                <td>{{ miner.driver }}</td>
                                 <td><span class="pill">{{ miner.profile }}</span></td>
-                                <td>{{ "%.0f"|format(miner.power_w) }} W</td>
-                                <td>{{ miner.serial_number or "—" }}</td>
-                                <td>{{ miner.firmware_version or "—" }}</td>
+                                <td>{{ miner.power_text }}</td>
+                                <td>{{ miner.hashrate_text }}</td>
+                                <td>
+                                    <form method="post" action="/miners/pause" class="inline-form">
+                                        <input type="hidden" name="miner_id" value="{{ miner.id }}">
+                                        <input type="hidden" name="next_url" value="/">
+                                        <button class="btn btn-secondary btn-small" type="submit">Pause</button>
+                                    </form>
+                                </td>
                             </tr>
                             {% endfor %}
-                            {% if not miners %}
+                            {% if not dashboard_miners %}
                             <tr>
                                 <td colspan="8">Keine Miner aktiv.</td>
                             </tr>
