@@ -81,10 +81,7 @@
 
                     <section class="system-update-block">
                         <div class="update-head system-update-head">
-                            <div>
-                                <div class="update-title">Release-Stand</div>
-                                <div class="update-subtitle">GitHub Releases (Latest)</div>
-                            </div>
+                            <div class="update-subtitle">GitHub Releases (Latest)</div>
                             <div class="system-update-head-actions">
                                 <span id="updateStateBadge" class="status-pill">Prüfe …</span>
                                 <button id="checkUpdatesBtn" class="btn btn-secondary" type="button">Jetzt auf Updates prüfen</button>
@@ -209,15 +206,10 @@
                         </div>
                     </div>
 
-                    <div class="top-gap">
-                        <div class="update-title">Speicher</div>
-                        <div id="hostDiskList" class="kv top-gap-sm">
-                            {% for disk in host_status.disks %}
-                            <div class="kv-row">
-                                <span>{{ disk.label }}</span>
-                                <strong>{{ disk.used_text }} / {{ disk.total_text }} · {{ disk.percent_text }}</strong>
-                            </div>
-                            {% endfor %}
+                    <div class="kv top-gap">
+                        <div class="kv-row">
+                            <span>Speicher</span>
+                            <strong id="hostStorage">{{ host_status.storage.text }}{% if host_status.storage.percent_text and host_status.storage.percent_text != "—" %} · {{ host_status.storage.percent_text }}{% endif %}</strong>
                         </div>
                     </div>
                 </article>
@@ -278,7 +270,7 @@
         const hostUptime = document.getElementById("hostUptime");
         const hostPlatform = document.getElementById("hostPlatform");
         const hostPython = document.getElementById("hostPython");
-        const hostDiskList = document.getElementById("hostDiskList");
+        const hostStorage = document.getElementById("hostStorage");
 
         const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
         const updateInstallBtn = document.getElementById("updateInstallBtn");
@@ -327,13 +319,11 @@
             hostPlatform.textContent = data.platform_text || "—";
             hostPython.textContent = data.python_text || "—";
 
-            const disks = Array.isArray(data.disks) ? data.disks : [];
-            hostDiskList.innerHTML = disks.map((disk) => `
-                <div class="kv-row">
-                    <span>${escapeHtml(disk.label)}</span>
-                    <strong>${escapeHtml(disk.used_text)} / ${escapeHtml(disk.total_text)} · ${escapeHtml(disk.percent_text)}</strong>
-                </div>
-            `).join("") || '<div class="kv-row"><span>Speicherorte</span><strong>—</strong></div>';
+            const storageText = data.storage && data.storage.text ? data.storage.text : "—";
+            const storagePercentText = data.storage && data.storage.percent_text ? data.storage.percent_text : "—";
+            hostStorage.textContent = storagePercentText && storagePercentText !== "—"
+                ? `${storageText} · ${storagePercentText}`
+                : storageText;
         }
 
         function renderUpdateStatus(data) {

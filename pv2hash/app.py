@@ -215,33 +215,41 @@ def _read_uptime_seconds() -> float | None:
         return None
 
 
-def _build_disk_entries() -> list[dict]:
+def _build_storage_summary() -> dict:
     candidates = [
-        ("System", Path('/')),
-        ("Anwendung", Path.cwd()),
-        ("Daten", CONFIG_PATH.parent.resolve()),
+        Path('/'),
+        Path.cwd(),
+        CONFIG_PATH.parent.resolve(),
     ]
-    disks: list[dict] = []
-    seen: set[str] = set()
-    for label, target in candidates:
+    seen_devices: set[int] = set()
+    total_bytes = 0
+    used_bytes = 0
+
+    for target in candidates:
         try:
             resolved = target.resolve()
-            key = str(resolved)
-            if key in seen:
+            stat_result = resolved.stat()
+            device_id = int(stat_result.st_dev)
+            if device_id in seen_devices:
                 continue
             usage = shutil.disk_usage(resolved)
         except Exception:
             continue
-        seen.add(key)
-        percent = (usage.used / usage.total * 100.0) if usage.total else 0.0
-        disks.append({
-            'label': label,
-            'path': key,
-            'used_text': _format_bytes(usage.used),
-            'total_text': _format_bytes(usage.total),
-            'percent_text': f"{percent:.0f}%",
-        })
-    return disks
+
+        seen_devices.add(device_id)
+        total_bytes += usage.total
+        used_bytes += usage.used
+
+    percent = (used_bytes / total_bytes * 100.0) if total_bytes else None
+    return {
+        'used_bytes': used_bytes if total_bytes else None,
+        'total_bytes': total_bytes if total_bytes else None,
+        'used_text': _format_bytes(used_bytes) if total_bytes else '—',
+        'total_text': _format_bytes(total_bytes) if total_bytes else '—',
+        'text': f"{_format_bytes(used_bytes)} / {_format_bytes(total_bytes)}" if total_bytes else '—',
+        'percent': percent,
+        'percent_text': f"{percent:.0f}%" if percent is not None else '—',
+    }
 
 
 _HOST_CPU_SAMPLE: tuple[int, int] | None = None
@@ -300,7 +308,7 @@ def _get_host_status() -> dict:
         'uptime_text': _format_duration(_read_uptime_seconds()),
         'platform_text': f"{platform.system()} {platform.release()}",
         'python_text': sys.version.split()[0],
-        'disks': _build_disk_entries(),
+        'storage': _build_storage_summary(),
     }
 
 
