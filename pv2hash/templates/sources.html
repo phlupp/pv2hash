@@ -109,6 +109,12 @@
             </section>
             {% endif %}
 
+            {% if serial_required %}
+            <section class="alert error">
+                Für die Netz-Messung mit SMA Energy Meter muss ein konkretes SMA-Gerät per Seriennummer ausgewählt werden. Sobald OBIS-Telegramme empfangen wurden, erscheint die Auswahl automatisch in der Liste.
+            </section>
+            {% endif %}
+
             <form method="post" action="/sources">
                 <section class="grid grid-2 measurement-summary-grid">
                     <article class="card measurement-summary-card" id="napMeasurementCard" data-dirty-scope="nap" data-source-type="{{ source_type }}" data-source-device-label="{{ source_device_label or "" }}" data-source-serial="{{ source_device_serial_number or "" }}" data-source-susy="{{ source_device_susy_id or "" }}">
@@ -215,22 +221,24 @@
                                     </label>
 
                                     <label>
-                                        <span>SMA-Gerät / Seriennummer (empfohlen)</span>
+                                        <span>SMA-Gerät / Seriennummer</span>
                                         {% set selected_sma_serial = selected_sma_device_serial if selected_sma_device_serial is defined else (source_settings.device_serial_number if source_settings and source_settings.device_serial_number is defined else '') %}
                                         <select name="device_serial_number">
-                                            <option value="" {% if not selected_sma_serial %}selected{% endif %}>Kein Filter / erstes passendes SMA-Gerät</option>
+                                            {% if not selected_sma_serial %}
+                                            <option value="" selected disabled>SMA-Gerät auswählen …</option>
+                                            {% endif %}
                                             {% for item in sma_discovered_devices %}
                                             <option value="{{ item.serial_number }}" {% if item.serial_number == selected_sma_serial %}selected{% endif %}>{{ item.label }}</option>
                                             {% endfor %}
                                         </select>
-                                        <small class="help">Empfohlen bei mehreren SMA-Geräten. Die Seriennummer kann am Gerät abgelesen werden und bleibt auch bei DHCP-Wechsel stabil.</small>
+                                        <small class="help">Pflichtfeld für den SMA-Betrieb. Die Seriennummer kann am Gerät abgelesen werden und bleibt auch bei DHCP-Wechsel stabil.</small>
                                     </label>
 
-                                    <label>
-                                        <span>Geräte-IP-Filter (optional, Fallback)</span>
-                                        <input type="text" name="device_ip" value="{{ source_settings.device_ip if source_settings and source_settings.device_ip is defined else '' }}">
-                                        <small class="help">Nur noch als Fallback/Experteneinstellung. Wird nur verwendet, wenn keine Seriennummer ausgewählt ist.</small>
-                                    </label>
+                                    {% if not sma_discovered_devices %}
+                                    <div class="info-note form-grid-span-2">
+                                        Noch keine SMA-Geräte erkannt. Bitte kurz warten, bis OBIS-Telegramme empfangen wurden. Danach kann hier die Seriennummer des gewünschten Geräts ausgewählt werden.
+                                    </div>
+                                    {% endif %}
 
                                     <label>
                                         <span>Paket-Timeout (Sekunden)</span>

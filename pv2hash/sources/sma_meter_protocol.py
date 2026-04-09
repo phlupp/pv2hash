@@ -63,7 +63,6 @@ class SmaMeterProtocolSource(EnergySource):
         stale_after_seconds: float = 8.0,
         offline_after_seconds: float = 30.0,
         device_serial_number: str | int | None = "",
-        device_ip: str = "",
         debug_dump_obis: bool = False,
     ) -> None:
         self.multicast_ip = multicast_ip
@@ -73,7 +72,6 @@ class SmaMeterProtocolSource(EnergySource):
         self.stale_after_seconds = stale_after_seconds
         self.offline_after_seconds = offline_after_seconds
         self.device_serial_number = self._normalize_serial_number(device_serial_number)
-        self.device_ip = device_ip.strip()
         self._seen_devices: dict[str, dict] = {}
 
         self.last_snapshot: EnergySnapshot | None = None
@@ -97,7 +95,6 @@ class SmaMeterProtocolSource(EnergySource):
             "last_packet_decision": None,
             "last_packet_rejected_reason": None,
             "device_serial_number_filter": self.device_serial_number or None,
-            "device_ip_filter": self.device_ip or None,
             "seen_devices": [],
             "selected_device_name": None,
             "selected_device_susy_id": None,
@@ -169,13 +166,12 @@ class SmaMeterProtocolSource(EnergySource):
         self.debug_info["effective_interface_ip"] = effective_interface_ip
 
         logger.info(
-            "SMA meter protocol source initialized: multicast=%s port=%s interface=%s effective_interface=%s serial_filter=%s device_ip_filter=%s",
+            "SMA meter protocol source initialized: multicast=%s port=%s interface=%s effective_interface=%s serial_filter=%s",
             self.multicast_ip,
             self.bind_port,
             self.interface_ip,
             effective_interface_ip,
             self.device_serial_number or "-",
-            self.device_ip or "-",
         )
 
         return sock
@@ -209,16 +205,10 @@ class SmaMeterProtocolSource(EnergySource):
             self._store_seen_device(packet_meta, sender_ip)
 
             packet_serial = self._normalize_serial_number(packet_meta["serial_number"])
-            if self.device_serial_number:
-                if packet_serial != self.device_serial_number:
-                    self.debug_info["ignored_packets"] += 1
-                    self.debug_info["last_packet_decision"] = "filtered"
-                    self.debug_info["last_packet_rejected_reason"] = "serial_number_mismatch"
-                    return self._fallback_snapshot()
-            elif self.device_ip and sender_ip != self.device_ip:
+            if self.device_serial_number and packet_serial != self.device_serial_number:
                 self.debug_info["ignored_packets"] += 1
                 self.debug_info["last_packet_decision"] = "filtered"
-                self.debug_info["last_packet_rejected_reason"] = "sender_ip_mismatch"
+                self.debug_info["last_packet_rejected_reason"] = "serial_number_mismatch"
                 return self._fallback_snapshot()
 
             snapshot = self._parse_emeter_packet(data, proto_index=proto_index, packet_meta=packet_meta)
@@ -450,7 +440,7 @@ class SmaMeterProtocolSource(EnergySource):
             packet_meta["measuring_time_ms"],
             len(entries),
             sorted({entry["channel"] for entry in entries}),
-            self.device_serial_number or self.device_ip or "-",
+            self.device_serial_number or "-",
         )
         logger.debug(
             "grid_inputs has_active_plus=%s active_plus_w=%s has_active_minus=%s active_minus_w=%s",

@@ -23,7 +23,7 @@ DEFAULT_CONFIG = {
             "packet_timeout_seconds": 1.0,
             "stale_after_seconds": 8.0,
             "offline_after_seconds": 30.0,
-            "device_ip": "",
+            "device_serial_number": "",
             "debug_dump_obis": False,
             "simulator_import_power_w": 1000.0,
             "simulator_export_power_w": 10000.0,

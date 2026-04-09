@@ -1005,6 +1005,7 @@ async def sources_page(request: Request):
         "sma_discovered_devices": sma_discovered_devices,
         "selected_sma_device_serial": selected_sma_device_serial,
         "saved": request.query_params.get("saved") == "1",
+        "serial_required": request.query_params.get("serial_required") == "1",
         "local_interface_ips": get_local_ipv4_addresses(),
         "modbus_register_types": MODBUS_REGISTER_TYPES,
         "modbus_value_types": MODBUS_VALUE_TYPES,
@@ -1050,10 +1051,12 @@ async def save_source(request: Request):
     state.config["source"]["settings"]["offline_after_seconds"] = _safe_float(
         form.get("offline_after_seconds", 30.0), 30.0
     )
-    state.config["source"]["settings"]["device_serial_number"] = _normalize_sma_serial_number(
-        form.get("device_serial_number", "")
-    )
-    state.config["source"]["settings"]["device_ip"] = form.get("device_ip", "").strip()
+    selected_device_serial = _normalize_sma_serial_number(form.get("device_serial_number", ""))
+    if source_type == "sma_meter_protocol" and not selected_device_serial:
+        return RedirectResponse(url="/sources?serial_required=1", status_code=303)
+
+    state.config["source"]["settings"]["device_serial_number"] = selected_device_serial
+    state.config["source"]["settings"].pop("device_ip", None)
     state.config["source"]["settings"]["debug_dump_obis"] = form.get("debug_dump_obis") == "on"
     state.config["source"]["settings"]["simulator_import_power_w"] = _safe_float(
         form.get("simulator_import_power_w", 1000.0), 1000.0
