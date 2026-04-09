@@ -709,6 +709,7 @@ async def settings_page(request: Request):
         "request": request,
         "config": state.config,
         "saved": request.query_params.get("saved") == "1",
+        "allowed_log_levels": ("INFO", "DEBUG"),
     }
     return templates.TemplateResponse(
         request=request,

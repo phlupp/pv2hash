@@ -79,109 +79,113 @@
                         <h2>Updates &amp; Wartung</h2>
                     </div>
 
-                    <div class="actions start wrap">
-                        <form method="post" action="/system/reload" class="inline-form">
-                            <button class="btn" type="submit">Runtime neu laden</button>
-                        </form>
+                    <div class="system-update-layout">
+                        <section class="system-update-block">
+                            <div class="update-head">
+                                <div>
+                                    <div class="update-title">Wartung</div>
+                                    <div class="update-subtitle">Direkte Aktionen auf der laufenden Instanz</div>
+                                </div>
+                            </div>
 
-                        <form method="post" action="/system/logging" class="inline-form">
-                            <label for="logLevelSelect" class="sr-only">Log-Level</label>
-                            <select id="logLevelSelect" name="log_level">
-                                {% for item in allowed_log_levels %}
-                                <option value="{{ item }}" {% if item == log_level %}selected{% endif %}>{{ item }}</option>
-                                {% endfor %}
-                            </select>
-                            <button class="btn btn-secondary" type="submit">Log-Level setzen</button>
-                        </form>
+                            <div class="actions start wrap system-update-actions">
+                                <form method="post" action="/system/reload" class="inline-form">
+                                    <button class="btn" type="submit">Runtime neu laden</button>
+                                </form>
+                                <a class="btn btn-info" href="/api/logs/download">Log herunterladen</a>
+                            </div>
+                        </section>
 
-                        <button id="checkUpdatesBtn" class="btn btn-secondary" type="button">Jetzt auf Updates prüfen</button>
-                        <button id="updateInstallBtn" class="btn btn-warning" type="button">Update starten</button>
-                        <a class="btn btn-info" href="/api/logs/download">Log herunterladen</a>
-                    </div>
+                        <section class="system-update-block">
+                            <div class="update-head system-update-head">
+                                <div>
+                                    <div class="update-title">Release-Stand</div>
+                                    <div class="update-subtitle">GitHub Releases (Latest)</div>
+                                </div>
+                                <div class="system-update-head-actions">
+                                    <span id="updateStateBadge" class="status-pill">Prüfe …</span>
+                                    <button id="checkUpdatesBtn" class="btn btn-secondary" type="button">Jetzt auf Updates prüfen</button>
+                                </div>
+                            </div>
 
-                    <div class="update-panel top-gap">
-                        <div class="update-head">
-                            <div>
-                                <div class="update-title">Release-Stand</div>
-                                <div class="update-subtitle">GitHub Releases (Latest)</div>
+                            <div class="kv update-kv">
+                                <div class="kv-row">
+                                    <span>Lokale Version</span>
+                                    <strong id="updateLocalVersion">{{ update_status.local_version_full or app_version_full }}</strong>
+                                </div>
+                                <div class="kv-row">
+                                    <span>Release-Version</span>
+                                    <strong id="updateReleaseVersion">{{ update_status.release_version_full or "—" }}</strong>
+                                </div>
+                                <div class="kv-row">
+                                    <span>Release-Tag</span>
+                                    <strong id="updateReleaseTag">{{ update_status.release_tag or "—" }}</strong>
+                                </div>
+                                <div class="kv-row">
+                                    <span>Geprüft am</span>
+                                    <strong id="updateCheckedAt">{{ update_status.checked_at or "—" }}</strong>
+                                </div>
+                                <div class="kv-row">
+                                    <span>Veröffentlicht am</span>
+                                    <strong id="updatePublishedAt">{{ update_status.release_published_at or "—" }}</strong>
+                                </div>
                             </div>
-                            <span id="updateStateBadge" class="status-pill">Prüfe …</span>
-                        </div>
 
-                        <div class="kv update-kv">
-                            <div class="kv-row">
-                                <span>Lokale Version</span>
-                                <strong id="updateLocalVersion">{{ update_status.local_version_full or app_version_full }}</strong>
-                            </div>
-                            <div class="kv-row">
-                                <span>Release-Version</span>
-                                <strong id="updateReleaseVersion">{{ update_status.release_version_full or "—" }}</strong>
-                            </div>
-                            <div class="kv-row">
-                                <span>Release-Tag</span>
-                                <strong id="updateReleaseTag">{{ update_status.release_tag or "—" }}</strong>
-                            </div>
-                            <div class="kv-row">
-                                <span>Geprüft am</span>
-                                <strong id="updateCheckedAt">{{ update_status.checked_at or "—" }}</strong>
-                            </div>
-                            <div class="kv-row">
-                                <span>Veröffentlicht am</span>
-                                <strong id="updatePublishedAt">{{ update_status.release_published_at or "—" }}</strong>
-                            </div>
-                        </div>
+                            <div id="updateMessage" class="update-message">Lade Update-Status …</div>
+                            <div id="updateError" class="update-error" hidden></div>
 
-                        <div id="updateMessage" class="update-message">Lade Update-Status …</div>
-                        <div id="updateError" class="update-error" hidden></div>
-
-                        <div class="update-links">
-                            <a id="updateReleaseLink" class="link-muted" href="#" target="_blank" rel="noopener" hidden>Release auf GitHub öffnen</a>
-                        </div>
-
-                        <div id="updateCommandWrap" class="update-command-wrap" hidden>
-                            <div class="update-command-label">Installationsbefehl für dieses Release</div>
-                            <code id="updateCommand" class="update-command"></code>
-                        </div>
-                    </div>
-
-                    <div class="update-panel top-gap update-divider">
-                        <div class="update-head">
-                            <div>
-                                <div class="update-title">Update über Weboberfläche</div>
-                                <div class="update-subtitle">Manuell gestartetes Update über den Release-Installer</div>
+                            <div class="update-links">
+                                <a id="updateReleaseLink" class="link-muted" href="#" target="_blank" rel="noopener" hidden>Release auf GitHub öffnen</a>
                             </div>
-                            <span id="updateRunnerStateBadge" class="status-pill">Prüfe …</span>
-                        </div>
 
-                        <div class="kv update-kv">
-                            <div class="kv-row">
-                                <span>Installationsmodus</span>
-                                <strong id="updateRunnerInstallMode">{{ update_runner_status.install_mode or "—" }}</strong>
+                            <div id="updateCommandWrap" class="update-command-wrap" hidden>
+                                <div class="update-command-label">Installationsbefehl für dieses Release</div>
+                                <code id="updateCommand" class="update-command"></code>
                             </div>
-                            <div class="kv-row">
-                                <span>Ziel-Release</span>
-                                <strong id="updateRunnerTargetVersion">{{ update_runner_status.target_version_full or update_runner_status.available_release_version_full or "—" }}</strong>
-                            </div>
-                            <div class="kv-row">
-                                <span>Gestartet am</span>
-                                <strong id="updateRunnerStartedAt">{{ update_runner_status.started_at or "—" }}</strong>
-                            </div>
-                            <div class="kv-row">
-                                <span>Beendet am</span>
-                                <strong id="updateRunnerFinishedAt">{{ update_runner_status.finished_at or "—" }}</strong>
-                            </div>
-                            <div class="kv-row">
-                                <span>Update-Helper</span>
-                                <strong id="updateRunnerHelperPath">{{ update_runner_status.helper_path or "—" }}</strong>
-                            </div>
-                        </div>
+                        </section>
 
-                        <div id="updateRunnerMessage" class="update-message">Lade Update-Status …</div>
-                        <div id="updateRunnerError" class="update-error" hidden></div>
+                        <section class="system-update-block">
+                            <div class="update-head system-update-head">
+                                <div>
+                                    <div class="update-title">Update über Weboberfläche</div>
+                                    <div class="update-subtitle">Manuell gestartetes Update über den Release-Installer</div>
+                                </div>
+                                <div class="system-update-head-actions">
+                                    <span id="updateRunnerStateBadge" class="status-pill">Prüfe …</span>
+                                    <button id="updateInstallBtn" class="btn btn-warning" type="button">Update starten</button>
+                                </div>
+                            </div>
 
-                        <div class="update-links">
-                            <a id="updateRunnerLogLink" class="link-muted" href="/api/logs/download" hidden>PV2Hash-Log herunterladen</a>
-                        </div>
+                            <div class="kv update-kv">
+                                <div class="kv-row">
+                                    <span>Installationsmodus</span>
+                                    <strong id="updateRunnerInstallMode">{{ update_runner_status.install_mode or "—" }}</strong>
+                                </div>
+                                <div class="kv-row">
+                                    <span>Ziel-Release</span>
+                                    <strong id="updateRunnerTargetVersion">{{ update_runner_status.target_version_full or update_runner_status.available_release_version_full or "—" }}</strong>
+                                </div>
+                                <div class="kv-row">
+                                    <span>Gestartet am</span>
+                                    <strong id="updateRunnerStartedAt">{{ update_runner_status.started_at or "—" }}</strong>
+                                </div>
+                                <div class="kv-row">
+                                    <span>Beendet am</span>
+                                    <strong id="updateRunnerFinishedAt">{{ update_runner_status.finished_at or "—" }}</strong>
+                                </div>
+                                <div class="kv-row">
+                                    <span>Update-Helper</span>
+                                    <strong id="updateRunnerHelperPath">{{ update_runner_status.helper_path or "—" }}</strong>
+                                </div>
+                            </div>
+
+                            <div id="updateRunnerMessage" class="update-message">Lade Update-Status …</div>
+                            <div id="updateRunnerError" class="update-error" hidden></div>
+
+                            <div class="update-links">
+                                <a id="updateRunnerLogLink" class="link-muted" href="/api/logs/download" hidden>PV2Hash-Log herunterladen</a>
+                            </div>
+                        </section>
                     </div>
                 </article>
             </section>

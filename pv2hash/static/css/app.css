@@ -677,11 +677,49 @@ select:focus {
     .log-col-message {
         white-space: normal;
     }
+
+    .system-update-head {
+        align-items: flex-start;
+    }
+
+    .system-update-head-actions {
+        justify-content: flex-start;
+    }
 }
 
 .update-panel {
     display: grid;
     gap: 14px;
+}
+
+.system-update-layout {
+    display: grid;
+    gap: 16px;
+}
+
+.system-update-block {
+    display: grid;
+    gap: 14px;
+    padding: 16px 18px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: rgba(255,255,255,.03);
+}
+
+.system-update-head {
+    gap: 16px;
+}
+
+.system-update-head-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.system-update-actions {
+    gap: 12px;
 }
 
 .update-head {
