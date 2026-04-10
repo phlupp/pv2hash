@@ -293,12 +293,11 @@ class WhatsminerMiner(MinerAdapter):
             )
 
         token_reply = self._read_command_sync("get_token")
-        token_msg = token_reply.get("Msg") or {}
-        token_time = str(token_msg.get("time", "")).strip()
-        salt = str(token_msg.get("salt", "")).strip()
-        newsalt = str(token_msg.get("newsalt", "")).strip()
+        token_time, salt, newsalt = self._extract_token_fields(token_reply)
         if not token_time or not salt or not newsalt:
-            raise RuntimeError("WhatsMiner get_token lieferte unvollständige Token-Daten")
+            raise RuntimeError(
+                f"WhatsMiner get_token lieferte unvollständige Token-Daten: {token_reply!r}"
+            )
 
         key = self._openssl_md5_crypt_fragment(salt=salt, value=self.password)
         sign = self._openssl_md5_crypt_fragment(salt=newsalt, value=f"{key}{token_time[-4:]}")
@@ -354,6 +353,46 @@ class WhatsminerMiner(MinerAdapter):
         if not isinstance(parsed, dict):
             raise RuntimeError(f"Unerwartetes WhatsMiner-Antwortformat: {parsed!r}")
         return parsed
+
+    def _extract_token_fields(self, token_reply: dict[str, Any]) -> tuple[str, str, str]:
+        sources: list[Any] = [token_reply]
+
+        msg = token_reply.get("Msg")
+        if msg not in (None, ""):
+            sources.append(msg)
+
+        for source in sources:
+            token_time, salt, newsalt = self._extract_token_fields_from_value(source)
+            if token_time and salt and newsalt:
+                return token_time, salt, newsalt
+
+        return "", "", ""
+
+    def _extract_token_fields_from_value(self, value: Any) -> tuple[str, str, str]:
+        if isinstance(value, dict):
+            token_time = str(value.get("time", "")).strip()
+            salt = str(value.get("salt", "")).strip()
+            newsalt = str(value.get("newsalt", "")).strip()
+            return token_time, salt, newsalt
+
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return "", "", ""
+
+            try:
+                parsed = json.loads(stripped)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                return self._extract_token_fields_from_value(parsed)
+
+            parts = stripped.replace("|", " ").split()
+            if len(parts) >= 3:
+                return parts[0].strip(), parts[1].strip(), parts[2].strip()
+
+        return "", "", ""
+
 
     def _validate_command_ok(self, response: dict[str, Any]) -> None:
         code = self._safe_int(response.get("Code"), None)
