@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import hashlib
 import json
 import socket
@@ -29,15 +28,19 @@ class WhatsminerMiner(MinerAdapter):
     Write path:
     - power_off
     - power_on
-    - preferred: set_power_value / set_power_limit (best-effort, firmware dependent)
-    - fallback: set_power_pct
+    - power value only (no percent fallback)
 
     Notes:
-    - Readable API is sent in plaintext JSON over TCP/4028.
+    - Readable API is sent as plaintext JSON over TCP/4028.
     - Writable API uses the documented get_token + encrypted payload flow.
-    - The exact watt command differs between firmware generations, so several
-      compatible candidates are tried before falling back to percent mode.
+    - The exact power-value command name differs by firmware/API generation,
+      therefore a small list of power-value command candidates is tried.
     """
+
+    POWER_VALUE_COMMAND_CANDIDATES = (
+        "set_power_value",
+        "set_miner_power",
+    )
 
     def __init__(
         self,
@@ -107,7 +110,7 @@ class WhatsminerMiner(MinerAdapter):
             use_battery_when_discharging=bool(use_battery_when_discharging),
             battery_discharge_soc_min=float(battery_discharge_soc_min),
             battery_discharge_profile=battery_discharge_profile,
-            control_mode="power_limit",
+            control_mode="power_value",
         )
 
         self._set_runtime_defaults()
@@ -155,7 +158,7 @@ class WhatsminerMiner(MinerAdapter):
         self.info.runtime_state = "unknown"
         self.info.current_hashrate_ghs = None
         self.info.api_version = None
-        self.info.control_mode = self.info.control_mode or "power_limit"
+        self.info.control_mode = self.info.control_mode or "power_value"
         self.info.autotuning_enabled = None
         self.info.power_target_min_w = None
         self.info.power_target_default_w = None
@@ -169,20 +172,15 @@ class WhatsminerMiner(MinerAdapter):
         self.info.last_error = message
 
     def _fetch_bundle_sync(self) -> dict[str, Any]:
-        summary = self._read_command_sync("summary")
-        status = self._read_command_sync("status")
-        version = self._read_command_sync("get_version")
-        devdetails = self._read_command_sync("devdetails")
         return {
-            "summary": summary,
-            "status": status,
-            "version": version,
-            "devdetails": devdetails,
+            "summary": self._read_command_sync("summary"),
+            "status": self._read_command_sync("status"),
+            "version": self._read_command_sync("get_version"),
+            "devdetails": self._read_command_sync("devdetails"),
         }
 
     def _apply_bundle(self, bundle: dict[str, Any]) -> None:
         self._set_runtime_defaults()
-
         self.info.last_seen = datetime.now(UTC)
         self.info.reachable = True
         self.info.is_active = bool(self.info.enabled)
@@ -196,13 +194,10 @@ class WhatsminerMiner(MinerAdapter):
         version_msg = version.get("Msg") or {}
         details_rows = devdetails.get("DEVDETAILS") or []
 
-        model_name = None
         for item in details_rows:
             if isinstance(item, dict) and item.get("Model"):
-                model_name = str(item.get("Model"))
+                self.info.model = str(item.get("Model"))
                 break
-        if model_name:
-            self.info.model = model_name
 
         api_ver = version_msg.get("api_ver")
         if api_ver is not None:
@@ -212,16 +207,12 @@ class WhatsminerMiner(MinerAdapter):
         if fw_ver:
             self.info.firmware_version = str(fw_ver)
 
-        hashrate_mhs = self._safe_float(
-            summary_row.get("HS RT", summary_row.get("MHS av")),
-            None,
-        )
+        hashrate_mhs = self._safe_float(summary_row.get("HS RT", summary_row.get("MHS av")), None)
         if hashrate_mhs is not None:
             self.info.current_hashrate_ghs = hashrate_mhs / 1000.0
 
         actual_power_w = self._safe_float(summary_row.get("Power"), None)
         power_limit_w = self._safe_float(summary_row.get("Power Limit"), None)
-
         if power_limit_w is not None:
             self.info.power_target_default_w = power_limit_w
             self.info.power_w = power_limit_w
@@ -239,9 +230,7 @@ class WhatsminerMiner(MinerAdapter):
             self.info.profile = "off"
         else:
             self.info.runtime_state = "running"
-            inferred_profile = self._infer_profile_from_power(
-                power_limit_w if power_limit_w is not None else actual_power_w
-            )
+            inferred_profile = self._infer_profile_from_power(power_limit_w if power_limit_w is not None else actual_power_w)
             if inferred_profile:
                 self.info.profile = inferred_profile
 
@@ -256,43 +245,28 @@ class WhatsminerMiner(MinerAdapter):
             self._write_command_sync("power_on")
 
         desired_w_int = max(1, int(round(desired_w)))
-        percent = self._desired_power_to_percent(desired_w_int)
-
-        candidates = [
-            ("set_power_value", [str(desired_w_int)], "power_value"),
-            ("set_power_limit", [str(desired_w_int)], "power_limit"),
-            ("set_power_pct", [str(percent)], "power_pct"),
-        ]
-
         last_error: Exception | None = None
-        for cmd, params, mode in candidates:
+        for cmd in self.POWER_VALUE_COMMAND_CANDIDATES:
             try:
-                response = self._write_command_sync(cmd, params)
+                response = self._write_command_sync(cmd, [str(desired_w_int)])
                 self._validate_command_ok(response)
-                self.info.control_mode = mode
+                self.info.control_mode = "power_value"
                 return
             except Exception as exc:
                 last_error = exc
                 logger.info(
-                    "WhatsMiner command candidate failed for %s (%s:%s): cmd=%s params=%s error=%s",
+                    "WhatsMiner power-value command candidate failed for %s (%s:%s): cmd=%s value=%s error=%s",
                     self.info.name,
                     self.host,
                     self.port,
                     cmd,
-                    params,
+                    desired_w_int,
                     exc,
                 )
 
         if last_error is None:
-            raise RuntimeError("No WhatsMiner write command candidate available")
+            raise RuntimeError("No WhatsMiner power-value command candidate available")
         raise last_error
-
-    def _desired_power_to_percent(self, desired_w: int) -> int:
-        reference_w = self.get_profile_power_w("p4") or 0.0
-        if reference_w <= 0:
-            reference_w = float(desired_w)
-        percent = int(round((float(desired_w) / float(reference_w)) * 100.0))
-        return max(1, min(100, percent))
 
     def _infer_profile_from_power(self, power_w: float | None) -> str | None:
         if power_w is None or power_w <= 0:
@@ -306,7 +280,6 @@ class WhatsminerMiner(MinerAdapter):
 
         if not candidates:
             return None
-
         candidates.sort(key=lambda item: item[0])
         return candidates[0][1]
 
@@ -321,7 +294,6 @@ class WhatsminerMiner(MinerAdapter):
 
         token_reply = self._read_command_sync("get_token")
         token_msg = token_reply.get("Msg") or {}
-
         token_time = str(token_msg.get("time", "")).strip()
         salt = str(token_msg.get("salt", "")).strip()
         newsalt = str(token_msg.get("newsalt", "")).strip()
@@ -329,7 +301,7 @@ class WhatsminerMiner(MinerAdapter):
             raise RuntimeError("WhatsMiner get_token lieferte unvollständige Token-Daten")
 
         key = self._openssl_md5_crypt_fragment(salt=salt, value=self.password)
-        sign = self._openssl_md5_crypt_fragment(salt=newsalt, value=f"{key}{token_time}")
+        sign = self._openssl_md5_crypt_fragment(salt=newsalt, value=f"{key}{token_time[-4:]}")
         aes_key_hex = hashlib.sha256(key.encode("utf-8")).hexdigest()
 
         api_parts = [cmd]
@@ -347,12 +319,10 @@ class WhatsminerMiner(MinerAdapter):
 
     def _send_tcp_json_sync(self, payload: dict[str, Any]) -> dict[str, Any]:
         data = json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
-
         with socket.create_connection((self.host, self.port), timeout=self.timeout_s) as sock:
             sock.settimeout(self.timeout_s)
             sock.sendall(data)
             raw = self._recv_all(sock)
-
         return self._parse_json_payload(raw)
 
     def _recv_all(self, sock: socket.socket) -> str:
@@ -371,7 +341,6 @@ class WhatsminerMiner(MinerAdapter):
         cleaned = raw.replace("\x00", "").strip()
         if not cleaned:
             raise RuntimeError("Leere Antwort vom WhatsMiner API-Port")
-
         try:
             parsed = json.loads(cleaned)
         except json.JSONDecodeError:
@@ -382,7 +351,6 @@ class WhatsminerMiner(MinerAdapter):
             if start == -1 or end == -1 or end <= start:
                 raise RuntimeError(f"Ungültige WhatsMiner-Antwort: {cleaned!r}") from None
             parsed = json.loads(cleaned[start:end + 1])
-
         if not isinstance(parsed, dict):
             raise RuntimeError(f"Unerwartetes WhatsMiner-Antwortformat: {parsed!r}")
         return parsed
@@ -419,16 +387,7 @@ class WhatsminerMiner(MinerAdapter):
 
     def _openssl_aes256_ecb_encrypt_base64(self, aes_key_hex: str, plaintext: str) -> str:
         result = subprocess.run(
-            [
-                "openssl",
-                "enc",
-                "-aes-256-ecb",
-                "-nosalt",
-                "-K",
-                aes_key_hex,
-                "-base64",
-                "-A",
-            ],
+            ["openssl", "enc", "-aes-256-ecb", "-nosalt", "-K", aes_key_hex, "-base64", "-A"],
             input=plaintext.encode("utf-8"),
             capture_output=True,
             check=True,
@@ -437,17 +396,7 @@ class WhatsminerMiner(MinerAdapter):
 
     def _openssl_aes256_ecb_decrypt_base64(self, aes_key_hex: str, encoded: str) -> str:
         result = subprocess.run(
-            [
-                "openssl",
-                "enc",
-                "-d",
-                "-aes-256-ecb",
-                "-nosalt",
-                "-K",
-                aes_key_hex,
-                "-base64",
-                "-A",
-            ],
+            ["openssl", "enc", "-d", "-aes-256-ecb", "-nosalt", "-K", aes_key_hex, "-base64", "-A"],
             input=encoded.encode("utf-8"),
             capture_output=True,
             check=True,

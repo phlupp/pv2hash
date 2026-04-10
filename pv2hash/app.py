@@ -719,7 +719,7 @@ def _build_miner_settings(
             settings["password"] = existing["password"]
 
     if driver == "whatsminer":
-        password_raw = str(form.get("password", "")).strip()
+        password_raw = str(form.get("whatsminer_password", "")).strip()
         if password_raw:
             settings["password"] = password_raw
         elif existing.get("password"):
