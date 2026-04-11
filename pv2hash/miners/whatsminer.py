@@ -217,7 +217,12 @@ class WhatsminerMiner(MinerAdapter):
         if hashrate_mhs is not None:
             self.info.current_hashrate_ghs = hashrate_mhs / 1000.0
 
-        actual_power_w = self._safe_float(summary_row.get("Power"), None)
+        actual_power_w = self._safe_float(
+            summary_row.get("PowerRT", summary_row.get("Power RT", summary_row.get("Power"))),
+            None,
+        )
+        if actual_power_w is None:
+            actual_power_w = self._safe_float(summary_row.get("Power_Avg", summary_row.get("Power Avg")), None)
         power_limit_w = self._safe_float(summary_row.get("Power Limit"), None)
         if power_limit_w is not None:
             self.info.power_target_default_w = power_limit_w
@@ -281,10 +286,11 @@ class WhatsminerMiner(MinerAdapter):
                 raise RuntimeError("No WhatsMiner power-value command candidate available")
             raise last_error
 
-        if self.info.runtime_state in {"paused", "stopped", "unknown"}:
+        miner_is_off = self._is_btminer_off(timeout_s=0.8)
+        if miner_is_off:
             self._write_command_sync(
                 "power_on",
-                verifier=lambda: self._verify_power_state(expected_off=False, timeout_s=8.0),
+                verifier=lambda: self._verify_power_state(expected_off=False, timeout_s=20.0),
             )
 
     def _infer_profile_from_power(self, power_w: float | None) -> str | None:
@@ -614,6 +620,24 @@ class WhatsminerMiner(MinerAdapter):
             if not chunk:
                 break
             chunks.append(chunk)
+            raw = b"".join(chunks).decode("utf-8", errors="replace")
+            cleaned = raw.replace("\x00", "").strip()
+            if not cleaned:
+                continue
+            if cleaned.startswith("enc|"):
+                return raw
+            try:
+                json.loads(cleaned)
+                return raw
+            except Exception:
+                start = cleaned.find("{")
+                end = cleaned.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    try:
+                        json.loads(cleaned[start:end + 1])
+                        return raw
+                    except Exception:
+                        pass
         return b"".join(chunks).decode("utf-8", errors="replace")
 
     def _parse_json_payload(self, raw: str) -> dict[str, Any]:
@@ -719,6 +743,13 @@ class WhatsminerMiner(MinerAdapter):
                 pass
             time.sleep(0.25)
         return False
+
+    def _is_btminer_off(self, *, timeout_s: float = 0.8) -> bool:
+        try:
+            status = self._read_command_sync("status", timeout_s=timeout_s)
+            return str(status.get("btmineroff", "")).strip().lower() == "true"
+        except Exception:
+            return self.info.runtime_state in {"paused", "stopped", "unknown"}
 
     def _openssl_md5_crypt_output(self, *, salt: str, value: str) -> str:
         result = subprocess.run(
