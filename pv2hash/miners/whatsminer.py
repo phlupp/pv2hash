@@ -121,6 +121,7 @@ class WhatsminerMiner(MinerAdapter):
         )
 
         self._set_runtime_defaults()
+        self._last_power_state_write_at: dict[str, float] = {}
 
     async def set_profile(self, profile: str) -> None:
         self.info.profile = profile
@@ -172,6 +173,7 @@ class WhatsminerMiner(MinerAdapter):
 
     def _mark_unreachable(self, message: str) -> None:
         self._set_runtime_defaults()
+        self._last_power_state_write_at: dict[str, float] = {}
         self.info.reachable = False
         self.info.is_active = False
         self.info.runtime_state = "unknown"
@@ -187,6 +189,7 @@ class WhatsminerMiner(MinerAdapter):
 
     def _apply_bundle(self, bundle: dict[str, Any]) -> None:
         self._set_runtime_defaults()
+        self._last_power_state_write_at: dict[str, float] = {}
         self.info.last_seen = datetime.now(UTC)
         self.info.reachable = True
         self.info.is_active = bool(self.info.enabled)
@@ -251,47 +254,46 @@ class WhatsminerMiner(MinerAdapter):
         self.info.last_error = None
 
     def _apply_profile_sync(self, profile: str, desired_w: float) -> None:
+        miner_is_off = self._is_btminer_off(timeout_s=0.8)
+
         if profile == "off" or desired_w <= 0:
-            self._write_command_sync(
+            if miner_is_off:
+                return
+            self._write_power_state_with_cooldown(
                 "power_off",
-                ["true"],
                 verifier=lambda: self._verify_power_state(expected_off=True, timeout_s=4.0),
             )
             return
 
-        desired_w_int = max(1, int(round(desired_w)))
-        last_error: Exception | None = None
-        for cmd in self.POWER_VALUE_COMMAND_CANDIDATES:
-            try:
-                self._write_command_sync(
-                    cmd,
-                    [str(desired_w_int)],
-                    verifier=lambda desired=desired_w_int: self._verify_power_limit(desired, timeout_s=3.5),
-                )
-                self.info.control_mode = "power_value"
-                break
-            except Exception as exc:
-                last_error = exc
-                logger.info(
-                    "WhatsMiner power-value command candidate failed for %s (%s:%s): cmd=%s value=%s error=%s",
-                    self.info.name,
-                    self.host,
-                    self.port,
-                    cmd,
-                    desired_w_int,
-                    exc,
-                )
-        else:
-            if last_error is None:
-                raise RuntimeError("No WhatsMiner power-value command candidate available")
-            raise last_error
-
-        miner_is_off = self._is_btminer_off(timeout_s=0.8)
+        # WhatsMiner API 2.x test mode:
+        # keep watt writes disabled for now and validate only start/stop control.
         if miner_is_off:
-            self._write_command_sync(
+            self._write_power_state_with_cooldown(
                 "power_on",
                 verifier=lambda: self._verify_power_state(expected_off=False, timeout_s=20.0),
             )
+
+    def _write_power_state_with_cooldown(
+        self,
+        cmd: str,
+        *,
+        verifier: Callable[[], bool] | None = None,
+        cooldown_s: float = 30.0,
+    ) -> dict[str, Any] | None:
+        now = time.monotonic()
+        last = self._last_power_state_write_at.get(cmd, 0.0)
+        if now - last < cooldown_s:
+            logger.info(
+                "WhatsMiner %s suppressed by cooldown for %s (%s:%s): remaining=%.1fs",
+                cmd,
+                self.info.name,
+                self.host,
+                self.port,
+                max(0.0, cooldown_s - (now - last)),
+            )
+            return None
+        self._last_power_state_write_at[cmd] = now
+        return self._write_command_sync(cmd, ["true"] if cmd == "power_off" else None, verifier=verifier)
 
     def _infer_profile_from_power(self, power_w: float | None) -> str | None:
         if power_w is None or power_w <= 0:
