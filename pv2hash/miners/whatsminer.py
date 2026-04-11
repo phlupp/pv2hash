@@ -47,7 +47,6 @@ class WhatsminerMiner(MinerAdapter):
     POWER_VALUE_COMMAND_CANDIDATES = (
         "adjust_power_limit",
         "set_power_value",
-        "set_miner_power",
     )
 
     def __init__(
@@ -64,7 +63,7 @@ class WhatsminerMiner(MinerAdapter):
         profiles: dict[str, Any] | None = None,
         min_regulated_profile: str = "off",
         password: str = "",
-        timeout_s: float = 8.0,
+        timeout_s: float = 2.0,
         use_battery_when_charging: bool = False,
         battery_charge_soc_min: float = 95.0,
         battery_charge_profile: str = "p1",
@@ -303,8 +302,8 @@ class WhatsminerMiner(MinerAdapter):
         candidates.sort(key=lambda item: item[0])
         return candidates[0][1]
 
-    def _read_command_sync(self, cmd: str) -> dict[str, Any]:
-        return self._send_tcp_json_sync({"cmd": cmd})
+    def _read_command_sync(self, cmd: str, *, timeout_s: float | None = None) -> dict[str, Any]:
+        return self._send_tcp_json_sync({"cmd": cmd}, timeout_s=timeout_s)
 
     def _write_command_sync(
         self,
@@ -317,7 +316,10 @@ class WhatsminerMiner(MinerAdapter):
                 "WhatsMiner Passwort fehlt. Für Write-API muss das Admin-Passwort hinterlegt sein."
             )
 
-        token_reply = self._read_command_sync("get_token")
+        started = time.monotonic()
+        token_started = time.monotonic()
+        token_reply = self._read_command_sync("get_token", timeout_s=min(self.timeout_s, 1.0))
+        token_elapsed_ms = (time.monotonic() - token_started) * 1000.0
         token_time, salt, newsalt = self._extract_token_fields(token_reply)
         if not token_time or not salt or not newsalt:
             raise RuntimeError(
@@ -340,54 +342,76 @@ class WhatsminerMiner(MinerAdapter):
                 payload=payload,
                 token_materials=token_materials,
             ):
+                attempt_started = time.monotonic()
                 try:
-                    response = self._send_tcp_json_sync(variant["outer_payload"])
+                    response = self._send_tcp_json_sync(
+                        variant["outer_payload"],
+                        timeout_s=min(self.timeout_s, 1.0),
+                    )
                     if "enc" in response and "data" in response:
                         response = self._decrypt_response(
                             aes_key_hex=variant["aes_key_hex"],
                             encoded=str(response["data"]),
                         )
+                    verify_elapsed_ms = 0.0
                     try:
                         self._validate_command_ok(response)
                     except Exception as validation_exc:
-                        if verifier is not None and verifier():
-                            logger.info(
-                                "WhatsMiner write verified by follow-up check for %s (%s:%s): cmd=%s payload=%s variant=%s response=%r",
-                                self.info.name,
-                                self.host,
-                                self.port,
-                                cmd,
-                                payload_label,
-                                variant["label"],
-                                response,
-                            )
-                            return response
+                        if verifier is not None:
+                            verify_started = time.monotonic()
+                            verified = verifier()
+                            verify_elapsed_ms = (time.monotonic() - verify_started) * 1000.0
+                            if verified:
+                                total_elapsed_ms = (time.monotonic() - started) * 1000.0
+                                logger.info(
+                                    "WhatsMiner write verified by follow-up check for %s (%s:%s): cmd=%s payload=%s variant=%s token_ms=%.0f verify_ms=%.0f total_ms=%.0f response=%r",
+                                    self.info.name,
+                                    self.host,
+                                    self.port,
+                                    cmd,
+                                    payload_label,
+                                    variant["label"],
+                                    token_elapsed_ms,
+                                    verify_elapsed_ms,
+                                    total_elapsed_ms,
+                                    response,
+                                )
+                                return response
                         raise validation_exc
+                    total_elapsed_ms = (time.monotonic() - started) * 1000.0
                     logger.info(
-                        "WhatsMiner write succeeded for %s (%s:%s): cmd=%s payload=%s variant=%s",
+                        "WhatsMiner write succeeded for %s (%s:%s): cmd=%s payload=%s variant=%s token_ms=%.0f total_ms=%.0f",
                         self.info.name,
                         self.host,
                         self.port,
                         cmd,
                         payload_label,
                         variant["label"],
+                        token_elapsed_ms,
+                        total_elapsed_ms,
                     )
                     return response
                 except Exception as exc:
-                    errors.append(f"payload={payload_label} variant={variant['label']} error={exc}")
+                    attempt_elapsed_ms = (time.monotonic() - attempt_started) * 1000.0
+                    errors.append(
+                        f"payload={payload_label} variant={variant['label']} ms={attempt_elapsed_ms:.0f} error={exc}"
+                    )
                     logger.debug(
-                        "WhatsMiner encrypted write variant failed for %s (%s:%s): cmd=%s payload=%s variant=%s error=%s",
+                        "WhatsMiner encrypted write variant failed for %s (%s:%s): cmd=%s payload=%s variant=%s token_ms=%.0f attempt_ms=%.0f error=%s",
                         self.info.name,
                         self.host,
                         self.port,
                         cmd,
                         payload_label,
                         variant["label"],
+                        token_elapsed_ms,
+                        attempt_elapsed_ms,
                         exc,
                     )
 
-        joined_errors = "; ".join(errors[-6:]) if errors else "unbekannter Fehler"
-        raise RuntimeError(joined_errors)
+        total_elapsed_ms = (time.monotonic() - started) * 1000.0
+        joined_errors = "; ".join(errors[-4:]) if errors else "unbekannter Fehler"
+        raise RuntimeError(f"total_ms={total_elapsed_ms:.0f}; token_ms={token_elapsed_ms:.0f}; {joined_errors}")
 
     def _build_command_payload_candidates(
         self,
@@ -415,22 +439,12 @@ class WhatsminerMiner(MinerAdapter):
             return [
                 ("power_value", {"cmd": cmd, "power_value": value}),
                 ("value", {"cmd": cmd, "value": value}),
-                ("power", {"cmd": cmd, "power": value}),
-                ("param", {"cmd": cmd, "param": value}),
             ]
 
         if cmd == "adjust_power_limit":
             return [
                 ("power_limit", {"cmd": cmd, "power_limit": value}),
                 ("value", {"cmd": cmd, "value": value}),
-            ]
-
-        if cmd == "set_miner_power":
-            return [
-                ("power_value", {"cmd": cmd, "power_value": value}),
-                ("power", {"cmd": cmd, "power": value}),
-                ("value", {"cmd": cmd, "value": value}),
-                ("param", {"cmd": cmd, "param": value}),
             ]
 
         return [("generic", {"cmd": cmd, "param": value})]
@@ -444,8 +458,9 @@ class WhatsminerMiner(MinerAdapter):
     ) -> list[dict[str, str]]:
         time_last4 = token_time[-4:]
         passwords: list[tuple[str, str]] = [("fullpwd", self.password)]
-        if len(self.password.encode("utf-8", errors="ignore")) > 8:
-            passwords.append(("pwd8", self.password.encode("utf-8", errors="ignore")[:8].decode("utf-8", errors="ignore")))
+        password_bytes = self.password.encode("utf-8", errors="ignore")
+        if len(password_bytes) > 8:
+            passwords.append(("pwd8", password_bytes[:8].decode("utf-8", errors="ignore")))
 
         materials: list[dict[str, str]] = []
 
@@ -514,7 +529,6 @@ class WhatsminerMiner(MinerAdapter):
                 f"time={material['time_mode']},key={material['key_mode']}"
             )
             plaintext_candidates = [
-                (f"pipe_prefixed/{variant_id}", f"{token_time},{sign}|{pipe_plain}"),
                 (f"json_token/{variant_id}", payload_json_with_token),
             ]
             for label, plaintext in plaintext_candidates:
@@ -639,31 +653,33 @@ class WhatsminerMiner(MinerAdapter):
             f"WhatsMiner API Fehler (Code={code}, STATUS={status}, Msg={msg}, Description={description})"
         )
 
-    def _verify_power_limit(self, desired_w: int, timeout_s: float = 3.0) -> bool:
+    def _verify_power_limit(self, desired_w: int, timeout_s: float = 1.2) -> bool:
         deadline = time.monotonic() + max(0.1, timeout_s)
         while time.monotonic() < deadline:
             try:
-                summary = self._read_command_sync("summary")
+                remaining = max(0.2, min(0.6, deadline - time.monotonic()))
+                summary = self._read_command_sync("summary", timeout_s=remaining)
                 summary_row = self._first_list_item(summary.get("SUMMARY"))
                 power_limit_w = self._safe_float(summary_row.get("Power Limit"), None)
                 if power_limit_w is not None and abs(power_limit_w - float(desired_w)) <= 1.0:
                     return True
             except Exception:
                 pass
-            time.sleep(0.35)
+            time.sleep(0.2)
         return False
 
-    def _verify_power_state(self, *, expected_off: bool, timeout_s: float = 5.0) -> bool:
+    def _verify_power_state(self, *, expected_off: bool, timeout_s: float = 1.6) -> bool:
         deadline = time.monotonic() + max(0.1, timeout_s)
         while time.monotonic() < deadline:
             try:
-                status = self._read_command_sync("status")
+                remaining = max(0.2, min(0.6, deadline - time.monotonic()))
+                status = self._read_command_sync("status", timeout_s=remaining)
                 btmineroff = str(status.get("btmineroff", "")).strip().lower() == "true"
                 if btmineroff == expected_off:
                     return True
             except Exception:
                 pass
-            time.sleep(0.5)
+            time.sleep(0.25)
         return False
 
     def _openssl_md5_crypt_output(self, *, salt: str, value: str) -> str:
