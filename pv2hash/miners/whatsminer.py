@@ -326,10 +326,12 @@ class WhatsminerMiner(MinerAdapter):
                 f"WhatsMiner get_token lieferte unvollständige Token-Daten: {token_reply!r}"
             )
 
+        is_power_state_cmd = cmd in {"power_off", "power_on"}
         token_materials = self._derive_token_materials(
             token_time=token_time,
             salt=salt,
             newsalt=newsalt,
+            wide=is_power_state_cmd,
         )
         command_payloads = self._build_command_payload_candidates(cmd=cmd, params=params)
         if not command_payloads:
@@ -341,6 +343,7 @@ class WhatsminerMiner(MinerAdapter):
                 token_time=token_time,
                 payload=payload,
                 token_materials=token_materials,
+                wide=is_power_state_cmd,
             ):
                 attempt_started = time.monotonic()
                 try:
@@ -455,6 +458,7 @@ class WhatsminerMiner(MinerAdapter):
         token_time: str,
         salt: str,
         newsalt: str,
+        wide: bool = False,
     ) -> list[dict[str, str]]:
         time_last4 = token_time[-4:]
         passwords: list[tuple[str, str]] = [("fullpwd", self.password)]
@@ -468,22 +472,42 @@ class WhatsminerMiner(MinerAdapter):
             full_pwd_output = self._openssl_md5_crypt_output(salt=salt, value=password_value)
             pwd_fragment = self._md5_crypt_fragment(full_pwd_output)
 
-            sign_output = self._openssl_md5_crypt_output(
-                salt=newsalt,
-                value=f"{pwd_fragment}{time_last4}",
-            )
-            sign_fragment = self._md5_crypt_fragment(sign_output)
-            aes_key_hex = hashlib.sha256(full_pwd_output.encode("utf-8")).hexdigest()
-            materials.append(
-                {
-                    "scheme": "md5crypt",
-                    "password_mode": password_mode,
-                    "time_mode": "last4",
-                    "key_mode": "full",
-                    "sign": sign_fragment,
-                    "aes_key_hex": aes_key_hex,
-                }
-            )
+            if wide:
+                for time_mode, time_for_sign in (("last4", time_last4), ("full", token_time)):
+                    sign_output = self._openssl_md5_crypt_output(
+                        salt=newsalt,
+                        value=f"{pwd_fragment}{time_for_sign}",
+                    )
+                    sign_fragment = self._md5_crypt_fragment(sign_output)
+                    for key_mode, key_source in (("full", full_pwd_output), ("fragment", pwd_fragment)):
+                        aes_key_hex = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
+                        materials.append(
+                            {
+                                "scheme": "md5crypt",
+                                "password_mode": password_mode,
+                                "time_mode": time_mode,
+                                "key_mode": key_mode,
+                                "sign": sign_fragment,
+                                "aes_key_hex": aes_key_hex,
+                            }
+                        )
+            else:
+                sign_output = self._openssl_md5_crypt_output(
+                    salt=newsalt,
+                    value=f"{pwd_fragment}{time_last4}",
+                )
+                sign_fragment = self._md5_crypt_fragment(sign_output)
+                aes_key_hex = hashlib.sha256(full_pwd_output.encode("utf-8")).hexdigest()
+                materials.append(
+                    {
+                        "scheme": "md5crypt",
+                        "password_mode": password_mode,
+                        "time_mode": "last4",
+                        "key_mode": "full",
+                        "sign": sign_fragment,
+                        "aes_key_hex": aes_key_hex,
+                    }
+                )
 
             simple_key = hashlib.md5(f"{salt}{password_value}".encode("utf-8")).hexdigest()
             simple_sign = hashlib.md5(f"{newsalt}{simple_key}{time_last4}".encode("utf-8")).hexdigest()
@@ -507,6 +531,7 @@ class WhatsminerMiner(MinerAdapter):
         token_time: str,
         payload: dict[str, str],
         token_materials: list[dict[str, str]],
+        wide: bool = False,
     ) -> list[dict[str, str | dict[str, Any]]]:
         variants: list[dict[str, str | dict[str, Any]]] = []
 
@@ -533,7 +558,7 @@ class WhatsminerMiner(MinerAdapter):
             plaintext_candidates = [
                 (f"json_token/{variant_id}", payload_json_with_token),
             ]
-            if is_power_state_cmd:
+            if wide and is_power_state_cmd:
                 plaintext_candidates.extend([
                     (f"json_prefixed/{variant_id}", f"{token_time},{sign}|{payload_json}"),
                     (f"pipe_prefixed/{variant_id}", f"{token_time},{sign}|{pipe_plain}"),
