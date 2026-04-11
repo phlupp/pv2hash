@@ -258,8 +258,25 @@ class WhatsminerMiner(MinerAdapter):
 
     def _apply_profile_sync(self, profile: str, desired_w: float) -> None:
         miner_is_off = self._is_btminer_off(timeout_s=0.8)
+        logger.info(
+            "WhatsMiner profile apply probe for %s (%s:%s): profile=%s desired_w=%.1f miner_is_off=%s runtime_state=%s",
+            self.info.name,
+            self.host,
+            self.port,
+            profile,
+            desired_w,
+            miner_is_off,
+            self.info.runtime_state,
+        )
 
         if profile == "off" or desired_w <= 0:
+            logger.info(
+                "WhatsMiner profile apply branch for %s (%s:%s): power_off miner_is_off=%s",
+                self.info.name,
+                self.host,
+                self.port,
+                miner_is_off,
+            )
             if miner_is_off:
                 return
             self._write_power_state_with_cooldown(
@@ -270,6 +287,13 @@ class WhatsminerMiner(MinerAdapter):
 
         # WhatsMiner API 2.x test mode:
         # keep watt writes disabled for now and validate only start/stop control.
+        logger.info(
+            "WhatsMiner profile apply branch for %s (%s:%s): power_on test mode miner_is_off=%s",
+            self.info.name,
+            self.host,
+            self.port,
+            miner_is_off,
+        )
         if miner_is_off:
             self._write_power_state_with_cooldown(
                 "power_on",
@@ -762,19 +786,49 @@ class WhatsminerMiner(MinerAdapter):
             try:
                 remaining = max(0.2, min(0.6, deadline - time.monotonic()))
                 status = self._read_command_sync("status", timeout_s=remaining)
+                logger.info(
+                    "WhatsMiner state verify for %s (%s:%s): expected_off=%s status=%r",
+                    self.info.name,
+                    self.host,
+                    self.port,
+                    expected_off,
+                    status,
+                )
                 btmineroff = str(status.get("btmineroff", "")).strip().lower() == "true"
                 if btmineroff == expected_off:
                     return True
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.info(
+                    "WhatsMiner state verify read failed for %s (%s:%s): expected_off=%s error=%s",
+                    self.info.name,
+                    self.host,
+                    self.port,
+                    expected_off,
+                    exc,
+                )
             time.sleep(0.25)
         return False
 
     def _is_btminer_off(self, *, timeout_s: float = 0.8) -> bool:
         try:
             status = self._read_command_sync("status", timeout_s=timeout_s)
+            logger.info(
+                "WhatsMiner state probe for %s (%s:%s): status=%r",
+                self.info.name,
+                self.host,
+                self.port,
+                status,
+            )
             return str(status.get("btmineroff", "")).strip().lower() == "true"
-        except Exception:
+        except Exception as exc:
+            logger.info(
+                "WhatsMiner state probe read failed for %s (%s:%s): error=%s fallback_runtime_state=%s",
+                self.info.name,
+                self.host,
+                self.port,
+                exc,
+                self.info.runtime_state,
+            )
             return self.info.runtime_state in {"paused", "stopped", "unknown"}
 
     def _openssl_md5_crypt_output(self, *, salt: str, value: str) -> str:
