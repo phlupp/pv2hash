@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import asyncio
@@ -176,7 +177,6 @@ class WhatsminerMiner(MinerAdapter):
 
     def _mark_unreachable(self, message: str) -> None:
         self._set_runtime_defaults()
-        self._last_power_state_write_at: dict[str, float] = {}
         self.info.reachable = False
         self.info.is_active = False
         self.info.runtime_state = "unknown"
@@ -190,15 +190,24 @@ class WhatsminerMiner(MinerAdapter):
             "devdetails": self._read_command_sync("devdetails"),
         }
 
+    def _status_msg(self, status: dict[str, Any]) -> dict[str, Any]:
+        msg = status.get("Msg")
+        return msg if isinstance(msg, dict) else {}
+
+    def _status_mineroff(self, status: dict[str, Any]) -> bool:
+        msg = self._status_msg(status)
+        raw = msg.get("mineroff", status.get("btmineroff", ""))
+        return str(raw).strip().lower() == "true"
+
     def _apply_bundle(self, bundle: dict[str, Any]) -> None:
         self._set_runtime_defaults()
-        self._last_power_state_write_at: dict[str, float] = {}
         self.info.last_seen = datetime.now(UTC)
         self.info.reachable = True
         self.info.is_active = bool(self.info.enabled)
 
         summary = bundle.get("summary") or {}
         status = bundle.get("status") or {}
+        status_msg = self._status_msg(status)
         version = bundle.get("version") or {}
         devdetails = bundle.get("devdetails") or {}
 
@@ -215,7 +224,11 @@ class WhatsminerMiner(MinerAdapter):
         if api_ver is not None:
             self.info.api_version = str(api_ver)
 
-        fw_ver = version_msg.get("fw_ver") or status.get("Firmware Version")
+        fw_ver = (
+            version_msg.get("fw_ver")
+            or status_msg.get("FirmwareVersion")
+            or status.get("Firmware Version")
+        )
         if fw_ver:
             self.info.firmware_version = str(fw_ver)
 
@@ -229,7 +242,10 @@ class WhatsminerMiner(MinerAdapter):
         )
         if actual_power_w is None:
             actual_power_w = self._safe_float(summary_row.get("Power_Avg", summary_row.get("Power Avg")), None)
-        power_limit_w = self._safe_float(summary_row.get("Power Limit"), None)
+        power_limit_w = self._safe_float(
+            summary_row.get("Power Limit", status_msg.get("power_limit_set")),
+            None,
+        )
         if power_limit_w is not None:
             self.info.power_target_default_w = power_limit_w
         if actual_power_w is not None:
@@ -237,12 +253,12 @@ class WhatsminerMiner(MinerAdapter):
         elif power_limit_w is not None:
             self.info.power_w = power_limit_w
 
-        power_mode = summary_row.get("Power Mode")
+        power_mode = summary_row.get("Power Mode") or status_msg.get("power_mode")
         if power_mode:
             self.info.control_mode = f"power_mode:{power_mode}"
 
-        btmineroff = str(status.get("btmineroff", "false")).strip().lower() == "true"
-        if btmineroff:
+        mineroff = self._status_mineroff(status)
+        if mineroff:
             self.info.runtime_state = "paused"
             self.info.power_w = 0.0
             self.info.profile = "off"
@@ -258,8 +274,9 @@ class WhatsminerMiner(MinerAdapter):
 
     def _apply_profile_sync(self, profile: str, desired_w: float) -> None:
         miner_is_off = self._is_btminer_off(timeout_s=0.8)
+
         logger.info(
-            "WhatsMiner profile apply probe for %s (%s:%s): profile=%s desired_w=%.1f miner_is_off=%s runtime_state=%s",
+            "WhatsMiner profile apply probe for %s (%s:%s): profile=%s desired_w=%s miner_is_off=%s runtime_state=%s",
             self.info.name,
             self.host,
             self.port,
@@ -782,30 +799,26 @@ class WhatsminerMiner(MinerAdapter):
 
     def _verify_power_state(self, *, expected_off: bool, timeout_s: float = 1.6) -> bool:
         deadline = time.monotonic() + max(0.1, timeout_s)
+        logged = False
         while time.monotonic() < deadline:
             try:
                 remaining = max(0.2, min(0.6, deadline - time.monotonic()))
                 status = self._read_command_sync("status", timeout_s=remaining)
-                logger.info(
-                    "WhatsMiner state verify for %s (%s:%s): expected_off=%s status=%r",
-                    self.info.name,
-                    self.host,
-                    self.port,
-                    expected_off,
-                    status,
-                )
-                btmineroff = str(status.get("btmineroff", "")).strip().lower() == "true"
-                if btmineroff == expected_off:
+                if not logged:
+                    logger.info(
+                        "WhatsMiner state verify for %s (%s:%s): expected_off=%s status=%r",
+                        self.info.name,
+                        self.host,
+                        self.port,
+                        expected_off,
+                        status,
+                    )
+                    logged = True
+                mineroff = self._status_mineroff(status)
+                if mineroff == expected_off:
                     return True
-            except Exception as exc:
-                logger.info(
-                    "WhatsMiner state verify read failed for %s (%s:%s): expected_off=%s error=%s",
-                    self.info.name,
-                    self.host,
-                    self.port,
-                    expected_off,
-                    exc,
-                )
+            except Exception:
+                pass
             time.sleep(0.25)
         return False
 
@@ -819,16 +832,8 @@ class WhatsminerMiner(MinerAdapter):
                 self.port,
                 status,
             )
-            return str(status.get("btmineroff", "")).strip().lower() == "true"
-        except Exception as exc:
-            logger.info(
-                "WhatsMiner state probe read failed for %s (%s:%s): error=%s fallback_runtime_state=%s",
-                self.info.name,
-                self.host,
-                self.port,
-                exc,
-                self.info.runtime_state,
-            )
+            return self._status_mineroff(status)
+        except Exception:
             return self.info.runtime_state in {"paused", "stopped", "unknown"}
 
     def _openssl_md5_crypt_output(self, *, salt: str, value: str) -> str:
