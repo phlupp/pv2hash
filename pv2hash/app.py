@@ -519,12 +519,19 @@ def _redirect_with_system_message(*, notice: str | None = None, error: str | Non
     return RedirectResponse(url=f"/system{suffix}", status_code=303)
 
 
-def _resolve_miner_driver_label(driver: str | None) -> str:
+def _normalize_miner_driver(driver: str | None) -> str:
     normalized = str(driver or "simulator").strip().lower()
+    if normalized == "whatsminer":
+        return "whatsminer_api2"
+    return normalized or "simulator"
+
+
+def _resolve_miner_driver_label(driver: str | None) -> str:
+    normalized = _normalize_miner_driver(driver)
     labels = {
         "simulator": "Simulator",
         "braiins": "Braiins OS+",
-        "whatsminer": "WhatsMiner",
+        "whatsminer_api2": "WhatsMiner (API 2.x)",
     }
     return labels.get(normalized, normalized or "Unbekannt")
 
@@ -622,9 +629,10 @@ async def _shutdown_retired_miners(miners: list) -> None:
 
 
 def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
-    if driver == "braiins":
+    normalized = _normalize_miner_driver(driver)
+    if normalized == "braiins":
         return 50051, 1200, 2200, 3200, 4200
-    if driver == "whatsminer":
+    if normalized == "whatsminer_api2":
         return 4028, 1200, 2200, 3200, 4200
     return 4028, 900, 1800, 3000, 4200
 
@@ -665,6 +673,7 @@ def _build_miners_view() -> list[dict]:
         merged.setdefault("settings", {})
         merged.setdefault("profiles", {})
         merged.setdefault("min_regulated_profile", "off")
+        merged["driver"] = _normalize_miner_driver(merged.get("driver"))
         miner_views.append(merged)
 
     return miner_views
@@ -679,7 +688,7 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
         "driver_labels": {
             "simulator": _resolve_miner_driver_label("simulator"),
             "braiins": _resolve_miner_driver_label("braiins"),
-            "whatsminer": _resolve_miner_driver_label("whatsminer"),
+            "whatsminer_api2": _resolve_miner_driver_label("whatsminer_api2"),
         },
         "wiki_links": {
             "overview": "https://github.com/phlupp/pv2hash/wiki/Miner",
@@ -687,7 +696,7 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
             "battery": "https://github.com/phlupp/pv2hash/wiki/Batterieverhalten",
             "simulator": "https://github.com/phlupp/pv2hash/wiki/Simulator-Miner",
             "braiins": "https://github.com/phlupp/pv2hash/wiki/Braiins-OS%2B",
-            "whatsminer": "https://github.com/phlupp/pv2hash/wiki/WhatsMiner",
+            "whatsminer_api2": "https://github.com/phlupp/pv2hash/wiki/WhatsMiner",
         },
     }
 
@@ -699,6 +708,7 @@ def _build_miner_settings(
     existing: dict | None = None,
 ) -> dict:
     existing = existing or {}
+    driver = _normalize_miner_driver(driver)
 
     settings = {
         "port": int(form.get("port", existing.get("port", default_port))),
@@ -718,7 +728,7 @@ def _build_miner_settings(
         elif existing.get("password"):
             settings["password"] = existing["password"]
 
-    if driver == "whatsminer":
+    if driver == "whatsminer_api2":
         password_raw = str(form.get("whatsminer_password", "")).strip()
         if password_raw:
             settings["password"] = password_raw
@@ -1127,7 +1137,7 @@ async def add_miner(request: Request):
     form = await request.form()
 
     miner_id = f"m-{uuid4().hex[:8]}"
-    driver = form.get("driver", "simulator")
+    driver = _normalize_miner_driver(form.get("driver", "simulator"))
     name = form.get("name", "Miner")
     host = form.get("host", "")
     min_regulated_profile = _normalize_min_regulated_profile(
@@ -1192,7 +1202,7 @@ async def update_miner(request: Request):
 
     for miner in state.config.get("miners", []):
         if miner["id"] == miner_id:
-            driver = form.get("driver", miner["driver"])
+            driver = _normalize_miner_driver(form.get("driver", miner["driver"]))
             min_regulated_profile = _normalize_min_regulated_profile(
                 form.get("min_regulated_profile", miner.get("min_regulated_profile", "off"))
             )

@@ -93,7 +93,7 @@ class WhatsminerMiner(MinerAdapter):
             id=miner_id,
             name=name,
             host=self.host,
-            driver="whatsminer",
+            driver="whatsminer_api2",
             enabled=enabled,
             is_active=enabled,
             priority=priority,

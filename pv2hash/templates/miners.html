@@ -116,7 +116,7 @@
                                     <select name="driver" data-driver-select data-default-port-target="add-port-field">
                                         <option value="simulator">{{ driver_labels.simulator }}</option>
                                         <option value="braiins">{{ driver_labels.braiins }}</option>
-                                        <option value="whatsminer">{{ driver_labels.whatsminer }}</option>
+                                        <option value="whatsminer_api2">{{ driver_labels.whatsminer_api2 }}</option>
                                     </select>
                                 </label>
 
@@ -141,7 +141,7 @@
                                 </div>
                                 <span class="help-links-inline">
                                     {{ help_link(wiki_links.braiins, 'Hilfe Braiins') }}
-                                    {{ help_link(wiki_links.whatsminer, 'Hilfe WhatsMiner') }}
+                                    {{ help_link(wiki_links.whatsminer_api2, 'Hilfe WhatsMiner') }}
                                     {{ help_link(wiki_links.simulator, 'Hilfe Simulator') }}
                                 </span>
                             </div>
@@ -167,7 +167,7 @@
                                     <input type="password" name="password">
                                 </label>
 
-                                <label data-driver-types="whatsminer">
+                                <label data-driver-types="whatsminer_api2">
                                     <span>WhatsMiner API Passwort</span>
                                     <input type="password" name="whatsminer_password">
                                     <small class="help">Admin-Passwort. API muss aktiviert sein. PV2Hash nutzt nur Power-Value-basierte Steuerung.</small>
@@ -309,9 +309,9 @@
                 {% set min_profile = miner.min_regulated_profile if miner.min_regulated_profile is defined else 'off' %}
                 {% set charge_profile = miner.battery_charge_profile if miner.battery_charge_profile is defined else 'p1' %}
                 {% set discharge_profile = miner.battery_discharge_profile if miner.battery_discharge_profile is defined else 'p1' %}
-                {% set profile_p1 = miner.profiles.p1.power_w if miner.profiles and miner.profiles.p1 is defined else (1200 if miner.driver in ['braiins', 'whatsminer'] else 900) %}
-                {% set profile_p2 = miner.profiles.p2.power_w if miner.profiles and miner.profiles.p2 is defined else (2200 if miner.driver in ['braiins', 'whatsminer'] else 1800) %}
-                {% set profile_p3 = miner.profiles.p3.power_w if miner.profiles and miner.profiles.p3 is defined else (3200 if miner.driver in ['braiins', 'whatsminer'] else 3000) %}
+                {% set profile_p1 = miner.profiles.p1.power_w if miner.profiles and miner.profiles.p1 is defined else (1200 if miner.driver in ['braiins', 'whatsminer_api2'] else 900) %}
+                {% set profile_p2 = miner.profiles.p2.power_w if miner.profiles and miner.profiles.p2 is defined else (2200 if miner.driver in ['braiins', 'whatsminer_api2'] else 1800) %}
+                {% set profile_p3 = miner.profiles.p3.power_w if miner.profiles and miner.profiles.p3 is defined else (3200 if miner.driver in ['braiins', 'whatsminer_api2'] else 3000) %}
                 {% set profile_p4 = miner.profiles.p4.power_w if miner.profiles and miner.profiles.p4 is defined else 4200 %}
 
                 <article class="card miner-card" data-miner-card data-miner-id="{{ miner.id }}" data-editing="false">
@@ -390,7 +390,7 @@
                                         <select name="driver" data-driver-select>
                                             <option value="simulator" {% if miner.driver == 'simulator' %}selected{% endif %}>{{ driver_labels.simulator }}</option>
                                             <option value="braiins" {% if miner.driver == 'braiins' %}selected{% endif %}>{{ driver_labels.braiins }}</option>
-                                            <option value="whatsminer" {% if miner.driver == 'whatsminer' %}selected{% endif %}>{{ driver_labels.whatsminer }}</option>
+                                            <option value="whatsminer_api2" {% if miner.driver == 'whatsminer_api2' %}selected{% endif %}>{{ driver_labels.whatsminer_api2 }}</option>
                                         </select>
                                     </label>
 
@@ -415,8 +415,8 @@
                                     <span class="help-links-inline">
                                         {% if miner.driver == 'braiins' %}
                                             {{ help_link(wiki_links.braiins, 'Hilfe') }}
-                                        {% elif miner.driver == 'whatsminer' %}
-                                            {{ help_link(wiki_links.whatsminer, 'Hilfe') }}
+                                        {% elif miner.driver == 'whatsminer_api2' %}
+                                            {{ help_link(wiki_links.whatsminer_api2, 'Hilfe') }}
                                         {% else %}
                                             {{ help_link(wiki_links.simulator, 'Hilfe') }}
                                         {% endif %}
@@ -445,7 +445,7 @@
                                         <small class="help">Leer = unverändert.</small>
                                     </label>
 
-                                    <label data-driver-types="whatsminer">
+                                    <label data-driver-types="whatsminer_api2">
                                         <span>WhatsMiner API Passwort</span>
                                         <input type="password" name="whatsminer_password" value="">
                                         <small class="help">Leer = unverändert. API muss aktiviert sein. PV2Hash nutzt nur Power-Value-basierte Steuerung.</small>
@@ -711,7 +711,7 @@
                 if (defaultPortTargetId) {
                     const portInput = document.getElementById(defaultPortTargetId);
                     if (portInput) {
-                        const defaultPorts = { braiins: '50051', whatsminer: '4028', simulator: '4028' };
+                        const defaultPorts = { braiins: '50051', whatsminer_api2: '4028', simulator: '4028' };
                         portInput.value = defaultPorts[current] || '4028';
                     }
                 }
@@ -723,7 +723,7 @@
                 if (form.dataset.applyDriverDefaults === 'true' && p1 && p2 && p3 && p4) {
                     const defaultsByDriver = {
                         braiins: ['1200', '2200', '3200', '4200'],
-                        whatsminer: ['1200', '2200', '3200', '4200'],
+                        whatsminer_api2: ['1200', '2200', '3200', '4200'],
                         simulator: ['900', '1800', '3000', '4200'],
                     };
                     const defaults = defaultsByDriver[current] || defaultsByDriver.simulator;

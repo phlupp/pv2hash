@@ -16,8 +16,16 @@ MODBUS_VALUE_TYPES = ("int8", "uint8", "int16", "uint16", "int32", "uint32", "fl
 MODBUS_ENDIAN_TYPES = ("big_endian", "little_endian")
 
 
+def _normalize_miner_driver(driver: str | None) -> str:
+    normalized = str(driver or "simulator").strip().lower()
+    if normalized == "whatsminer":
+        return "whatsminer_api2"
+    return normalized or "simulator"
+
+
 def _default_profiles_for_driver(driver: str) -> dict:
-    if driver in {"braiins", "whatsminer"}:
+    driver = _normalize_miner_driver(driver)
+    if driver in {"braiins", "whatsminer_api2"}:
         return {
             "p1": {"power_w": 1200},
             "p2": {"power_w": 2200},
@@ -226,7 +234,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
             )
             continue
 
-        if driver == "whatsminer":
+        if driver == "whatsminer_api2":
             miner_adapters.append(
                 WhatsminerMiner(
                     miner_id=miner_cfg["id"],
