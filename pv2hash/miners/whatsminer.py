@@ -19,6 +19,10 @@ class WhatsminerMiner(MinerAdapter):
     """
     WhatsMiner adapter for the documented TCP API on port 4028.
 
+    Current focus:
+    - API 2.x read support
+    - API 2.x write support with watt-based commands only
+
     Read path:
     - summary
     - status
@@ -28,17 +32,19 @@ class WhatsminerMiner(MinerAdapter):
     Write path:
     - power_off
     - power_on
-    - power value only (no percent fallback)
+    - power value / power limit commands only (no percent fallback)
 
     Notes:
     - Readable API is sent as plaintext JSON over TCP/4028.
     - Writable API uses the documented get_token + encrypted payload flow.
-    - The exact power-value command name differs by firmware/API generation,
-      therefore a small list of power-value command candidates is tried.
+    - WhatsMiner API 2.x documentation around encrypted payload formatting is
+      inconsistent, so the adapter tries a small number of API-2.x-compatible
+      envelope variants while staying strictly on watt-based commands.
     """
 
     POWER_VALUE_COMMAND_CANDIDATES = (
         "set_power_value",
+        "adjust_power_limit",
         "set_miner_power",
     )
 
@@ -128,7 +134,6 @@ class WhatsminerMiner(MinerAdapter):
                 self.info.power_w = 0.0
                 self.info.runtime_state = "paused"
             else:
-                self.info.power_w = desired_w
                 self.info.runtime_state = "running"
         except Exception as exc:
             message = f"WhatsMiner write failed: {exc}"
@@ -215,9 +220,10 @@ class WhatsminerMiner(MinerAdapter):
         power_limit_w = self._safe_float(summary_row.get("Power Limit"), None)
         if power_limit_w is not None:
             self.info.power_target_default_w = power_limit_w
-            self.info.power_w = power_limit_w
-        elif actual_power_w is not None:
+        if actual_power_w is not None:
             self.info.power_w = actual_power_w
+        elif power_limit_w is not None:
+            self.info.power_w = power_limit_w
 
         power_mode = summary_row.get("Power Mode")
         if power_mode:
@@ -230,7 +236,9 @@ class WhatsminerMiner(MinerAdapter):
             self.info.profile = "off"
         else:
             self.info.runtime_state = "running"
-            inferred_profile = self._infer_profile_from_power(power_limit_w if power_limit_w is not None else actual_power_w)
+            inferred_profile = self._infer_profile_from_power(
+                power_limit_w if power_limit_w is not None else actual_power_w
+            )
             if inferred_profile:
                 self.info.profile = inferred_profile
 
@@ -299,22 +307,184 @@ class WhatsminerMiner(MinerAdapter):
                 f"WhatsMiner get_token lieferte unvollständige Token-Daten: {token_reply!r}"
             )
 
-        key = self._openssl_md5_crypt_fragment(salt=salt, value=self.password)
-        sign = self._openssl_md5_crypt_fragment(salt=newsalt, value=f"{key}{token_time[-4:]}")
-        aes_key_hex = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        token_materials = self._derive_token_materials(
+            token_time=token_time,
+            salt=salt,
+            newsalt=newsalt,
+        )
+        command_payloads = self._build_command_payload_candidates(cmd=cmd, params=params)
+        if not command_payloads:
+            raise RuntimeError(f"WhatsMiner command wird aktuell nicht unterstützt: {cmd}")
 
-        api_parts = [cmd]
-        if params:
-            api_parts.extend(str(param) for param in params if param is not None)
-        api_str = "|".join(api_parts)
-        plaintext = f"{token_time},{sign}|{api_str}"
-        encrypted = self._openssl_aes256_ecb_encrypt_base64(aes_key_hex, plaintext)
+        errors: list[str] = []
+        for payload_label, payload in command_payloads:
+            for variant in self._build_encrypted_payload_variants(
+                token_time=token_time,
+                payload=payload,
+                token_materials=token_materials,
+            ):
+                try:
+                    response = self._send_tcp_json_sync(variant["outer_payload"])
+                    if "enc" in response and "data" in response:
+                        response = self._decrypt_response(
+                            aes_key_hex=variant["aes_key_hex"],
+                            encoded=str(response["data"]),
+                        )
+                    self._validate_command_ok(response)
+                    logger.info(
+                        "WhatsMiner write succeeded for %s (%s:%s): cmd=%s payload=%s variant=%s",
+                        self.info.name,
+                        self.host,
+                        self.port,
+                        cmd,
+                        payload_label,
+                        variant["label"],
+                    )
+                    return response
+                except Exception as exc:
+                    errors.append(f"payload={payload_label} variant={variant['label']} error={exc}")
+                    logger.debug(
+                        "WhatsMiner encrypted write variant failed for %s (%s:%s): cmd=%s payload=%s variant=%s error=%s",
+                        self.info.name,
+                        self.host,
+                        self.port,
+                        cmd,
+                        payload_label,
+                        variant["label"],
+                        exc,
+                    )
 
-        response = self._send_tcp_json_sync({"enc": 1, "data": encrypted})
-        if "enc" in response and "data" in response:
-            decrypted = self._openssl_aes256_ecb_decrypt_base64(aes_key_hex, str(response["data"]))
+        joined_errors = "; ".join(errors[-6:]) if errors else "unbekannter Fehler"
+        raise RuntimeError(joined_errors)
+
+    def _build_command_payload_candidates(
+        self,
+        *,
+        cmd: str,
+        params: list[str] | None,
+    ) -> list[tuple[str, dict[str, str]]]:
+        normalized_params = [str(param) for param in (params or []) if param is not None]
+
+        if cmd == "power_on":
+            return [("cmd_only", {"cmd": "power_on"})]
+
+        if cmd == "power_off":
+            respbefore = normalized_params[0] if normalized_params else "true"
+            return [
+                ("respbefore", {"cmd": "power_off", "respbefore": respbefore}),
+                ("cmd_only", {"cmd": "power_off"}),
+            ]
+
+        value = normalized_params[0] if normalized_params else ""
+        if not value:
+            return []
+
+        if cmd == "set_power_value":
+            return [
+                ("power_value", {"cmd": cmd, "power_value": value}),
+                ("value", {"cmd": cmd, "value": value}),
+                ("power", {"cmd": cmd, "power": value}),
+                ("param", {"cmd": cmd, "param": value}),
+            ]
+
+        if cmd == "adjust_power_limit":
+            return [
+                ("power_limit", {"cmd": cmd, "power_limit": value}),
+                ("value", {"cmd": cmd, "value": value}),
+            ]
+
+        if cmd == "set_miner_power":
+            return [
+                ("power_value", {"cmd": cmd, "power_value": value}),
+                ("power", {"cmd": cmd, "power": value}),
+                ("value", {"cmd": cmd, "value": value}),
+                ("param", {"cmd": cmd, "param": value}),
+            ]
+
+        return [("generic", {"cmd": cmd, "param": value})]
+
+    def _derive_token_materials(
+        self,
+        *,
+        token_time: str,
+        salt: str,
+        newsalt: str,
+    ) -> list[dict[str, str]]:
+        full_pwd_output = self._openssl_md5_crypt_output(salt=salt, value=self.password)
+        pwd_fragment = self._md5_crypt_fragment(full_pwd_output)
+        time_last4 = token_time[-4:]
+
+        materials: list[dict[str, str]] = []
+        for time_mode, time_for_sign in (("last4", time_last4), ("full", token_time)):
+            sign_output = self._openssl_md5_crypt_output(
+                salt=newsalt,
+                value=f"{pwd_fragment}{time_for_sign}",
+            )
+            sign_fragment = self._md5_crypt_fragment(sign_output)
+            for key_mode, key_source in (("full", full_pwd_output), ("fragment", pwd_fragment)):
+                aes_key_hex = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
+                materials.append(
+                    {
+                        "time_mode": time_mode,
+                        "key_mode": key_mode,
+                        "sign": sign_fragment,
+                        "aes_key_hex": aes_key_hex,
+                    }
+                )
+        return materials
+
+    def _build_encrypted_payload_variants(
+        self,
+        *,
+        token_time: str,
+        payload: dict[str, str],
+        token_materials: list[dict[str, str]],
+    ) -> list[dict[str, str | dict[str, Any]]]:
+        variants: list[dict[str, str | dict[str, Any]]] = []
+
+        pipe_parts = [payload.get("cmd", "")]
+        for key, value in payload.items():
+            if key == "cmd" or value in (None, ""):
+                continue
+            pipe_parts.append(str(value))
+        pipe_plain = "|".join(pipe_parts)
+
+        payload_json = json.dumps(payload, separators=(",", ":"))
+        payload_with_token = {"token": token_time, **payload}
+        payload_json_with_token = json.dumps(payload_with_token, separators=(",", ":"))
+
+        seen: set[tuple[str, str]] = set()
+        for material in token_materials:
+            sign = str(material["sign"])
+            aes_key_hex = str(material["aes_key_hex"])
+            variant_id = f"time={material['time_mode']},key={material['key_mode']}"
+            plaintext_candidates = [
+                (f"json_token/{variant_id}", payload_json_with_token),
+                (f"json_prefixed/{variant_id}", f"{token_time},{sign}|{payload_json}"),
+                (f"pipe_prefixed/{variant_id}", f"{token_time},{sign}|{pipe_plain}"),
+            ]
+            for label, plaintext in plaintext_candidates:
+                dedupe_key = (label, aes_key_hex)
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                encrypted = self._openssl_aes256_ecb_encrypt_base64(aes_key_hex, plaintext)
+                variants.append(
+                    {
+                        "label": label,
+                        "aes_key_hex": aes_key_hex,
+                        "outer_payload": {"enc": 1, "data": encrypted},
+                    }
+                )
+
+        return variants
+
+    def _decrypt_response(self, *, aes_key_hex: str, encoded: str) -> dict[str, Any]:
+        try:
+            decrypted = self._openssl_aes256_ecb_decrypt_base64(aes_key_hex, encoded)
             return self._parse_json_payload(decrypted)
-        return response
+        except Exception:
+            return {"enc": 1, "data": encoded}
 
     def _send_tcp_json_sync(self, payload: dict[str, Any]) -> dict[str, Any]:
         data = json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
@@ -393,7 +563,6 @@ class WhatsminerMiner(MinerAdapter):
 
         return "", "", ""
 
-
     def _validate_command_ok(self, response: dict[str, Any]) -> None:
         code = self._safe_int(response.get("Code"), None)
         if code in {131, 134}:
@@ -412,7 +581,7 @@ class WhatsminerMiner(MinerAdapter):
             f"WhatsMiner API Fehler (Code={code}, STATUS={status}, Msg={msg}, Description={description})"
         )
 
-    def _openssl_md5_crypt_fragment(self, *, salt: str, value: str) -> str:
+    def _openssl_md5_crypt_output(self, *, salt: str, value: str) -> str:
         result = subprocess.run(
             ["openssl", "passwd", "-1", "-salt", salt, value],
             capture_output=True,
@@ -422,7 +591,14 @@ class WhatsminerMiner(MinerAdapter):
         output = result.stdout.strip()
         if not output:
             raise RuntimeError("openssl passwd -1 lieferte keine Ausgabe")
-        return output.split("$")[-1]
+        return output
+
+    def _md5_crypt_fragment(self, md5_crypt_output: str) -> str:
+        parts = str(md5_crypt_output).strip().split("$")
+        fragment = parts[-1] if parts else ""
+        if not fragment:
+            raise RuntimeError("Ungültige openssl passwd -1 Ausgabe")
+        return fragment
 
     def _openssl_aes256_ecb_encrypt_base64(self, aes_key_hex: str, plaintext: str) -> str:
         result = subprocess.run(
