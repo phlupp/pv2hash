@@ -410,27 +410,54 @@ class WhatsminerMiner(MinerAdapter):
         salt: str,
         newsalt: str,
     ) -> list[dict[str, str]]:
-        full_pwd_output = self._openssl_md5_crypt_output(salt=salt, value=self.password)
-        pwd_fragment = self._md5_crypt_fragment(full_pwd_output)
         time_last4 = token_time[-4:]
+        passwords: list[tuple[str, str]] = [("fullpwd", self.password)]
+        if len(self.password.encode("utf-8", errors="ignore")) > 8:
+            passwords.append(("pwd8", self.password.encode("utf-8", errors="ignore")[:8].decode("utf-8", errors="ignore")))
 
         materials: list[dict[str, str]] = []
-        for time_mode, time_for_sign in (("last4", time_last4), ("full", token_time)):
-            sign_output = self._openssl_md5_crypt_output(
-                salt=newsalt,
-                value=f"{pwd_fragment}{time_for_sign}",
-            )
-            sign_fragment = self._md5_crypt_fragment(sign_output)
-            for key_mode, key_source in (("full", full_pwd_output), ("fragment", pwd_fragment)):
-                aes_key_hex = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
-                materials.append(
-                    {
-                        "time_mode": time_mode,
-                        "key_mode": key_mode,
-                        "sign": sign_fragment,
-                        "aes_key_hex": aes_key_hex,
-                    }
+
+        for password_mode, password_value in passwords:
+            full_pwd_output = self._openssl_md5_crypt_output(salt=salt, value=password_value)
+            pwd_fragment = self._md5_crypt_fragment(full_pwd_output)
+
+            # API 2.x manual is internally inconsistent here: the prose describes
+            # simple md5(...) derivation, while the shell reference uses
+            # openssl passwd -1 / md5-crypt. Try both, while keeping the variants
+            # clearly labeled in logs.
+            for time_mode, time_for_sign in (("last4", time_last4), ("full", token_time)):
+                sign_output = self._openssl_md5_crypt_output(
+                    salt=newsalt,
+                    value=f"{pwd_fragment}{time_for_sign}",
                 )
+                sign_fragment = self._md5_crypt_fragment(sign_output)
+                for key_mode, key_source in (("full", full_pwd_output), ("fragment", pwd_fragment)):
+                    aes_key_hex = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
+                    materials.append(
+                        {
+                            "scheme": "md5crypt",
+                            "password_mode": password_mode,
+                            "time_mode": time_mode,
+                            "key_mode": key_mode,
+                            "sign": sign_fragment,
+                            "aes_key_hex": aes_key_hex,
+                        }
+                    )
+
+            simple_key = hashlib.md5(f"{salt}{password_value}".encode("utf-8")).hexdigest()
+            simple_sign = hashlib.md5(f"{newsalt}{simple_key}{time_last4}".encode("utf-8")).hexdigest()
+            simple_aes_key_hex = hashlib.sha256(simple_key.encode("utf-8")).hexdigest()
+            materials.append(
+                {
+                    "scheme": "simplemd5",
+                    "password_mode": password_mode,
+                    "time_mode": "last4",
+                    "key_mode": "md5hex",
+                    "sign": simple_sign,
+                    "aes_key_hex": simple_aes_key_hex,
+                }
+            )
+
         return materials
 
     def _build_encrypted_payload_variants(
@@ -457,7 +484,10 @@ class WhatsminerMiner(MinerAdapter):
         for material in token_materials:
             sign = str(material["sign"])
             aes_key_hex = str(material["aes_key_hex"])
-            variant_id = f"time={material['time_mode']},key={material['key_mode']}"
+            variant_id = (
+                f"scheme={material['scheme']},pwd={material['password_mode']},"
+                f"time={material['time_mode']},key={material['key_mode']}"
+            )
             plaintext_candidates = [
                 (f"json_token/{variant_id}", payload_json_with_token),
                 (f"json_prefixed/{variant_id}", f"{token_time},{sign}|{payload_json}"),
