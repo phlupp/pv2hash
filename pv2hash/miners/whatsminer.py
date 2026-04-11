@@ -5,6 +5,8 @@ import hashlib
 import json
 import socket
 import subprocess
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -43,8 +45,8 @@ class WhatsminerMiner(MinerAdapter):
     """
 
     POWER_VALUE_COMMAND_CANDIDATES = (
-        "set_power_value",
         "adjust_power_limit",
+        "set_power_value",
         "set_miner_power",
     )
 
@@ -246,20 +248,24 @@ class WhatsminerMiner(MinerAdapter):
 
     def _apply_profile_sync(self, profile: str, desired_w: float) -> None:
         if profile == "off" or desired_w <= 0:
-            self._write_command_sync("power_off", ["true"])
+            self._write_command_sync(
+                "power_off",
+                ["true"],
+                verifier=lambda: self._verify_power_state(expected_off=True, timeout_s=4.0),
+            )
             return
-
-        if self.info.runtime_state in {"paused", "stopped", "unknown"}:
-            self._write_command_sync("power_on")
 
         desired_w_int = max(1, int(round(desired_w)))
         last_error: Exception | None = None
         for cmd in self.POWER_VALUE_COMMAND_CANDIDATES:
             try:
-                response = self._write_command_sync(cmd, [str(desired_w_int)])
-                self._validate_command_ok(response)
+                self._write_command_sync(
+                    cmd,
+                    [str(desired_w_int)],
+                    verifier=lambda desired=desired_w_int: self._verify_power_limit(desired, timeout_s=3.5),
+                )
                 self.info.control_mode = "power_value"
-                return
+                break
             except Exception as exc:
                 last_error = exc
                 logger.info(
@@ -271,10 +277,16 @@ class WhatsminerMiner(MinerAdapter):
                     desired_w_int,
                     exc,
                 )
+        else:
+            if last_error is None:
+                raise RuntimeError("No WhatsMiner power-value command candidate available")
+            raise last_error
 
-        if last_error is None:
-            raise RuntimeError("No WhatsMiner power-value command candidate available")
-        raise last_error
+        if self.info.runtime_state in {"paused", "stopped", "unknown"}:
+            self._write_command_sync(
+                "power_on",
+                verifier=lambda: self._verify_power_state(expected_off=False, timeout_s=8.0),
+            )
 
     def _infer_profile_from_power(self, power_w: float | None) -> str | None:
         if power_w is None or power_w <= 0:
@@ -294,7 +306,12 @@ class WhatsminerMiner(MinerAdapter):
     def _read_command_sync(self, cmd: str) -> dict[str, Any]:
         return self._send_tcp_json_sync({"cmd": cmd})
 
-    def _write_command_sync(self, cmd: str, params: list[str] | None = None) -> dict[str, Any]:
+    def _write_command_sync(
+        self,
+        cmd: str,
+        params: list[str] | None = None,
+        verifier: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
         if not self.password:
             raise RuntimeError(
                 "WhatsMiner Passwort fehlt. Für Write-API muss das Admin-Passwort hinterlegt sein."
@@ -330,7 +347,22 @@ class WhatsminerMiner(MinerAdapter):
                             aes_key_hex=variant["aes_key_hex"],
                             encoded=str(response["data"]),
                         )
-                    self._validate_command_ok(response)
+                    try:
+                        self._validate_command_ok(response)
+                    except Exception as validation_exc:
+                        if verifier is not None and verifier():
+                            logger.info(
+                                "WhatsMiner write verified by follow-up check for %s (%s:%s): cmd=%s payload=%s variant=%s response=%r",
+                                self.info.name,
+                                self.host,
+                                self.port,
+                                cmd,
+                                payload_label,
+                                variant["label"],
+                                response,
+                            )
+                            return response
+                        raise validation_exc
                     logger.info(
                         "WhatsMiner write succeeded for %s (%s:%s): cmd=%s payload=%s variant=%s",
                         self.info.name,
@@ -421,28 +453,22 @@ class WhatsminerMiner(MinerAdapter):
             full_pwd_output = self._openssl_md5_crypt_output(salt=salt, value=password_value)
             pwd_fragment = self._md5_crypt_fragment(full_pwd_output)
 
-            # API 2.x manual is internally inconsistent here: the prose describes
-            # simple md5(...) derivation, while the shell reference uses
-            # openssl passwd -1 / md5-crypt. Try both, while keeping the variants
-            # clearly labeled in logs.
-            for time_mode, time_for_sign in (("last4", time_last4), ("full", token_time)):
-                sign_output = self._openssl_md5_crypt_output(
-                    salt=newsalt,
-                    value=f"{pwd_fragment}{time_for_sign}",
-                )
-                sign_fragment = self._md5_crypt_fragment(sign_output)
-                for key_mode, key_source in (("full", full_pwd_output), ("fragment", pwd_fragment)):
-                    aes_key_hex = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
-                    materials.append(
-                        {
-                            "scheme": "md5crypt",
-                            "password_mode": password_mode,
-                            "time_mode": time_mode,
-                            "key_mode": key_mode,
-                            "sign": sign_fragment,
-                            "aes_key_hex": aes_key_hex,
-                        }
-                    )
+            sign_output = self._openssl_md5_crypt_output(
+                salt=newsalt,
+                value=f"{pwd_fragment}{time_last4}",
+            )
+            sign_fragment = self._md5_crypt_fragment(sign_output)
+            aes_key_hex = hashlib.sha256(full_pwd_output.encode("utf-8")).hexdigest()
+            materials.append(
+                {
+                    "scheme": "md5crypt",
+                    "password_mode": password_mode,
+                    "time_mode": "last4",
+                    "key_mode": "full",
+                    "sign": sign_fragment,
+                    "aes_key_hex": aes_key_hex,
+                }
+            )
 
             simple_key = hashlib.md5(f"{salt}{password_value}".encode("utf-8")).hexdigest()
             simple_sign = hashlib.md5(f"{newsalt}{simple_key}{time_last4}".encode("utf-8")).hexdigest()
@@ -476,7 +502,6 @@ class WhatsminerMiner(MinerAdapter):
             pipe_parts.append(str(value))
         pipe_plain = "|".join(pipe_parts)
 
-        payload_json = json.dumps(payload, separators=(",", ":"))
         payload_with_token = {"token": token_time, **payload}
         payload_json_with_token = json.dumps(payload_with_token, separators=(",", ":"))
 
@@ -489,9 +514,8 @@ class WhatsminerMiner(MinerAdapter):
                 f"time={material['time_mode']},key={material['key_mode']}"
             )
             plaintext_candidates = [
-                (f"json_token/{variant_id}", payload_json_with_token),
-                (f"json_prefixed/{variant_id}", f"{token_time},{sign}|{payload_json}"),
                 (f"pipe_prefixed/{variant_id}", f"{token_time},{sign}|{pipe_plain}"),
+                (f"json_token/{variant_id}", payload_json_with_token),
             ]
             for label, plaintext in plaintext_candidates:
                 dedupe_key = (label, aes_key_hex)
@@ -512,9 +536,13 @@ class WhatsminerMiner(MinerAdapter):
     def _decrypt_response(self, *, aes_key_hex: str, encoded: str) -> dict[str, Any]:
         try:
             decrypted = self._openssl_aes256_ecb_decrypt_base64(aes_key_hex, encoded)
+        except Exception as exc:
+            return {"enc": 1, "data": encoded, "decrypt_error": str(exc)}
+
+        try:
             return self._parse_json_payload(decrypted)
-        except Exception:
-            return {"enc": 1, "data": encoded}
+        except Exception as exc:
+            return {"enc": 1, "data": encoded, "raw": decrypted, "parse_error": str(exc)}
 
     def _send_tcp_json_sync(self, payload: dict[str, Any]) -> dict[str, Any]:
         data = json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
@@ -610,6 +638,33 @@ class WhatsminerMiner(MinerAdapter):
         raise RuntimeError(
             f"WhatsMiner API Fehler (Code={code}, STATUS={status}, Msg={msg}, Description={description})"
         )
+
+    def _verify_power_limit(self, desired_w: int, timeout_s: float = 3.0) -> bool:
+        deadline = time.monotonic() + max(0.1, timeout_s)
+        while time.monotonic() < deadline:
+            try:
+                summary = self._read_command_sync("summary")
+                summary_row = self._first_list_item(summary.get("SUMMARY"))
+                power_limit_w = self._safe_float(summary_row.get("Power Limit"), None)
+                if power_limit_w is not None and abs(power_limit_w - float(desired_w)) <= 1.0:
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.35)
+        return False
+
+    def _verify_power_state(self, *, expected_off: bool, timeout_s: float = 5.0) -> bool:
+        deadline = time.monotonic() + max(0.1, timeout_s)
+        while time.monotonic() < deadline:
+            try:
+                status = self._read_command_sync("status")
+                btmineroff = str(status.get("btmineroff", "")).strip().lower() == "true"
+                if btmineroff == expected_off:
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.5)
+        return False
 
     def _openssl_md5_crypt_output(self, *, salt: str, value: str) -> str:
         result = subprocess.run(
