@@ -49,10 +49,8 @@ class WhatsminerMiner(MinerAdapter):
         "set_power_value",
     )
 
-    POWER_ON_VARIANT_LABELS = (
-        "pipe_prefixed/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment",
-        "json_prefixed/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment",
-    )
+    POWER_ON_VARIANT_LABEL = "pipe_prefixed/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
+    POWER_ON_MODE_MARKER = "single_variant_v1"
 
     def __init__(
         self,
@@ -346,6 +344,7 @@ class WhatsminerMiner(MinerAdapter):
             salt=salt,
             newsalt=newsalt,
             wide=is_power_state_cmd,
+            power_on_single=(cmd == "power_on"),
         )
         command_payloads = self._build_command_payload_candidates(cmd=cmd, params=params)
         if not command_payloads:
@@ -360,8 +359,15 @@ class WhatsminerMiner(MinerAdapter):
                 wide=is_power_state_cmd,
             )
             if cmd == "power_on":
-                preferred = [v for v in variants if v.get("label") in self.POWER_ON_VARIANT_LABELS]
-                variants = preferred or variants[:1]
+                logger.info(
+                    "WhatsMiner power_on mode for %s (%s:%s): %s",
+                    self.info.name,
+                    self.host,
+                    self.port,
+                    self.POWER_ON_MODE_MARKER,
+                )
+                preferred = [v for v in variants if v.get("label") == self.POWER_ON_VARIANT_LABEL]
+                variants = preferred[:1] if preferred else variants[:1]
             for variant in variants:
                 attempt_started = time.monotonic()
                 try:
@@ -477,6 +483,7 @@ class WhatsminerMiner(MinerAdapter):
         salt: str,
         newsalt: str,
         wide: bool = False,
+        power_on_single: bool = False,
     ) -> list[dict[str, str]]:
         time_last4 = token_time[-4:]
         passwords: list[tuple[str, str]] = [("fullpwd", self.password)]
@@ -487,10 +494,12 @@ class WhatsminerMiner(MinerAdapter):
         materials: list[dict[str, str]] = []
 
         for password_mode, password_value in passwords:
+            if power_on_single and password_mode != "fullpwd":
+                continue
             full_pwd_output = self._openssl_md5_crypt_output(salt=salt, value=password_value)
             pwd_fragment = self._md5_crypt_fragment(full_pwd_output)
 
-            if wide:
+            if wide and not power_on_single:
                 for time_mode, time_for_sign in (("last4", time_last4), ("full", token_time)):
                     sign_output = self._openssl_md5_crypt_output(
                         salt=newsalt,
@@ -510,36 +519,41 @@ class WhatsminerMiner(MinerAdapter):
                             }
                         )
             else:
+                time_for_sign = token_time if power_on_single else time_last4
                 sign_output = self._openssl_md5_crypt_output(
                     salt=newsalt,
-                    value=f"{pwd_fragment}{time_last4}",
+                    value=f"{pwd_fragment}{time_for_sign}",
                 )
                 sign_fragment = self._md5_crypt_fragment(sign_output)
-                aes_key_hex = hashlib.sha256(full_pwd_output.encode("utf-8")).hexdigest()
+                key_source = pwd_fragment if power_on_single else full_pwd_output
+                key_mode = "fragment" if power_on_single else "full"
+                time_mode = "full" if power_on_single else "last4"
+                aes_key_hex = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
                 materials.append(
                     {
                         "scheme": "md5crypt",
                         "password_mode": password_mode,
-                        "time_mode": "last4",
-                        "key_mode": "full",
+                        "time_mode": time_mode,
+                        "key_mode": key_mode,
                         "sign": sign_fragment,
                         "aes_key_hex": aes_key_hex,
                     }
                 )
 
-            simple_key = hashlib.md5(f"{salt}{password_value}".encode("utf-8")).hexdigest()
-            simple_sign = hashlib.md5(f"{newsalt}{simple_key}{time_last4}".encode("utf-8")).hexdigest()
-            simple_aes_key_hex = hashlib.sha256(simple_key.encode("utf-8")).hexdigest()
-            materials.append(
-                {
-                    "scheme": "simplemd5",
-                    "password_mode": password_mode,
-                    "time_mode": "last4",
-                    "key_mode": "md5hex",
-                    "sign": simple_sign,
-                    "aes_key_hex": simple_aes_key_hex,
-                }
-            )
+            if not power_on_single:
+                simple_key = hashlib.md5(f"{salt}{password_value}".encode("utf-8")).hexdigest()
+                simple_sign = hashlib.md5(f"{newsalt}{simple_key}{time_last4}".encode("utf-8")).hexdigest()
+                simple_aes_key_hex = hashlib.sha256(simple_key.encode("utf-8")).hexdigest()
+                materials.append(
+                    {
+                        "scheme": "simplemd5",
+                        "password_mode": password_mode,
+                        "time_mode": "last4",
+                        "key_mode": "md5hex",
+                        "sign": simple_sign,
+                        "aes_key_hex": simple_aes_key_hex,
+                    }
+                )
 
         return materials
 
