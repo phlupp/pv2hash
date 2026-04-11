@@ -184,7 +184,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
         if not miner_cfg.get("enabled", True):
             continue
 
-        driver = miner_cfg.get("driver", "simulator")
+        driver = _normalize_miner_driver(miner_cfg.get("driver", "simulator"))
         settings = miner_cfg.get("settings", {})
         profiles = _normalize_profiles(driver, miner_cfg.get("profiles"))
         min_regulated_profile = _normalize_min_regulated_profile(
