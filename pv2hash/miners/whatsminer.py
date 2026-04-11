@@ -517,8 +517,10 @@ class WhatsminerMiner(MinerAdapter):
             pipe_parts.append(str(value))
         pipe_plain = "|".join(pipe_parts)
 
+        payload_json = json.dumps(payload, separators=(",", ":"))
         payload_with_token = {"token": token_time, **payload}
         payload_json_with_token = json.dumps(payload_with_token, separators=(",", ":"))
+        is_power_state_cmd = str(payload.get("cmd", "")).lower() in {"power_on", "power_off"}
 
         seen: set[tuple[str, str]] = set()
         for material in token_materials:
@@ -531,6 +533,11 @@ class WhatsminerMiner(MinerAdapter):
             plaintext_candidates = [
                 (f"json_token/{variant_id}", payload_json_with_token),
             ]
+            if is_power_state_cmd:
+                plaintext_candidates.extend([
+                    (f"json_prefixed/{variant_id}", f"{token_time},{sign}|{payload_json}"),
+                    (f"pipe_prefixed/{variant_id}", f"{token_time},{sign}|{pipe_plain}"),
+                ])
             for label, plaintext in plaintext_candidates:
                 dedupe_key = (label, aes_key_hex)
                 if dedupe_key in seen:
@@ -558,10 +565,16 @@ class WhatsminerMiner(MinerAdapter):
         except Exception as exc:
             return {"enc": 1, "data": encoded, "raw": decrypted, "parse_error": str(exc)}
 
-    def _send_tcp_json_sync(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _send_tcp_json_sync(
+        self,
+        payload: dict[str, Any],
+        *,
+        timeout_s: float | None = None,
+    ) -> dict[str, Any]:
+        effective_timeout = self.timeout_s if timeout_s is None else float(timeout_s)
         data = json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
-        with socket.create_connection((self.host, self.port), timeout=self.timeout_s) as sock:
-            sock.settimeout(self.timeout_s)
+        with socket.create_connection((self.host, self.port), timeout=effective_timeout) as sock:
+            sock.settimeout(effective_timeout)
             sock.sendall(data)
             raw = self._recv_all(sock)
         return self._parse_json_payload(raw)
