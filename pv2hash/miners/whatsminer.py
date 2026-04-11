@@ -49,6 +49,11 @@ class WhatsminerMiner(MinerAdapter):
         "set_power_value",
     )
 
+    POWER_ON_VARIANT_LABELS = (
+        "pipe_prefixed/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment",
+        "json_prefixed/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment",
+    )
+
     def __init__(
         self,
         miner_id: str,
@@ -270,7 +275,8 @@ class WhatsminerMiner(MinerAdapter):
         if miner_is_off:
             self._write_power_state_with_cooldown(
                 "power_on",
-                verifier=lambda: self._verify_power_state(expected_off=False, timeout_s=20.0),
+                verifier=lambda: self._verify_power_state(expected_off=False, timeout_s=6.0),
+                cooldown_s=15.0,
             )
 
     def _write_power_state_with_cooldown(
@@ -347,12 +353,16 @@ class WhatsminerMiner(MinerAdapter):
 
         errors: list[str] = []
         for payload_label, payload in command_payloads:
-            for variant in self._build_encrypted_payload_variants(
+            variants = self._build_encrypted_payload_variants(
                 token_time=token_time,
                 payload=payload,
                 token_materials=token_materials,
                 wide=is_power_state_cmd,
-            ):
+            )
+            if cmd == "power_on":
+                preferred = [v for v in variants if v.get("label") in self.POWER_ON_VARIANT_LABELS]
+                variants = preferred or variants[:1]
+            for variant in variants:
                 attempt_started = time.monotonic()
                 try:
                     response = self._send_tcp_json_sync(
