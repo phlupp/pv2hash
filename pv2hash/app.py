@@ -735,7 +735,33 @@ def _build_miner_settings(
         elif existing.get("password"):
             settings["password"] = existing["password"]
 
+        power_limit_raw = str(form.get("whatsminer_power_limit_w", "")).strip()
+        if power_limit_raw:
+            settings["power_limit_w"] = _safe_int(power_limit_raw, 0)
+        elif existing.get("power_limit_w") not in (None, ""):
+            settings["power_limit_w"] = _safe_int(existing.get("power_limit_w"), 0)
+
     return settings
+
+
+def _validate_whatsminer_api2_settings(
+    *,
+    profile_values: dict[str, dict[str, float]],
+    settings: dict,
+) -> str | None:
+    power_limit_w = _safe_int(settings.get("power_limit_w"), 0)
+    if power_limit_w <= 0:
+        return "WhatsMiner (API 2.x) benötigt ein Basis-Power-Limit in Watt."
+
+    for name in EDITABLE_PROFILE_NAMES:
+        value = float(profile_values[name]["power_w"])
+        if value > float(power_limit_w):
+            return (
+                f"{name} liegt über dem konfigurierten Basis-Power-Limit von {int(power_limit_w)} W."
+            )
+
+    return None
+
 
 def _parse_profile_values(form, driver: str) -> dict[str, dict[str, float]]:
     _, default_p1, default_p2, default_p3, default_p4 = _driver_profile_defaults(driver)
@@ -1145,9 +1171,15 @@ async def add_miner(request: Request):
     )
 
     default_port, _, _, _, _ = _driver_profile_defaults(driver)
+    settings = _build_miner_settings(form, driver, default_port)
     profile_values = _parse_profile_values(form, driver)
 
     validation_error = _validate_profile_values(profile_values=profile_values)
+    if not validation_error and driver == "whatsminer_api2":
+        validation_error = _validate_whatsminer_api2_settings(
+            profile_values=profile_values,
+            settings=settings,
+        )
     if validation_error:
         return templates.TemplateResponse(
             request=request,
@@ -1164,7 +1196,7 @@ async def add_miner(request: Request):
             "driver": driver,
             "enabled": True,
             "priority": int(form.get("priority", 100)),
-            "settings": _build_miner_settings(form, driver, default_port),
+            "settings": settings,
             "profiles": profile_values,
             "min_regulated_profile": min_regulated_profile,
             "use_battery_when_charging": form.get("use_battery_when_charging") == "on",
@@ -1208,12 +1240,23 @@ async def update_miner(request: Request):
             )
 
             default_port, _, _, _, _ = _driver_profile_defaults(driver)
+            settings = _build_miner_settings(
+                form,
+                driver,
+                default_port,
+                existing=miner.get("settings", {}),
+            )
             profile_values = _parse_profile_values(form, driver)
 
             validation_error = _validate_profile_values(
                 profile_values=profile_values,
                 runtime_constraints=runtime_map.get(miner_id),
             )
+            if not validation_error and driver == "whatsminer_api2":
+                validation_error = _validate_whatsminer_api2_settings(
+                    profile_values=profile_values,
+                    settings=settings,
+                )
             if validation_error:
                 return templates.TemplateResponse(
                     request=request,
@@ -1227,12 +1270,7 @@ async def update_miner(request: Request):
             miner["driver"] = driver
             miner["priority"] = int(form.get("priority", miner.get("priority", 100)))
             miner["enabled"] = form.get("enabled") == "on"
-            miner["settings"] = _build_miner_settings(
-                form,
-                driver,
-                default_port,
-                existing=miner.get("settings", {}),
-            )
+            miner["settings"] = settings
             miner["profiles"] = profile_values
             miner["min_regulated_profile"] = min_regulated_profile
             miner["use_battery_when_charging"] = form.get("use_battery_when_charging") == "on"

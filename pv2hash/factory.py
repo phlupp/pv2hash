@@ -267,7 +267,8 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     battery_discharge_profile=_normalize_battery_override_profile(
                         miner_cfg.get("battery_discharge_profile", "p1")
                     ),
-                    timeout_s=float(settings.get("timeout_s", 8.0)),
+                    timeout_s=float(settings.get("timeout_s", 2.0)),
+                    power_limit_w=float(settings.get("power_limit_w", 0) or 0),
                 )
             )
             continue
@@ -306,7 +307,8 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     battery_discharge_profile=_normalize_battery_override_profile(
                         miner_cfg.get("battery_discharge_profile", "p1")
                     ),
-                    timeout_s=float(settings.get("timeout_s", 8.0)),
+                    timeout_s=float(settings.get("timeout_s", 2.0)),
+                    power_limit_w=float(settings.get("power_limit_w", 0) or 0),
                 )
             )
             continue

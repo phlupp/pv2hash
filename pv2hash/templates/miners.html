@@ -170,7 +170,13 @@
                                 <label data-driver-types="whatsminer_api2">
                                     <span>WhatsMiner API Passwort</span>
                                     <input type="password" name="whatsminer_password">
-                                    <small class="help">Admin-Passwort. API muss aktiviert sein. PV2Hash nutzt nur Power-Value-basierte Steuerung.</small>
+                                    <small class="help">Admin-Passwort. API muss aktiviert sein.</small>
+                                </label>
+
+                                <label data-driver-types="whatsminer_api2">
+                                    <span>Basis-Power-Limit (W)</span>
+                                    <input type="number" name="whatsminer_power_limit_w" min="1" step="1" inputmode="numeric">
+                                    <small class="help">Pflichtfeld für API 2.x. PV2Hash rechnet die Profil-Wattwerte intern in Prozent dieses Limits um.</small>
                                 </label>
                             </div>
                         </section>
@@ -448,7 +454,13 @@
                                     <label data-driver-types="whatsminer_api2">
                                         <span>WhatsMiner API Passwort</span>
                                         <input type="password" name="whatsminer_password" value="">
-                                        <small class="help">Leer = unverändert. API muss aktiviert sein. PV2Hash nutzt nur Power-Value-basierte Steuerung.</small>
+                                        <small class="help">Leer = unverändert. API muss aktiviert sein.</small>
+                                    </label>
+
+                                    <label data-driver-types="whatsminer_api2">
+                                        <span>Basis-Power-Limit (W)</span>
+                                        <input type="number" name="whatsminer_power_limit_w" value="{{ miner.settings.power_limit_w if miner.settings and miner.settings.power_limit_w is defined else '' }}" min="1" step="1" inputmode="numeric">
+                                        <small class="help">PV2Hash rechnet die Profil-Wattwerte intern in Prozent dieses Limits um.</small>
                                     </label>
                                 </div>
                             </section>
