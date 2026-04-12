@@ -1,6 +1,4 @@
-[hidden] {
-    display: none !important;
-}
+[hidden] { display: none !important; }
 
 :root {
     --bg: #171a33;

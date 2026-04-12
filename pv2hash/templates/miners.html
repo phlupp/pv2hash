@@ -459,7 +459,7 @@
 
                                     <label data-driver-types="whatsminer_api2">
                                         <span>Basis-Power-Limit (W)</span>
-                                        <input type="number" name="whatsminer_power_limit_w" value="{{ miner.settings.power_limit_w if miner.settings and miner.settings.power_limit_w is defined and miner.settings.power_limit_w else (miner.runtime.power_target_default_w if miner.runtime and miner.runtime.power_target_default_w is defined and miner.runtime.power_target_default_w else '') }}" min="1" step="1" inputmode="numeric">
+                                        <input type="number" name="whatsminer_power_limit_w" value="{{ miner.settings.power_limit_w if miner.settings and miner.settings.power_limit_w is defined and miner.settings.power_limit_w not in [None, ''] else (pt_def if pt_def is not none else '') }}" min="1" step="1" inputmode="numeric">
                                         <small class="help">PV2Hash rechnet die Profil-Wattwerte intern in Prozent dieses Limits um.</small>
                                     </label>
                                 </div>
