@@ -39,6 +39,8 @@ class WhatsminerMiner(MinerAdapter):
     POWER_ON_MODE_MARKER = "single_variant_v2_json_token"
     POWER_OFF_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment"
     POWER_LIMIT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
+    POWER_PERCENT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
+    POWER_PERCENT_MODE_MARKER = "single_variant_v1_json_token"
 
     def __init__(
         self,
@@ -273,15 +275,33 @@ class WhatsminerMiner(MinerAdapter):
             )
             return
 
-        # WhatsMiner API 2.x stable mode for now:
-        # keep runtime watt/percent writes disabled until the percent path is rebuilt
-        # in a separate follow-up. Only start the miner if it is currently suspended.
         if miner_is_off:
             self._write_power_state_with_cooldown(
                 "power_on",
                 verifier=lambda: self._verify_power_state(expected_off=False, timeout_s=6.0),
                 cooldown_s=15.0,
             )
+            return
+
+        power_limit_w = self._effective_power_limit_w()
+        if power_limit_w is None or power_limit_w <= 0:
+            message = "WhatsMiner API 2.x: kein Basis-Power-Limit verfügbar; Prozentregelung nicht möglich."
+            logger.warning(
+                "WhatsMiner percent control skipped for %s (%s:%s): no effective power_limit available",
+                self.info.name,
+                self.host,
+                self.port,
+            )
+            self.info.last_error = message
+            return
+
+        percent = self._desired_power_percent(desired_w, power_limit_w)
+        self._write_power_percent_with_cooldown(
+            percent,
+            desired_w=desired_w,
+            power_limit_w=power_limit_w,
+            cooldown_s=60.0,
+        )
 
     def _write_power_state_with_cooldown(
         self,
@@ -334,6 +354,7 @@ class WhatsminerMiner(MinerAdapter):
             "set_power_pct_v2",
             [str(percent)],
             verifier=lambda: self._verify_power_percent(expected_percent=percent, timeout_s=4.0),
+            allow_encrypted_ack=True,
         )
 
     def _effective_power_limit_w(self) -> float | None:
@@ -396,6 +417,7 @@ class WhatsminerMiner(MinerAdapter):
         cmd: str,
         params: list[str] | None = None,
         verifier: Callable[[], bool] | None = None,
+        allow_encrypted_ack: bool = False,
     ) -> dict[str, Any]:
         if not self.password:
             raise RuntimeError(
@@ -449,6 +471,16 @@ class WhatsminerMiner(MinerAdapter):
             elif cmd == "adjust_power_limit":
                 preferred = [v for v in variants if v.get("label") == self.POWER_LIMIT_VARIANT_LABEL]
                 variants = preferred[:1] if preferred else variants[:1]
+            elif cmd == "set_power_pct_v2":
+                logger.info(
+                    "WhatsMiner power percent mode for %s (%s:%s): %s",
+                    self.info.name,
+                    self.host,
+                    self.port,
+                    self.POWER_PERCENT_MODE_MARKER,
+                )
+                preferred = [v for v in variants if v.get("label") == self.POWER_PERCENT_VARIANT_LABEL]
+                variants = preferred[:1] if preferred else variants[:1]
             for variant in variants:
                 attempt_started = time.monotonic()
                 try:
@@ -485,6 +517,22 @@ class WhatsminerMiner(MinerAdapter):
                                     response,
                                 )
                                 return response
+                        if allow_encrypted_ack and self._looks_like_encrypted_ack(response):
+                            total_elapsed_ms = (time.monotonic() - started) * 1000.0
+                            logger.info(
+                                "WhatsMiner write accepted by encrypted ack for %s (%s:%s): cmd=%s payload=%s variant=%s token_ms=%.0f verify_ms=%.0f total_ms=%.0f response=%r",
+                                self.info.name,
+                                self.host,
+                                self.port,
+                                cmd,
+                                payload_label,
+                                variant["label"],
+                                token_elapsed_ms,
+                                verify_elapsed_ms,
+                                total_elapsed_ms,
+                                response,
+                            )
+                            return response
                         raise validation_exc
                     total_elapsed_ms = (time.monotonic() - started) * 1000.0
                     logger.info(
@@ -696,6 +744,15 @@ class WhatsminerMiner(MinerAdapter):
                 )
 
         return variants
+
+    def _looks_like_encrypted_ack(self, response: dict[str, Any]) -> bool:
+        if not isinstance(response, dict):
+            return False
+        if isinstance(response.get("enc"), str) and response.get("enc"):
+            return True
+        if response.get("enc") == 1 and isinstance(response.get("data"), str) and response.get("data"):
+            return True
+        return False
 
     def _decrypt_response(self, *, aes_key_hex: str, encoded: str) -> dict[str, Any]:
         try:
