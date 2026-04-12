@@ -176,7 +176,7 @@
                                 <label data-driver-types="whatsminer_api2">
                                     <span>Basis-Power-Limit (W)</span>
                                     <input type="number" name="whatsminer_power_limit_w" min="1" step="1" inputmode="numeric">
-                                    <small class="help">Pflichtfeld für API 2.x. PV2Hash rechnet die Profil-Wattwerte intern in Prozent dieses Limits um.</small>
+                                    <small class="help">Pflichtfeld für API 2.x. PV2Hash rechnet die Profil-Wattwerte intern in Prozent dieses Limits um. Beim Speichern wird das Basis-Power-Limit auch am Miner gesetzt und kann einen Neustart auslösen.</small>
                                 </label>
                             </div>
                         </section>
@@ -459,8 +459,8 @@
 
                                     <label data-driver-types="whatsminer_api2">
                                         <span>Basis-Power-Limit (W)</span>
-                                        <input type="number" name="whatsminer_power_limit_w" value="{{ miner.settings.power_limit_w if miner.settings and miner.settings.power_limit_w is defined else '' }}" min="1" step="1" inputmode="numeric">
-                                        <small class="help">PV2Hash rechnet die Profil-Wattwerte intern in Prozent dieses Limits um.</small>
+                                        <input type="number" name="whatsminer_power_limit_w" value="{{ miner.settings.power_limit_w if miner.settings and miner.settings.power_limit_w is defined and miner.settings.power_limit_w not in [None, ""] else (rt.get("power_target_default_w")|int if rt.get("power_target_default_w") not in [None, ""] else "") }}" min="1" step="1" inputmode="numeric">
+                                        <small class="help">PV2Hash rechnet die Profil-Wattwerte intern in Prozent dieses Limits um. Beim Speichern wird das Basis-Power-Limit auch am Miner gesetzt und kann einen Neustart auslösen.</small>
                                     </label>
                                 </div>
                             </section>

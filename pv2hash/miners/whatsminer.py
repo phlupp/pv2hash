@@ -148,6 +148,11 @@ class WhatsminerMiner(MinerAdapter):
 
         self.info.last_seen = datetime.now(UTC)
 
+    async def apply_configured_power_limit(self) -> None:
+        if self.configured_power_limit_w <= 0:
+            raise RuntimeError("Kein Basis-Power-Limit für WhatsMiner API 2.x konfiguriert")
+        await asyncio.to_thread(self._apply_configured_power_limit_sync, int(round(self.configured_power_limit_w)))
+
     async def get_status(self) -> MinerInfo:
         try:
             bundle = await asyncio.to_thread(self._fetch_bundle_sync)
@@ -183,6 +188,13 @@ class WhatsminerMiner(MinerAdapter):
             "version": self._read_command_sync("get_version"),
             "devdetails": self._read_command_sync("devdetails"),
         }
+
+    def _apply_configured_power_limit_sync(self, power_limit_w: int) -> None:
+        self._write_command_sync(
+            "adjust_power_limit",
+            [str(int(power_limit_w))],
+            verifier=lambda: self._verify_reported_power_limit(expected_w=int(power_limit_w), timeout_s=8.0),
+        )
 
     def _apply_bundle(self, bundle: dict[str, Any]) -> None:
         self._set_runtime_defaults()
@@ -858,6 +870,22 @@ class WhatsminerMiner(MinerAdapter):
             except Exception:
                 pass
             time.sleep(0.2)
+        return False
+
+    def _verify_reported_power_limit(self, *, expected_w: int, timeout_s: float = 8.0) -> bool:
+        deadline = time.monotonic() + max(0.1, timeout_s)
+        while time.monotonic() < deadline:
+            try:
+                remaining = max(0.3, min(1.0, deadline - time.monotonic()))
+                status = self._read_command_sync("status", timeout_s=remaining)
+                status_msg = self._status_msg(status)
+                reported_w = self._safe_float(status_msg.get("power_limit_set"), None)
+                if reported_w is not None and abs(reported_w - float(expected_w)) <= 1.0:
+                    self.reported_power_limit_w = reported_w
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.3)
         return False
 
     def _verify_power_state(self, *, expected_off: bool, timeout_s: float = 1.6) -> bool:

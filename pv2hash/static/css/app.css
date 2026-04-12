@@ -395,6 +395,10 @@ label {
     color: var(--muted);
 }
 
+[hidden] {
+    display: none !important;
+}
+
 input,
 select,
 button {
