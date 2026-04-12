@@ -932,22 +932,27 @@ def reload_runtime() -> None:
 
 
 async def _apply_whatsminer_power_limit_after_reload(miner_id: str, target_w: int) -> None:
-    miner = next((m for m in services.miners if str(m.id) == str(miner_id)), None)
-    if miner is None or not hasattr(miner, "apply_base_power_limit"):
-        logger.warning(
-            "WhatsMiner base power limit apply skipped after reload: id=%s reason=adapter-not-found",
-            miner_id,
-        )
-        return
-
-    logger.info(
-        "Applying WhatsMiner base power limit after save in background: id=%s name=%s host=%s power_limit_w=%s",
-        miner.id,
-        miner.name,
-        miner.host,
-        target_w,
-    )
     try:
+        miner = next((m for m in services.miners if str(getattr(getattr(m, "info", None), "id", "")) == str(miner_id)), None)
+        if miner is None or not hasattr(miner, "apply_base_power_limit"):
+            logger.warning(
+                "WhatsMiner base power limit apply skipped after reload: id=%s reason=adapter-not-found",
+                miner_id,
+            )
+            return
+
+        miner_info = getattr(miner, "info", None)
+        miner_name = getattr(miner_info, "name", getattr(miner, "name", "?"))
+        miner_host = getattr(miner_info, "host", getattr(miner, "host", "?"))
+        resolved_id = getattr(miner_info, "id", miner_id)
+
+        logger.info(
+            "Applying WhatsMiner base power limit after save in background: id=%s name=%s host=%s power_limit_w=%s",
+            resolved_id,
+            miner_name,
+            miner_host,
+            target_w,
+        )
         await asyncio.to_thread(miner.apply_base_power_limit, int(target_w))
     except Exception:
         logger.exception(
