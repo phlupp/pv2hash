@@ -395,10 +395,6 @@ label {
     color: var(--muted);
 }
 
-[hidden] {
-    display: none !important;
-}
-
 input,
 select,
 button {
@@ -1394,4 +1390,9 @@ select:focus {
         align-items: flex-start;
         text-align: left;
     }
+}
+
+
+[hidden] {
+    display: none !important;
 }
