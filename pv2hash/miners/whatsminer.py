@@ -24,8 +24,9 @@ class WhatsminerMiner(MinerAdapter):
     API 2.x strategy in PV2Hash:
     - start/stop via power_on / power_off
     - watt-based profiles remain visible in PV2Hash
-    - runtime control is done internally via set_power_pct_v2(percent)
-      relative to a configured base power limit in watts
+    - current stable control path is start/stop only
+    - base power limit is read and exposed, but percentage regulation stays disabled
+      until the API-2.x percent write path is reintroduced in a controlled follow-up
 
     Notes:
     - Readable API is sent as plaintext JSON over TCP/4028.
@@ -36,8 +37,10 @@ class WhatsminerMiner(MinerAdapter):
 
     POWER_ON_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
     POWER_ON_MODE_MARKER = "single_variant_v2_json_token"
+    POWER_OFF_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment"
     POWER_LIMIT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
-    POWER_PCT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
+    POWER_PERCENT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
+    POWER_PERCENT_MODE_MARKER = "single_variant_v1_json_token"
 
     def __init__(
         self,
@@ -111,7 +114,7 @@ class WhatsminerMiner(MinerAdapter):
             use_battery_when_discharging=bool(use_battery_when_discharging),
             battery_discharge_soc_min=float(battery_discharge_soc_min),
             battery_discharge_profile=battery_discharge_profile,
-            control_mode="power_value",
+            control_mode="power_state_only",
         )
 
         self._set_runtime_defaults()
@@ -156,27 +159,12 @@ class WhatsminerMiner(MinerAdapter):
         self.info.last_seen = datetime.now(UTC)
         return self.info
 
-    def apply_base_power_limit(self, target_w: int) -> dict[str, Any]:
-        response = self._write_command_sync(
-            "adjust_power_limit",
-            [str(target_w)],
-            verifier=lambda: self._verify_power_limit(expected_w=target_w, timeout_s=15.0),
-        )
-        self.configured_power_limit_w = float(target_w)
-        self.reported_power_limit_w = float(target_w)
-        self.info.power_target_default_w = float(target_w)
-        self.info.power_target_max_w = float(target_w)
-        self._last_applied_power_pct = None
-        self._pending_power_pct = None
-        self._pending_power_pct_started_at = 0.0
-        return response
-
     def _set_runtime_defaults(self) -> None:
         self.info.reachable = False
         self.info.runtime_state = "unknown"
         self.info.current_hashrate_ghs = None
         self.info.api_version = None
-        self.info.control_mode = self.info.control_mode or "power_pct_v2"
+        self.info.control_mode = self.info.control_mode or "power_state_only"
         self.info.autotuning_enabled = None
         self.info.power_target_min_w = None
         self.info.power_target_default_w = None
@@ -264,16 +252,8 @@ class WhatsminerMiner(MinerAdapter):
             self.info.runtime_state = "paused"
             self.info.power_w = 0.0
             self.info.profile = "off"
-            self._last_applied_power_pct = None
-            self._pending_power_pct = None
-            self._pending_power_pct_started_at = 0.0
         else:
             self.info.runtime_state = "running"
-            if self.reported_hash_percent is not None:
-                self._last_applied_power_pct = int(round(self.reported_hash_percent))
-                if self._pending_power_pct is not None and abs(self.reported_hash_percent - float(self._pending_power_pct)) <= 1.0:
-                    self._pending_power_pct = None
-                    self._pending_power_pct_started_at = 0.0
             inferred_from_w = actual_power_w
             if inferred_from_w is None and effective_power_limit_w is not None and self.reported_hash_percent is not None:
                 inferred_from_w = effective_power_limit_w * (self.reported_hash_percent / 100.0)
@@ -287,6 +267,9 @@ class WhatsminerMiner(MinerAdapter):
         miner_is_off = self._is_miner_off(timeout_s=0.8)
 
         if profile == "off" or desired_w <= 0:
+            self._last_applied_power_pct = None
+            self._pending_power_pct = None
+            self._pending_power_pct_started_at = 0.0
             if miner_is_off:
                 return
             self._write_power_state(
@@ -295,15 +278,6 @@ class WhatsminerMiner(MinerAdapter):
             )
             return
 
-        effective_power_limit_w = self._effective_power_limit_w()
-        if effective_power_limit_w is None or effective_power_limit_w <= 0:
-            raise RuntimeError(
-                "WhatsMiner API 2.x benötigt ein Basis-Power-Limit in Watt. "
-                "Bitte in den Miner-Einstellungen setzen oder einmalig am Miner konfigurieren."
-            )
-
-        desired_percent = self._desired_power_percent(desired_w, effective_power_limit_w)
-
         if miner_is_off:
             self._write_power_state(
                 "power_on",
@@ -311,13 +285,26 @@ class WhatsminerMiner(MinerAdapter):
             )
             return
 
-        if not self._needs_power_percent_update(desired_percent):
+        power_limit_w = self._effective_power_limit_w()
+        if power_limit_w is None or power_limit_w <= 0:
+            message = "WhatsMiner API 2.x: kein Basis-Power-Limit verfügbar; Prozentregelung nicht möglich."
+            logger.warning(
+                "WhatsMiner percent control skipped for %s (%s:%s): no effective power_limit available",
+                self.info.name,
+                self.host,
+                self.port,
+            )
+            self.info.last_error = message
+            return
+
+        percent = self._desired_power_percent(desired_w, power_limit_w)
+        if not self._needs_power_percent_update(percent, power_limit_w=power_limit_w):
             return
 
         self._write_power_percent(
-            desired_percent,
+            percent,
             desired_w=desired_w,
-            power_limit_w=effective_power_limit_w,
+            power_limit_w=power_limit_w,
         )
 
     def _write_power_state(
@@ -333,12 +320,12 @@ class WhatsminerMiner(MinerAdapter):
             self._pending_power_pct_started_at = 0.0
         return response
 
-    def _needs_power_percent_update(self, desired_percent: int) -> bool:
+    def _needs_power_percent_update(self, desired_percent: int, *, power_limit_w: float) -> bool:
         if self.info.runtime_state in {"paused", "stopped", "unknown", "unreachable"}:
             return False
 
-        if self.reported_hash_percent is not None and abs(self.reported_hash_percent - float(desired_percent)) <= 1.0:
-            self._last_applied_power_pct = int(round(self.reported_hash_percent))
+        if self._power_percent_matches_runtime(desired_percent, power_limit_w=power_limit_w):
+            self._last_applied_power_pct = desired_percent
             self._pending_power_pct = None
             self._pending_power_pct_started_at = 0.0
             return False
@@ -348,7 +335,7 @@ class WhatsminerMiner(MinerAdapter):
 
         if self._pending_power_pct is not None and self._pending_power_pct == desired_percent:
             age_s = time.monotonic() - self._pending_power_pct_started_at
-            if age_s < 20.0:
+            if age_s < 15.0:
                 return False
 
         return True
@@ -369,14 +356,15 @@ class WhatsminerMiner(MinerAdapter):
             power_limit_w,
             percent,
         )
+        self._pending_power_pct = percent
+        self._pending_power_pct_started_at = time.monotonic()
         response = self._write_command_sync(
             "set_power_pct_v2",
             [str(percent)],
-            verifier=lambda: self._verify_power_percent(expected_percent=percent, timeout_s=4.0),
+            verifier=lambda: self._verify_power_percent(expected_percent=percent, power_limit_w=power_limit_w, timeout_s=8.0),
+            allow_encrypted_ack=True,
         )
         self._last_applied_power_pct = percent
-        self._pending_power_pct = percent
-        self._pending_power_pct_started_at = time.monotonic()
         return response
 
     def _effective_power_limit_w(self) -> float | None:
@@ -395,6 +383,37 @@ class WhatsminerMiner(MinerAdapter):
             )
         percent = int(round((float(desired_w) / float(power_limit_w)) * 100.0))
         return max(1, min(100, percent))
+
+    def _runtime_power_percent(self, *, power_limit_w: float) -> float | None:
+        if power_limit_w <= 0:
+            return None
+        if self.reported_hash_percent is not None:
+            return float(self.reported_hash_percent)
+        actual_power_w = self.info.power_w if self.info.power_w and self.info.power_w > 0 else None
+        if actual_power_w is None:
+            return None
+        return max(0.0, min(100.0, (float(actual_power_w) / float(power_limit_w)) * 100.0))
+
+    def _power_percent_matches_runtime(self, percent: int, *, power_limit_w: float, tolerance: float = 8.0) -> bool:
+        current_percent = self._runtime_power_percent(power_limit_w=power_limit_w)
+        if current_percent is None:
+            return False
+        return abs(current_percent - float(percent)) <= tolerance
+
+    def apply_base_power_limit(self, target_w: int) -> dict[str, Any]:
+        if int(target_w) <= 0:
+            raise RuntimeError("Ungültiges Basis-Power-Limit für WhatsMiner API 2.x")
+
+        response = self._write_command_sync(
+            "adjust_power_limit",
+            [str(int(target_w))],
+            verifier=lambda: self._verify_power_limit(expected_w=int(target_w), timeout_s=20.0),
+        )
+        self.configured_power_limit_w = float(target_w)
+        self.reported_power_limit_w = float(target_w)
+        self.info.power_target_default_w = float(target_w)
+        self.info.power_target_max_w = float(target_w)
+        return response
 
     def _infer_profile_from_power(self, power_w: float | None) -> str | None:
         if power_w is None or power_w <= 0:
@@ -419,6 +438,7 @@ class WhatsminerMiner(MinerAdapter):
         cmd: str,
         params: list[str] | None = None,
         verifier: Callable[[], bool] | None = None,
+        allow_encrypted_ack: bool = False,
     ) -> dict[str, Any]:
         if not self.password:
             raise RuntimeError(
@@ -442,7 +462,8 @@ class WhatsminerMiner(MinerAdapter):
             newsalt=newsalt,
             wide=is_power_state_cmd,
             power_on_single=(cmd == "power_on"),
-            power_pct_narrow=(cmd == "set_power_pct_v2"),
+            power_limit_single=(cmd == "adjust_power_limit"),
+            power_percent_single=(cmd == "set_power_pct_v2"),
         )
         command_payloads = self._build_command_payload_candidates(cmd=cmd, params=params)
         if not command_payloads:
@@ -466,17 +487,33 @@ class WhatsminerMiner(MinerAdapter):
                 )
                 preferred = [v for v in variants if v.get("label") == self.POWER_ON_VARIANT_LABEL]
                 variants = preferred[:1] if preferred else variants[:1]
-            elif cmd == "adjust_power_limit":
-                preferred = [v for v in variants if v.get("label") == self.POWER_LIMIT_VARIANT_LABEL]
-                variants = preferred[:1] if preferred else variants[:1]
-            elif cmd == "set_power_pct_v2":
+            elif cmd == "power_off":
                 logger.info(
-                    "WhatsMiner power percent mode for %s (%s:%s): single_variant_v2_json_token",
+                    "WhatsMiner power_off mode for %s (%s:%s): single_variant_v1_json_token",
                     self.info.name,
                     self.host,
                     self.port,
                 )
-                preferred = [v for v in variants if v.get("label") == self.POWER_PCT_VARIANT_LABEL]
+                preferred = [v for v in variants if v.get("label") == self.POWER_OFF_VARIANT_LABEL]
+                variants = preferred[:1] if preferred else variants[:1]
+            elif cmd == "adjust_power_limit":
+                logger.info(
+                    "WhatsMiner adjust_power_limit mode for %s (%s:%s): single_variant_v1_json_token",
+                    self.info.name,
+                    self.host,
+                    self.port,
+                )
+                preferred = [v for v in variants if v.get("label") == self.POWER_LIMIT_VARIANT_LABEL]
+                variants = preferred[:1] if preferred else variants[:1]
+            elif cmd == "set_power_pct_v2":
+                logger.info(
+                    "WhatsMiner power percent mode for %s (%s:%s): %s",
+                    self.info.name,
+                    self.host,
+                    self.port,
+                    self.POWER_PERCENT_MODE_MARKER,
+                )
+                preferred = [v for v in variants if v.get("label") == self.POWER_PERCENT_VARIANT_LABEL]
                 variants = preferred[:1] if preferred else variants[:1]
             for variant in variants:
                 attempt_started = time.monotonic()
@@ -514,6 +551,22 @@ class WhatsminerMiner(MinerAdapter):
                                     response,
                                 )
                                 return response
+                        if allow_encrypted_ack and self._looks_like_encrypted_ack(response):
+                            total_elapsed_ms = (time.monotonic() - started) * 1000.0
+                            logger.info(
+                                "WhatsMiner write accepted by encrypted ack for %s (%s:%s): cmd=%s payload=%s variant=%s token_ms=%.0f verify_ms=%.0f total_ms=%.0f response=%r",
+                                self.info.name,
+                                self.host,
+                                self.port,
+                                cmd,
+                                payload_label,
+                                variant["label"],
+                                token_elapsed_ms,
+                                verify_elapsed_ms,
+                                total_elapsed_ms,
+                                response,
+                            )
+                            return response
                         raise validation_exc
                     total_elapsed_ms = (time.monotonic() - started) * 1000.0
                     logger.info(
@@ -565,7 +618,6 @@ class WhatsminerMiner(MinerAdapter):
             respbefore = normalized_params[0] if normalized_params else "true"
             return [
                 ("respbefore", {"cmd": "power_off", "respbefore": respbefore}),
-                ("cmd_only", {"cmd": "power_off"}),
             ]
 
         value = normalized_params[0] if normalized_params else ""
@@ -581,7 +633,6 @@ class WhatsminerMiner(MinerAdapter):
         if cmd == "adjust_power_limit":
             return [
                 ("power_limit", {"cmd": cmd, "power_limit": value}),
-                ("value", {"cmd": cmd, "value": value}),
             ]
 
         if cmd == "set_power_pct_v2":
@@ -599,7 +650,8 @@ class WhatsminerMiner(MinerAdapter):
         newsalt: str,
         wide: bool = False,
         power_on_single: bool = False,
-        power_pct_narrow: bool = False,
+        power_limit_single: bool = False,
+        power_percent_single: bool = False,
     ) -> list[dict[str, str]]:
         time_last4 = token_time[-4:]
         passwords: list[tuple[str, str]] = [("fullpwd", self.password)]
@@ -610,12 +662,12 @@ class WhatsminerMiner(MinerAdapter):
         materials: list[dict[str, str]] = []
 
         for password_mode, password_value in passwords:
-            if (power_on_single or power_pct_narrow) and password_mode != "fullpwd":
+            if (power_on_single or power_limit_single or power_percent_single) and password_mode != "fullpwd":
                 continue
             full_pwd_output = self._openssl_md5_crypt_output(salt=salt, value=password_value)
             pwd_fragment = self._md5_crypt_fragment(full_pwd_output)
 
-            if wide and not power_on_single and not power_pct_narrow:
+            if wide and not power_on_single and not power_limit_single and not power_percent_single:
                 for time_mode, time_for_sign in (("last4", time_last4), ("full", token_time)):
                     sign_output = self._openssl_md5_crypt_output(
                         salt=newsalt,
@@ -634,33 +686,17 @@ class WhatsminerMiner(MinerAdapter):
                                 "aes_key_hex": aes_key_hex,
                             }
                         )
-            elif power_pct_narrow:
-                sign_output = self._openssl_md5_crypt_output(
-                    salt=newsalt,
-                    value=f"{pwd_fragment}{token_time}",
-                )
-                sign_fragment = self._md5_crypt_fragment(sign_output)
-                aes_key_hex = hashlib.sha256(pwd_fragment.encode("utf-8")).hexdigest()
-                materials.append(
-                    {
-                        "scheme": "md5crypt",
-                        "password_mode": password_mode,
-                        "time_mode": "full",
-                        "key_mode": "fragment",
-                        "sign": sign_fragment,
-                        "aes_key_hex": aes_key_hex,
-                    }
-                )
             else:
-                time_for_sign = token_time if power_on_single else time_last4
+                single_fragment_mode = power_on_single or power_limit_single or power_percent_single
+                time_for_sign = token_time if single_fragment_mode else time_last4
                 sign_output = self._openssl_md5_crypt_output(
                     salt=newsalt,
                     value=f"{pwd_fragment}{time_for_sign}",
                 )
                 sign_fragment = self._md5_crypt_fragment(sign_output)
-                key_source = pwd_fragment if power_on_single else full_pwd_output
-                key_mode = "fragment" if power_on_single else "full"
-                time_mode = "full" if power_on_single else "last4"
+                key_source = pwd_fragment if single_fragment_mode else full_pwd_output
+                key_mode = "fragment" if single_fragment_mode else "full"
+                time_mode = "full" if single_fragment_mode else "last4"
                 aes_key_hex = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
                 materials.append(
                     {
@@ -673,7 +709,7 @@ class WhatsminerMiner(MinerAdapter):
                     }
                 )
 
-            if not power_on_single and not power_pct_narrow:
+            if not (power_on_single or power_limit_single or power_percent_single):
                 simple_key = hashlib.md5(f"{salt}{password_value}".encode("utf-8")).hexdigest()
                 simple_sign = hashlib.md5(f"{newsalt}{simple_key}{time_last4}".encode("utf-8")).hexdigest()
                 simple_aes_key_hex = hashlib.sha256(simple_key.encode("utf-8")).hexdigest()
@@ -743,6 +779,15 @@ class WhatsminerMiner(MinerAdapter):
                 )
 
         return variants
+
+    def _looks_like_encrypted_ack(self, response: dict[str, Any]) -> bool:
+        if not isinstance(response, dict):
+            return False
+        if isinstance(response.get("enc"), str) and response.get("enc"):
+            return True
+        if response.get("enc") == 1 and isinstance(response.get("data"), str) and response.get("data"):
+            return True
+        return False
 
     def _decrypt_response(self, *, aes_key_hex: str, encoded: str) -> dict[str, Any]:
         try:
@@ -874,27 +919,23 @@ class WhatsminerMiner(MinerAdapter):
             f"WhatsMiner API Fehler (Code={code}, STATUS={status}, Msg={msg}, Description={description})"
         )
 
-    def _verify_power_limit(self, expected_w: int, timeout_s: float = 1.2) -> bool:
+    def _verify_power_limit(self, expected_w: int, timeout_s: float = 20.0) -> bool:
         deadline = time.monotonic() + max(0.1, timeout_s)
         while time.monotonic() < deadline:
             try:
-                remaining = max(0.2, min(0.6, deadline - time.monotonic()))
+                remaining = max(0.3, min(1.0, deadline - time.monotonic()))
                 status = self._read_command_sync("status", timeout_s=remaining)
-                power_limit_w = self._status_power_limit(status)
+                status_msg = self._status_msg(status)
+                power_limit_w = self._safe_float(status_msg.get("power_limit_set"), None)
+                if power_limit_w is None:
+                    summary = self._read_command_sync("summary", timeout_s=remaining)
+                    summary_row = self._first_list_item(summary.get("SUMMARY"))
+                    power_limit_w = self._safe_float(summary_row.get("Power Limit"), None)
                 if power_limit_w is not None and abs(power_limit_w - float(expected_w)) <= 1.0:
                     return True
             except Exception:
                 pass
-            try:
-                remaining = max(0.2, min(0.6, deadline - time.monotonic()))
-                summary = self._read_command_sync("summary", timeout_s=remaining)
-                summary_row = self._first_list_item(summary.get("SUMMARY"))
-                power_limit_w = self._safe_float(summary_row.get("Power Limit"), None)
-                if power_limit_w is not None and abs(power_limit_w - float(expected_w)) <= 1.0:
-                    return True
-            except Exception:
-                pass
-            time.sleep(0.2)
+            time.sleep(0.5)
         return False
 
     def _verify_power_state(self, *, expected_off: bool, timeout_s: float = 1.6) -> bool:
@@ -931,25 +972,30 @@ class WhatsminerMiner(MinerAdapter):
         value = str(status_msg.get("hash_percent", "")).strip().rstrip("%")
         return self._safe_float(value, None)
 
-    def _status_power_limit(self, status: dict[str, Any]) -> float | None:
-        status_msg = self._status_msg(status)
-        return self._safe_float(status_msg.get("power_limit_set"), None)
-
-    def _verify_power_percent(self, *, expected_percent: int, timeout_s: float = 4.0) -> bool:
+    def _verify_power_percent(self, *, expected_percent: int, power_limit_w: float, timeout_s: float = 8.0) -> bool:
         deadline = time.monotonic() + max(0.1, timeout_s)
         while time.monotonic() < deadline:
             try:
-                remaining = max(0.2, min(0.6, deadline - time.monotonic()))
+                remaining = max(0.2, min(0.8, deadline - time.monotonic()))
                 status = self._read_command_sync("status", timeout_s=remaining)
                 current_percent = self._status_hash_percent(status)
-                if current_percent is None:
-                    if expected_percent >= 100 and not self._status_mineroff(status):
-                        return True
-                elif abs(current_percent - float(expected_percent)) <= 0.5:
+                if current_percent is not None and abs(current_percent - float(expected_percent)) <= 1.0:
                     return True
+
+                summary = self._read_command_sync("summary", timeout_s=remaining)
+                summary_row = self._first_list_item(summary.get("SUMMARY"))
+                actual_power_w = self._safe_float(
+                    summary_row.get("PowerRT", summary_row.get("Power RT", summary_row.get("Power"))),
+                    None,
+                )
+                effective_limit = self._safe_float(summary_row.get("Power Limit"), None) or power_limit_w
+                if actual_power_w is not None and effective_limit and effective_limit > 0:
+                    current_percent = max(0.0, min(100.0, (float(actual_power_w) / float(effective_limit)) * 100.0))
+                    if abs(current_percent - float(expected_percent)) <= 8.0:
+                        return True
             except Exception:
                 pass
-            time.sleep(0.25)
+            time.sleep(0.5)
         return False
 
     def _openssl_md5_crypt_output(self, *, salt: str, value: str) -> str:
