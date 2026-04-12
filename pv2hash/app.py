@@ -628,44 +628,6 @@ async def _shutdown_retired_miners(miners: list) -> None:
             )
 
 
-async def _apply_whatsminer_power_limit_after_reload(miner_id: str, target_w: int) -> None:
-    if target_w <= 0:
-        return
-
-    for miner in services.miners:
-        info = getattr(miner, "info", None)
-        if getattr(info, "id", None) != miner_id:
-            continue
-        if getattr(info, "driver", None) != "whatsminer_api2":
-            return
-        if not hasattr(miner, "apply_base_power_limit"):
-            logger.warning(
-                "WhatsMiner power limit apply unavailable: id=%s name=%s",
-                miner_id,
-                getattr(info, "name", "?"),
-            )
-            return
-
-        logger.info(
-            "Applying WhatsMiner base power limit after save: id=%s name=%s host=%s power_limit_w=%s",
-            miner_id,
-            getattr(info, "name", "?"),
-            getattr(info, "host", "?"),
-            target_w,
-        )
-        await asyncio.to_thread(miner.apply_base_power_limit, target_w)
-        await miner.get_status()
-        logger.info(
-            "WhatsMiner base power limit applied: id=%s name=%s power_limit_w=%s",
-            miner_id,
-            getattr(info, "name", "?"),
-            target_w,
-        )
-        return
-
-    logger.warning("WhatsMiner runtime miner not found for power limit apply: id=%s", miner_id)
-
-
 def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
     normalized = _normalize_miner_driver(driver)
     if normalized == "braiins":
@@ -969,6 +931,37 @@ def reload_runtime() -> None:
     state.last_reload_at = datetime.now(UTC)
 
 
+async def _apply_whatsminer_power_limit_after_reload(miner_id: str, target_w: int) -> None:
+    miner = next((m for m in services.miners if str(m.id) == str(miner_id)), None)
+    if miner is None or not hasattr(miner, "apply_base_power_limit"):
+        logger.warning(
+            "WhatsMiner base power limit apply skipped after reload: id=%s reason=adapter-not-found",
+            miner_id,
+        )
+        return
+
+    logger.info(
+        "Applying WhatsMiner base power limit after save in background: id=%s name=%s host=%s power_limit_w=%s",
+        miner.id,
+        miner.name,
+        miner.host,
+        target_w,
+    )
+    try:
+        await asyncio.to_thread(miner.apply_base_power_limit, int(target_w))
+    except Exception:
+        logger.exception(
+            "Failed to apply WhatsMiner base power limit after update: id=%s",
+            miner_id,
+        )
+    else:
+        logger.info(
+            "WhatsMiner base power limit applied after update: id=%s power_limit_w=%s",
+            miner_id,
+            target_w,
+        )
+
+
 @app.get("/")
 async def dashboard(request: Request):
     total_miner_power = sum(m.power_w for m in state.miners) if state.miners else 0.0
@@ -1261,13 +1254,6 @@ async def add_miner(request: Request):
     save_config(state.config)
     logger.info("Miner added: id=%s name=%s driver=%s host=%s", miner_id, name, driver, host)
     reload_runtime()
-    if driver == "whatsminer_api2":
-        target_power_limit_w = _safe_int(settings.get("power_limit_w"), 0)
-        if target_power_limit_w > 0:
-            try:
-                await _apply_whatsminer_power_limit_after_reload(miner_id, target_power_limit_w)
-            except Exception:
-                logger.exception("Failed to apply WhatsMiner base power limit after add: id=%s", miner_id)
     return RedirectResponse(url="/miners?saved=1", status_code=303)
 
 
@@ -1276,7 +1262,6 @@ async def update_miner(request: Request):
     form = await request.form()
     miner_id = form.get("miner_id")
     runtime_map = _get_runtime_miner_map()
-    target_power_limit_w: int | None = None
 
     for miner in state.config.get("miners", []):
         if miner["id"] == miner_id:
@@ -1286,7 +1271,6 @@ async def update_miner(request: Request):
             )
 
             default_port, _, _, _, _ = _driver_profile_defaults(driver)
-            previous_power_limit_w = _safe_int(miner.get("settings", {}).get("power_limit_w"), 0)
             settings = _build_miner_settings(
                 form,
                 driver,
@@ -1311,6 +1295,11 @@ async def update_miner(request: Request):
                     context=_miners_context(request, error_message=validation_error),
                     status_code=400,
                 )
+
+            previous_driver = _normalize_miner_driver(miner.get("driver", driver))
+            previous_settings = dict(miner.get("settings", {}) or {})
+            previous_power_limit_w = _safe_int(previous_settings.get("power_limit_w"), 0)
+            next_power_limit_w = _safe_int(settings.get("power_limit_w"), 0)
 
             miner["name"] = form.get("name", miner["name"])
             miner["host"] = form.get("host", miner["host"])
@@ -1351,16 +1340,18 @@ async def update_miner(request: Request):
                 str(miner.get("battery_discharge_profile", "p1")),
             )
 
-            if driver == "whatsminer_api2":
-                new_power_limit_w = _safe_int(settings.get("power_limit_w"), 0)
-                if new_power_limit_w > 0 and new_power_limit_w != previous_power_limit_w:
-                    target_power_limit_w = new_power_limit_w
-                    logger.info(
-                        "WhatsMiner base power limit changed in config: id=%s old=%s new=%s",
-                        miner_id,
-                        previous_power_limit_w,
-                        new_power_limit_w,
-                    )
+            should_apply_whatsminer_power_limit = (
+                driver == "whatsminer_api2"
+                and next_power_limit_w > 0
+                and (previous_driver != "whatsminer_api2" or previous_power_limit_w != next_power_limit_w)
+            )
+            if should_apply_whatsminer_power_limit:
+                logger.info(
+                    "WhatsMiner base power limit changed in config: id=%s old=%s new=%s",
+                    miner["id"],
+                    previous_power_limit_w,
+                    next_power_limit_w,
+                )
 
             logger.info(
                 "Miner updated: id=%s name=%s driver=%s host=%s enabled=%s min_regulated_profile=%s",
@@ -1375,11 +1366,8 @@ async def update_miner(request: Request):
 
     save_config(state.config)
     reload_runtime()
-    if target_power_limit_w is not None:
-        try:
-            await _apply_whatsminer_power_limit_after_reload(str(miner_id), int(target_power_limit_w))
-        except Exception:
-            logger.exception("Failed to apply WhatsMiner base power limit after update: id=%s", miner_id)
+    if 'should_apply_whatsminer_power_limit' in locals() and should_apply_whatsminer_power_limit:
+        asyncio.create_task(_apply_whatsminer_power_limit_after_reload(str(miner_id), int(next_power_limit_w)))
     return RedirectResponse(url="/miners?saved=1", status_code=303)
 
 

@@ -176,7 +176,7 @@
                                 <label data-driver-types="whatsminer_api2">
                                     <span>Basis-Power-Limit (W)</span>
                                     <input type="number" name="whatsminer_power_limit_w" min="1" step="1" inputmode="numeric">
-                                    <small class="help">Pflichtfeld für API 2.x. PV2Hash rechnet die Profil-Wattwerte intern in Prozent dieses Limits um.</small>
+                                    <small class="help">Pflichtfeld für API 2.x. Wenn der Miner noch kein Power-Limit meldet, nutzt PV2Hash diesen Wert als Fallback.</small>
                                 </label>
                             </div>
                         </section>
@@ -460,7 +460,8 @@
                                     <label data-driver-types="whatsminer_api2">
                                         <span>Basis-Power-Limit (W)</span>
                                         <input type="number" name="whatsminer_power_limit_w" value="{{ miner.settings.power_limit_w if miner.settings and miner.settings.power_limit_w is defined and miner.settings.power_limit_w not in [None, ''] else (pt_def if pt_def is not none else '') }}" min="1" step="1" inputmode="numeric">
-                                        <small class="help">PV2Hash rechnet die Profil-Wattwerte intern in Prozent dieses Limits um.</small>
+                                        <small class="help">PV2Hash verwendet für die Rechnung immer zuerst den aktuell vom Miner gelesenen Wert. Dieser Konfigurationswert ist der Fallback und wird beim Speichern auch an den Miner geschrieben.</small>
+                                        <small class="help">Aktuell im Miner: {% if pt_def is not none %}{{ '%.0f'|format(pt_def) }} W{% else %}nicht gesetzt{% endif %}</small>
                                     </label>
                                 </div>
                             </section>

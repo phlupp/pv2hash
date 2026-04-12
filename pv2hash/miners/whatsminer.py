@@ -38,6 +38,7 @@ class WhatsminerMiner(MinerAdapter):
     POWER_ON_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
     POWER_ON_MODE_MARKER = "single_variant_v2_json_token"
     POWER_OFF_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment"
+    POWER_LIMIT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
 
     def __init__(
         self,
@@ -336,10 +337,10 @@ class WhatsminerMiner(MinerAdapter):
         )
 
     def _effective_power_limit_w(self) -> float | None:
-        if self.configured_power_limit_w and self.configured_power_limit_w > 0:
-            return float(self.configured_power_limit_w)
         if self.reported_power_limit_w and self.reported_power_limit_w > 0:
             return float(self.reported_power_limit_w)
+        if self.configured_power_limit_w and self.configured_power_limit_w > 0:
+            return float(self.configured_power_limit_w)
         return None
 
     def _desired_power_percent(self, desired_w: float, power_limit_w: float) -> int:
@@ -356,6 +357,21 @@ class WhatsminerMiner(MinerAdapter):
         if self.reported_hash_percent is not None:
             return abs(self.reported_hash_percent - float(percent)) <= 0.5
         return percent == 100 and self.info.runtime_state == "running"
+
+    def apply_base_power_limit(self, target_w: int) -> dict[str, Any]:
+        if int(target_w) <= 0:
+            raise RuntimeError("Ungültiges Basis-Power-Limit für WhatsMiner API 2.x")
+
+        response = self._write_command_sync(
+            "adjust_power_limit",
+            [str(int(target_w))],
+            verifier=lambda: self._verify_power_limit(expected_w=int(target_w), timeout_s=20.0),
+        )
+        self.configured_power_limit_w = float(target_w)
+        self.reported_power_limit_w = float(target_w)
+        self.info.power_target_default_w = float(target_w)
+        self.info.power_target_max_w = float(target_w)
+        return response
 
     def _infer_profile_from_power(self, power_w: float | None) -> str | None:
         if power_w is None or power_w <= 0:
@@ -402,7 +418,8 @@ class WhatsminerMiner(MinerAdapter):
             salt=salt,
             newsalt=newsalt,
             wide=is_power_state_cmd,
-            power_on_single=(cmd == "power_on")
+            power_on_single=(cmd == "power_on"),
+            power_limit_single=(cmd == "adjust_power_limit"),
         )
         command_payloads = self._build_command_payload_candidates(cmd=cmd, params=params)
         if not command_payloads:
@@ -428,6 +445,9 @@ class WhatsminerMiner(MinerAdapter):
                 variants = preferred[:1] if preferred else variants[:1]
             elif cmd == "power_off":
                 preferred = [v for v in variants if v.get("label") == self.POWER_OFF_VARIANT_LABEL]
+                variants = preferred[:1] if preferred else variants[:1]
+            elif cmd == "adjust_power_limit":
+                preferred = [v for v in variants if v.get("label") == self.POWER_LIMIT_VARIANT_LABEL]
                 variants = preferred[:1] if preferred else variants[:1]
             for variant in variants:
                 attempt_started = time.monotonic()
@@ -532,7 +552,6 @@ class WhatsminerMiner(MinerAdapter):
         if cmd == "adjust_power_limit":
             return [
                 ("power_limit", {"cmd": cmd, "power_limit": value}),
-                ("value", {"cmd": cmd, "value": value}),
             ]
 
         if cmd == "set_power_pct_v2":
@@ -550,6 +569,7 @@ class WhatsminerMiner(MinerAdapter):
         newsalt: str,
         wide: bool = False,
         power_on_single: bool = False,
+        power_limit_single: bool = False,
     ) -> list[dict[str, str]]:
         time_last4 = token_time[-4:]
         passwords: list[tuple[str, str]] = [("fullpwd", self.password)]
@@ -560,12 +580,12 @@ class WhatsminerMiner(MinerAdapter):
         materials: list[dict[str, str]] = []
 
         for password_mode, password_value in passwords:
-            if power_on_single and password_mode != "fullpwd":
+            if (power_on_single or power_limit_single) and password_mode != "fullpwd":
                 continue
             full_pwd_output = self._openssl_md5_crypt_output(salt=salt, value=password_value)
             pwd_fragment = self._md5_crypt_fragment(full_pwd_output)
 
-            if wide and not power_on_single:
+            if wide and not power_on_single and not power_limit_single:
                 for time_mode, time_for_sign in (("last4", time_last4), ("full", token_time)):
                     sign_output = self._openssl_md5_crypt_output(
                         salt=newsalt,
@@ -585,15 +605,15 @@ class WhatsminerMiner(MinerAdapter):
                             }
                         )
             else:
-                time_for_sign = token_time if power_on_single else time_last4
+                time_for_sign = token_time if (power_on_single or power_limit_single) else time_last4
                 sign_output = self._openssl_md5_crypt_output(
                     salt=newsalt,
                     value=f"{pwd_fragment}{time_for_sign}",
                 )
                 sign_fragment = self._md5_crypt_fragment(sign_output)
-                key_source = pwd_fragment if power_on_single else full_pwd_output
-                key_mode = "fragment" if power_on_single else "full"
-                time_mode = "full" if power_on_single else "last4"
+                key_source = pwd_fragment if (power_on_single or power_limit_single) else full_pwd_output
+                key_mode = "fragment" if (power_on_single or power_limit_single) else "full"
+                time_mode = "full" if (power_on_single or power_limit_single) else "last4"
                 aes_key_hex = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
                 materials.append(
                     {
@@ -606,7 +626,7 @@ class WhatsminerMiner(MinerAdapter):
                     }
                 )
 
-            if not power_on_single:
+            if not power_on_single and not power_limit_single:
                 simple_key = hashlib.md5(f"{salt}{password_value}".encode("utf-8")).hexdigest()
                 simple_sign = hashlib.md5(f"{newsalt}{simple_key}{time_last4}".encode("utf-8")).hexdigest()
                 simple_aes_key_hex = hashlib.sha256(simple_key.encode("utf-8")).hexdigest()
@@ -807,19 +827,23 @@ class WhatsminerMiner(MinerAdapter):
             f"WhatsMiner API Fehler (Code={code}, STATUS={status}, Msg={msg}, Description={description})"
         )
 
-    def _verify_power_limit(self, desired_w: int, timeout_s: float = 1.2) -> bool:
+    def _verify_power_limit(self, expected_w: int, timeout_s: float = 20.0) -> bool:
         deadline = time.monotonic() + max(0.1, timeout_s)
         while time.monotonic() < deadline:
             try:
-                remaining = max(0.2, min(0.6, deadline - time.monotonic()))
-                summary = self._read_command_sync("summary", timeout_s=remaining)
-                summary_row = self._first_list_item(summary.get("SUMMARY"))
-                power_limit_w = self._safe_float(summary_row.get("Power Limit"), None)
-                if power_limit_w is not None and abs(power_limit_w - float(desired_w)) <= 1.0:
+                remaining = max(0.3, min(1.0, deadline - time.monotonic()))
+                status = self._read_command_sync("status", timeout_s=remaining)
+                status_msg = self._status_msg(status)
+                power_limit_w = self._safe_float(status_msg.get("power_limit_set"), None)
+                if power_limit_w is None:
+                    summary = self._read_command_sync("summary", timeout_s=remaining)
+                    summary_row = self._first_list_item(summary.get("SUMMARY"))
+                    power_limit_w = self._safe_float(summary_row.get("Power Limit"), None)
+                if power_limit_w is not None and abs(power_limit_w - float(expected_w)) <= 1.0:
                     return True
             except Exception:
                 pass
-            time.sleep(0.2)
+            time.sleep(0.5)
         return False
 
     def _verify_power_state(self, *, expected_off: bool, timeout_s: float = 1.6) -> bool:
