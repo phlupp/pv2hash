@@ -1,3 +1,7 @@
+[hidden] {
+    display: none !important;
+}
+
 :root {
     --bg: #171a33;
     --bg-soft: #23274b;
@@ -1390,9 +1394,4 @@ select:focus {
         align-items: flex-start;
         text-align: left;
     }
-}
-
-
-[hidden] {
-    display: none !important;
 }

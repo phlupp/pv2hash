@@ -158,19 +158,6 @@ class WhatsminerMiner(MinerAdapter):
         self.info.last_seen = datetime.now(UTC)
         return self.info
 
-
-    def apply_base_power_limit(self, power_limit_w: float) -> None:
-        target_w = int(round(float(power_limit_w or 0)))
-        if target_w <= 0:
-            raise RuntimeError("WhatsMiner Basis-Power-Limit muss größer als 0 W sein.")
-
-        self._write_command_sync(
-            "adjust_power_limit",
-            [str(target_w)],
-            verifier=lambda: self._verify_power_limit(target_w, timeout_s=12.0),
-        )
-        self.configured_power_limit_w = float(target_w)
-
     def _set_runtime_defaults(self) -> None:
         self.info.reachable = False
         self.info.runtime_state = "unknown"
@@ -362,6 +349,37 @@ class WhatsminerMiner(MinerAdapter):
             [str(percent)],
             verifier=lambda: self._verify_power_percent(expected_percent=percent, timeout_s=4.0),
         )
+
+    def apply_base_power_limit(self, power_limit_w: float) -> dict[str, Any]:
+        target_w = int(round(float(power_limit_w)))
+        if target_w <= 0:
+            raise RuntimeError("WhatsMiner Basis-Power-Limit muss größer als 0 W sein.")
+
+        response = self._write_command_sync(
+            "adjust_power_limit",
+            [str(target_w)],
+            verifier=lambda: self._verify_power_limit(expected_w=target_w, timeout_s=15.0),
+        )
+        self.configured_power_limit_w = float(target_w)
+        self.reported_power_limit_w = float(target_w)
+        self.info.power_target_default_w = float(target_w)
+        self.info.power_target_max_w = float(target_w)
+        return response
+
+    def _verify_power_limit(self, expected_w: int, timeout_s: float = 15.0) -> bool:
+        deadline = time.monotonic() + max(0.1, timeout_s)
+        while time.monotonic() < deadline:
+            try:
+                remaining = max(0.4, min(1.0, deadline - time.monotonic()))
+                status = self._read_command_sync("status", timeout_s=remaining)
+                status_msg = status.get("Msg") if isinstance(status.get("Msg"), dict) else {}
+                power_limit_w = self._safe_float(status_msg.get("power_limit_set"), None)
+                if power_limit_w is not None and abs(power_limit_w - float(expected_w)) <= 1.0:
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.5)
+        return False
 
     def _effective_power_limit_w(self) -> float | None:
         if self.configured_power_limit_w and self.configured_power_limit_w > 0:
@@ -857,31 +875,6 @@ class WhatsminerMiner(MinerAdapter):
         raise RuntimeError(
             f"WhatsMiner API Fehler (Code={code}, STATUS={status}, Msg={msg}, Description={description})"
         )
-
-    def _verify_power_limit(self, desired_w: int, timeout_s: float = 1.2) -> bool:
-        deadline = time.monotonic() + max(0.1, timeout_s)
-        while time.monotonic() < deadline:
-            try:
-                remaining = max(0.2, min(0.8, deadline - time.monotonic()))
-                status = self._read_command_sync("status", timeout_s=remaining)
-                status_msg = status.get("Msg") if isinstance(status.get("Msg"), dict) else {}
-                power_limit_w = self._safe_float(status_msg.get("power_limit_set"), None)
-                if power_limit_w is not None and abs(power_limit_w - float(desired_w)) <= 1.0:
-                    return True
-            except Exception:
-                pass
-
-            try:
-                remaining = max(0.2, min(0.8, deadline - time.monotonic()))
-                summary = self._read_command_sync("summary", timeout_s=remaining)
-                summary_row = self._first_list_item(summary.get("SUMMARY"))
-                power_limit_w = self._safe_float(summary_row.get("Power Limit"), None)
-                if power_limit_w is not None and abs(power_limit_w - float(desired_w)) <= 1.0:
-                    return True
-            except Exception:
-                pass
-            time.sleep(0.25)
-        return False
 
     def _verify_power_state(self, *, expected_off: bool, timeout_s: float = 1.6) -> bool:
         deadline = time.monotonic() + max(0.1, timeout_s)
