@@ -218,7 +218,7 @@ class WhatsminerMiner(MinerAdapter):
             self.info.current_hashrate_ghs = hashrate_mhs / 1000.0
 
         actual_power_w = self._safe_float(
-            summary_row.get("PowerRT", summary_row.get("Power RT", summary_row.get("Power"))),
+            summary_row.get("PowerRT", summary_row.get("PowerRT", summary_row.get("Power"))),
             None,
         )
         if actual_power_w is None:
@@ -226,7 +226,7 @@ class WhatsminerMiner(MinerAdapter):
 
         status_msg = status.get("Msg") if isinstance(status.get("Msg"), dict) else {}
         reported_power_limit_w = self._safe_float(
-            status_msg.get("power_limit_set", summary_row.get("Power Limit")),
+            status_msg.get("power_limit", summary_row.get("Power Limit")),
             None,
         )
         self.reported_power_limit_w = reported_power_limit_w
