@@ -117,11 +117,13 @@ class WhatsminerMiner(MinerAdapter):
         )
 
         self._set_runtime_defaults()
+        self.target_profile = "off"
         self._last_applied_power_pct: int | None = None
         self._pending_power_pct: int | None = None
         self._pending_power_pct_started_at: float = 0.0
 
     async def set_profile(self, profile: str) -> None:
+        self.target_profile = profile
         self.info.profile = profile
         desired_w = 0.0 if profile == "off" else self.get_profile_power_w(profile)
 
@@ -240,16 +242,28 @@ class WhatsminerMiner(MinerAdapter):
 
         mineroff = self._status_mineroff(status)
         if mineroff:
-            self.info.runtime_state = "paused"
             self.info.power_w = 0.0
-            self.info.profile = "off"
+            if self.target_profile and self.target_profile != "off":
+                self.info.runtime_state = "starting"
+                self.info.profile = self.target_profile
+            else:
+                self.info.runtime_state = "paused"
+                self.info.profile = "off"
         else:
             self.info.runtime_state = "running"
             inferred_from_w = actual_power_w
             if inferred_from_w is None and effective_power_limit_w is not None and self.reported_hash_percent is not None:
                 inferred_from_w = effective_power_limit_w * (self.reported_hash_percent / 100.0)
             inferred_profile = self._infer_profile_from_power(inferred_from_w)
-            if inferred_profile:
+            if inferred_profile and inferred_profile != "off":
+                self.info.profile = inferred_profile
+            elif self.target_profile and self.target_profile != "off":
+                self.info.profile = self.target_profile
+                if (actual_power_w is None or actual_power_w <= 0) and (
+                    self.reported_hash_percent is None or self.reported_hash_percent <= 0
+                ):
+                    self.info.runtime_state = "starting"
+            elif inferred_profile:
                 self.info.profile = inferred_profile
 
         self.info.last_error = None
