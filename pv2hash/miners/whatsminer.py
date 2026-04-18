@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import socket
 import subprocess
 import time
@@ -215,10 +216,10 @@ class WhatsminerMiner(MinerAdapter):
         if hashrate_mhs is not None:
             self.info.current_hashrate_ghs = hashrate_mhs / 1000.0
 
-        actual_power_w = self._safe_float(summary_row.get("PowerRT"), None)
+        actual_power_w = self._safe_metric_float(summary_row.get("PowerRT"), None)
 
         status_msg = status.get("Msg") if isinstance(status.get("Msg"), dict) else {}
-        reported_power_limit_w = self._safe_float(status_msg.get("power_limit"), None)
+        reported_power_limit_w = self._safe_metric_float(status_msg.get("power_limit"), None)
         self.reported_power_limit_w = reported_power_limit_w
         effective_power_limit_w = self._effective_power_limit_w()
         if effective_power_limit_w is not None:
@@ -916,7 +917,7 @@ class WhatsminerMiner(MinerAdapter):
                 remaining = max(0.3, min(1.0, deadline - time.monotonic()))
                 status = self._read_command_sync("status", timeout_s=remaining)
                 status_msg = self._status_msg(status)
-                power_limit_w = self._safe_float(status_msg.get("power_limit"), None)
+                power_limit_w = self._safe_metric_float(status_msg.get("power_limit"), None)
                 if power_limit_w is not None and abs(power_limit_w - float(expected_w)) <= 1.0:
                     return True
             except Exception:
@@ -970,8 +971,8 @@ class WhatsminerMiner(MinerAdapter):
 
                 summary = self._read_command_sync("summary", timeout_s=remaining)
                 summary_row = self._first_list_item(summary.get("SUMMARY"))
-                actual_power_w = self._safe_float(summary_row.get("PowerRT"), None)
-                effective_limit = self._safe_float(self._status_msg(status).get("power_limit"), None)
+                actual_power_w = self._safe_metric_float(summary_row.get("PowerRT"), None)
+                effective_limit = self._safe_metric_float(self._status_msg(status).get("power_limit"), None)
                 if actual_power_w is not None and effective_limit and effective_limit > 0:
                     current_percent = max(0.0, min(100.0, (float(actual_power_w) / float(effective_limit)) * 100.0))
                     if abs(current_percent - float(expected_percent)) <= 8.0:
@@ -1024,6 +1025,23 @@ class WhatsminerMiner(MinerAdapter):
             if isinstance(first, dict):
                 return first
         return {}
+
+    def _safe_metric_float(self, value: Any, default: float | None) -> float | None:
+        try:
+            if value in (None, ""):
+                return default
+            if isinstance(value, (int, float)):
+                return float(value)
+            text = str(value).strip()
+            if not text:
+                return default
+            text = text.replace(",", ".")
+            match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
+            if not match:
+                return default
+            return float(match.group(0))
+        except Exception:
+            return default
 
     def _safe_float(self, value: Any, default: float | None) -> float | None:
         try:
