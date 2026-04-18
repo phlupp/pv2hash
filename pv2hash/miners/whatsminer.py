@@ -24,15 +24,13 @@ class WhatsminerMiner(MinerAdapter):
     API 2.x strategy in PV2Hash:
     - start/stop via power_on / power_off
     - watt-based profiles remain visible in PV2Hash
-    - current stable control path is start/stop only
-    - base power limit is read and exposed, but percentage regulation stays disabled
-      until the API-2.x percent write path is reintroduced in a controlled follow-up
+    - Regelung erfolgt über set_power_pct_v2 auf Basis von power_limit
 
     Notes:
     - Readable API is sent as plaintext JSON over TCP/4028.
     - Writable API uses the documented get_token + encrypted payload flow.
-    - For API 2.x the stable, verified paths are start/stop plus percentage-based
-      regulation on top of a configured base power limit.
+    - PV2Hash verwendet für die Ist-Leistung ausschließlich SUMMARY.PowerRT.
+    - PV2Hash verwendet für das Basis-Power-Limit ausschließlich STATUS.Msg.power_limit.
     """
 
     POWER_ON_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
@@ -217,18 +215,10 @@ class WhatsminerMiner(MinerAdapter):
         if hashrate_mhs is not None:
             self.info.current_hashrate_ghs = hashrate_mhs / 1000.0
 
-        actual_power_w = self._safe_float(
-            summary_row.get("PowerRT", summary_row.get("PowerRT", summary_row.get("Power"))),
-            None,
-        )
-        if actual_power_w is None:
-            actual_power_w = self._safe_float(summary_row.get("Power_Avg", summary_row.get("Power Avg")), None)
+        actual_power_w = self._safe_float(summary_row.get("PowerRT"), None)
 
         status_msg = status.get("Msg") if isinstance(status.get("Msg"), dict) else {}
-        reported_power_limit_w = self._safe_float(
-            status_msg.get("power_limit", summary_row.get("Power Limit")),
-            None,
-        )
+        reported_power_limit_w = self._safe_float(status_msg.get("power_limit"), None)
         self.reported_power_limit_w = reported_power_limit_w
         effective_power_limit_w = self._effective_power_limit_w()
         if effective_power_limit_w is not None:
@@ -926,11 +916,7 @@ class WhatsminerMiner(MinerAdapter):
                 remaining = max(0.3, min(1.0, deadline - time.monotonic()))
                 status = self._read_command_sync("status", timeout_s=remaining)
                 status_msg = self._status_msg(status)
-                power_limit_w = self._safe_float(status_msg.get("power_limit_set"), None)
-                if power_limit_w is None:
-                    summary = self._read_command_sync("summary", timeout_s=remaining)
-                    summary_row = self._first_list_item(summary.get("SUMMARY"))
-                    power_limit_w = self._safe_float(summary_row.get("Power Limit"), None)
+                power_limit_w = self._safe_float(status_msg.get("power_limit"), None)
                 if power_limit_w is not None and abs(power_limit_w - float(expected_w)) <= 1.0:
                     return True
             except Exception:
@@ -984,11 +970,8 @@ class WhatsminerMiner(MinerAdapter):
 
                 summary = self._read_command_sync("summary", timeout_s=remaining)
                 summary_row = self._first_list_item(summary.get("SUMMARY"))
-                actual_power_w = self._safe_float(
-                    summary_row.get("PowerRT", summary_row.get("Power RT", summary_row.get("Power"))),
-                    None,
-                )
-                effective_limit = self._safe_float(summary_row.get("Power Limit"), None) or power_limit_w
+                actual_power_w = self._safe_float(summary_row.get("PowerRT"), None)
+                effective_limit = self._safe_float(self._status_msg(status).get("power_limit"), None)
                 if actual_power_w is not None and effective_limit and effective_limit > 0:
                     current_percent = max(0.0, min(100.0, (float(actual_power_w) / float(effective_limit)) * 100.0))
                     if abs(current_percent - float(expected_percent)) <= 8.0:
