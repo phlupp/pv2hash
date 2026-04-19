@@ -283,13 +283,10 @@ class WhatsminerMiner(MinerAdapter):
     def _extract_live_power_w(self, bundle: dict[str, Any]) -> float | None:
         summary = bundle.get("summary") or {}
         summary_row = self._first_list_item(summary.get("SUMMARY"))
-
-        for key in ("PowerRT", "Power"):
-            value = self._dict_get_canonical(summary_row, key)
-            parsed = self._safe_metric_float(value, None)
-            if parsed is not None:
-                return parsed
-        return None
+        return self._safe_float(
+            summary_row.get("PowerRT", summary_row.get("PowerRT", summary_row.get("Power"))),
+            None,
+        )
 
     def _apply_profile_sync(self, profile: str, desired_w: float) -> None:
         miner_is_off = self._is_miner_off(timeout_s=0.8)
