@@ -118,6 +118,7 @@ class WhatsminerMiner(MinerAdapter):
 
         self._set_runtime_defaults()
         self.target_profile = "off"
+        self._logged_missing_powerrt = False
         self._last_applied_power_pct: int | None = None
         self._pending_power_pct: int | None = None
         self._pending_power_pct_started_at: float = 0.0
@@ -218,10 +219,25 @@ class WhatsminerMiner(MinerAdapter):
         if hashrate_mhs is not None:
             self.info.current_hashrate_ghs = hashrate_mhs / 1000.0
 
-        actual_power_w = self._safe_metric_float(self._dict_get_canonical(summary_row, "PowerRT"), None)
-
         status_msg = status.get("Msg") if isinstance(status.get("Msg"), dict) else {}
-        reported_power_limit_w = self._safe_metric_float(self._dict_get_canonical(status_msg, "power_limit"), None)
+
+        actual_power_raw = self._extract_bundle_metric(bundle, "PowerRT")
+        actual_power_w = self._safe_metric_float(actual_power_raw, None)
+        if actual_power_w is None and hashrate_mhs is not None and not self._logged_missing_powerrt:
+            logger.warning(
+                "WhatsMiner PowerRT not found for %s (%s:%s): summary_type=%s summary_keys=%s status_msg_keys=%s",
+                self.info.name,
+                self.host,
+                self.port,
+                type(summary.get("SUMMARY")).__name__,
+                sorted(str(k) for k in summary_row.keys())[:20],
+                sorted(str(k) for k in status_msg.keys())[:20],
+            )
+            self._logged_missing_powerrt = True
+        elif actual_power_w is not None:
+            self._logged_missing_powerrt = False
+
+        reported_power_limit_w = self._safe_metric_float(self._extract_bundle_metric({"status": status}, "power_limit"), None)
         self.reported_power_limit_w = reported_power_limit_w
         effective_power_limit_w = self._effective_power_limit_w()
         if effective_power_limit_w is not None:
@@ -1038,6 +1054,43 @@ class WhatsminerMiner(MinerAdapter):
             if isinstance(first, dict):
                 return first
         return {}
+
+    def _extract_bundle_metric(self, bundle: dict[str, Any], key: str) -> Any:
+        summary = bundle.get("summary") or {}
+        status = bundle.get("status") or {}
+
+        candidates: list[Any] = [
+            self._first_list_item(summary.get("SUMMARY")),
+            summary.get("SUMMARY"),
+            summary,
+            status.get("Msg") if isinstance(status.get("Msg"), dict) else None,
+            status,
+        ]
+
+        for candidate in candidates:
+            value = self._deep_dict_get_canonical(candidate, key)
+            if value not in (None, ""):
+                return value
+        return None
+
+    def _deep_dict_get_canonical(self, data: Any, key: str, max_depth: int = 4) -> Any:
+        if max_depth < 0:
+            return None
+        if isinstance(data, dict):
+            direct = self._dict_get_canonical(data, key)
+            if direct not in (None, ""):
+                return direct
+            for value in data.values():
+                found = self._deep_dict_get_canonical(value, key, max_depth=max_depth - 1)
+                if found not in (None, ""):
+                    return found
+            return None
+        if isinstance(data, list):
+            for item in data:
+                found = self._deep_dict_get_canonical(item, key, max_depth=max_depth - 1)
+                if found not in (None, ""):
+                    return found
+        return None
 
     def _dict_get_canonical(self, data: Any, key: str) -> Any:
         if not isinstance(data, dict):
