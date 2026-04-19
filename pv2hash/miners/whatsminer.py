@@ -221,17 +221,16 @@ class WhatsminerMiner(MinerAdapter):
 
         status_msg = status.get("Msg") if isinstance(status.get("Msg"), dict) else {}
 
-        actual_power_raw = self._extract_bundle_metric(bundle, "PowerRT")
-        actual_power_w = self._safe_metric_float(actual_power_raw, None)
+        actual_power_w = self._extract_live_power_w(bundle)
         if actual_power_w is None and hashrate_mhs is not None and not self._logged_missing_powerrt:
             logger.warning(
-                "WhatsMiner PowerRT not found for %s (%s:%s): summary_type=%s summary_keys=%s status_msg_keys=%s",
+                "WhatsMiner live power not found for %s (%s:%s): tried=[PowerRT,Power,Power_Avg] summary_type=%s summary_keys=%s status_msg_keys=%s",
                 self.info.name,
                 self.host,
                 self.port,
                 type(summary.get("SUMMARY")).__name__,
-                sorted(str(k) for k in summary_row.keys())[:20],
-                sorted(str(k) for k in status_msg.keys())[:20],
+                sorted(str(k) for k in summary_row.keys()),
+                sorted(str(k) for k in status_msg.keys()),
             )
             self._logged_missing_powerrt = True
         elif actual_power_w is not None:
@@ -280,6 +279,17 @@ class WhatsminerMiner(MinerAdapter):
                 self.info.profile = inferred_profile
 
         self.info.last_error = None
+
+    def _extract_live_power_w(self, bundle: dict[str, Any]) -> float | None:
+        summary = bundle.get("summary") or {}
+        summary_row = self._first_list_item(summary.get("SUMMARY"))
+
+        for key in ("PowerRT", "Power", "Power_Avg", "Power Avg"):
+            value = self._dict_get_canonical(summary_row, key)
+            parsed = self._safe_metric_float(value, None)
+            if parsed is not None:
+                return parsed
+        return None
 
     def _apply_profile_sync(self, profile: str, desired_w: float) -> None:
         miner_is_off = self._is_miner_off(timeout_s=0.8)
@@ -997,8 +1007,7 @@ class WhatsminerMiner(MinerAdapter):
                     return True
 
                 summary = self._read_command_sync("summary", timeout_s=remaining)
-                summary_row = self._first_list_item(summary.get("SUMMARY"))
-                actual_power_w = self._safe_metric_float(self._dict_get_canonical(summary_row, "PowerRT"), None)
+                actual_power_w = self._extract_live_power_w({"summary": summary})
                 effective_limit = self._safe_metric_float(self._dict_get_canonical(self._status_msg(status), "power_limit"), None)
                 if actual_power_w is not None and effective_limit and effective_limit > 0:
                     current_percent = max(0.0, min(100.0, (float(actual_power_w) / float(effective_limit)) * 100.0))
