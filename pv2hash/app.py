@@ -844,6 +844,19 @@ async def control_loop() -> None:
 
             state.last_live_packet_at = getattr(source, "last_live_packet_at", None)
 
+            aborted = False
+            for miner in miners:
+                if not _runtime_matches(generation, source, battery_source, controller, miners):
+                    logger.info("Stopping stale pre-decision status refresh after runtime reload")
+                    aborted = True
+                    break
+                await miner.get_status()
+
+            if aborted or not _runtime_matches(generation, source, battery_source, controller, miners):
+                logger.info("Discarding control iteration after pre-decision status refresh")
+                await asyncio.sleep(0.1)
+                continue
+
             decision = controller.decide(
                 snapshot=snapshot,
                 miners=miners,
@@ -855,7 +868,6 @@ async def control_loop() -> None:
                 await asyncio.sleep(0.1)
                 continue
 
-            aborted = False
             profile_switch_requested = len(miners) == len(decision.profiles) and any(
                 getattr(miner.info, "profile", None) != profile
                 for miner, profile in zip(miners, decision.profiles)
