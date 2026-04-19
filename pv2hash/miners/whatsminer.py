@@ -233,8 +233,6 @@ class WhatsminerMiner(MinerAdapter):
 
         if actual_power_w is not None:
             self.info.power_w = actual_power_w
-        elif effective_power_limit_w is not None:
-            self.info.power_w = effective_power_limit_w
 
         power_mode = status_msg.get("power_mode") or summary_row.get("Power Mode")
         if power_mode:
@@ -242,7 +240,6 @@ class WhatsminerMiner(MinerAdapter):
 
         mineroff = self._status_mineroff(status)
         if mineroff:
-            self.info.power_w = 0.0
             if self.target_profile and self.target_profile != "off":
                 self.info.runtime_state = "starting"
                 self.info.profile = self.target_profile
@@ -946,7 +943,7 @@ class WhatsminerMiner(MinerAdapter):
                 remaining = max(0.2, min(0.6, deadline - time.monotonic()))
                 status = self._read_command_sync("status", timeout_s=remaining)
                 status_msg = status.get("Msg") if isinstance(status.get("Msg"), dict) else {}
-                mineroff = str(status_msg.get("mineroff", status.get("btmineroff", ""))).strip().lower() == "true"
+                mineroff = str(status_msg.get("mineroff", "")).strip().lower() == "true"
                 if mineroff == expected_off:
                     return True
             except Exception:
@@ -966,7 +963,7 @@ class WhatsminerMiner(MinerAdapter):
 
     def _status_mineroff(self, status: dict[str, Any]) -> bool:
         status_msg = self._status_msg(status)
-        return str(status_msg.get("mineroff", status.get("btmineroff", ""))).strip().lower() == "true"
+        return str(status_msg.get("mineroff", "")).strip().lower() == "true"
 
     def _status_hash_percent(self, status: dict[str, Any]) -> float | None:
         status_msg = self._status_msg(status)
