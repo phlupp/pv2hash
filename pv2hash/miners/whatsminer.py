@@ -214,36 +214,27 @@ class WhatsminerMiner(MinerAdapter):
         if fw_ver:
             self.info.firmware_version = str(fw_ver)
 
-        hashrate_mhs = self._safe_float(
-            self._dict_get_canonical(summary_row, "HS RT", "MHS av"),
-            None,
-        )
+        hashrate_mhs = self._safe_float(summary_row.get("HS RT", summary_row.get("MHS av")), None)
         if hashrate_mhs is not None:
             self.info.current_hashrate_ghs = hashrate_mhs / 1000.0
 
-        actual_power_w = self._safe_metric_float(
-            self._dict_get_canonical(summary_row, "PowerRT"),
-            None,
-        )
+        actual_power_w = self._safe_metric_float(self._dict_get_canonical(summary_row, "PowerRT"), None)
 
         status_msg = status.get("Msg") if isinstance(status.get("Msg"), dict) else {}
-        reported_power_limit_w = self._safe_metric_float(
-            self._dict_get_canonical(status_msg, "power_limit"),
-            None,
-        )
+        reported_power_limit_w = self._safe_metric_float(self._dict_get_canonical(status_msg, "power_limit"), None)
         self.reported_power_limit_w = reported_power_limit_w
         effective_power_limit_w = self._effective_power_limit_w()
         if effective_power_limit_w is not None:
             self.info.power_target_default_w = effective_power_limit_w
             self.info.power_target_max_w = effective_power_limit_w
 
-        hash_percent_text = str(self._dict_get_canonical(status_msg, "hash_percent") or "").strip().rstrip("%")
+        hash_percent_text = str(status_msg.get("hash_percent", "")).strip().rstrip("%")
         self.reported_hash_percent = self._safe_float(hash_percent_text, None)
 
         if actual_power_w is not None:
             self.info.power_w = actual_power_w
 
-        power_mode = self._dict_get_canonical(status_msg, "power_mode") or self._dict_get_canonical(summary_row, "Power Mode")
+        power_mode = status_msg.get("power_mode") or summary_row.get("Power Mode")
         if power_mode:
             self.info.control_mode = f"power_pct_v2:{power_mode}"
 
@@ -952,7 +943,7 @@ class WhatsminerMiner(MinerAdapter):
                 remaining = max(0.2, min(0.6, deadline - time.monotonic()))
                 status = self._read_command_sync("status", timeout_s=remaining)
                 status_msg = status.get("Msg") if isinstance(status.get("Msg"), dict) else {}
-                mineroff = str(self._dict_get_canonical(status_msg, "mineroff") or "").strip().lower() == "true"
+                mineroff = str(status_msg.get("mineroff", "")).strip().lower() == "true"
                 if mineroff == expected_off:
                     return True
             except Exception:
@@ -972,11 +963,11 @@ class WhatsminerMiner(MinerAdapter):
 
     def _status_mineroff(self, status: dict[str, Any]) -> bool:
         status_msg = self._status_msg(status)
-        return str(self._dict_get_canonical(status_msg, "mineroff") or "").strip().lower() == "true"
+        return str(status_msg.get("mineroff", "")).strip().lower() == "true"
 
     def _status_hash_percent(self, status: dict[str, Any]) -> float | None:
         status_msg = self._status_msg(status)
-        value = str(self._dict_get_canonical(status_msg, "hash_percent") or "").strip().rstrip("%")
+        value = str(status_msg.get("hash_percent", "")).strip().rstrip("%")
         return self._safe_float(value, None)
 
     def _verify_power_percent(self, *, expected_percent: int, power_limit_w: float, timeout_s: float = 8.0) -> bool:
@@ -991,14 +982,8 @@ class WhatsminerMiner(MinerAdapter):
 
                 summary = self._read_command_sync("summary", timeout_s=remaining)
                 summary_row = self._first_list_item(summary.get("SUMMARY"))
-                actual_power_w = self._safe_metric_float(
-                    self._dict_get_canonical(summary_row, "PowerRT"),
-                    None,
-                )
-                effective_limit = self._safe_metric_float(
-                    self._dict_get_canonical(self._status_msg(status), "power_limit"),
-                    None,
-                )
+                actual_power_w = self._safe_metric_float(self._dict_get_canonical(summary_row, "PowerRT"), None)
+                effective_limit = self._safe_metric_float(self._dict_get_canonical(self._status_msg(status), "power_limit"), None)
                 if actual_power_w is not None and effective_limit and effective_limit > 0:
                     current_percent = max(0.0, min(100.0, (float(actual_power_w) / float(effective_limit)) * 100.0))
                     if abs(current_percent - float(expected_percent)) <= 8.0:
@@ -1054,25 +1039,17 @@ class WhatsminerMiner(MinerAdapter):
                 return first
         return {}
 
-    def _normalize_metric_key(self, key: Any) -> str:
-        text = str(key or "").strip().lower()
-        return "".join(ch for ch in text if ch.isalnum())
-
-    def _dict_get_canonical(self, mapping: Any, *candidate_keys: str) -> Any:
-        if not isinstance(mapping, dict):
+    def _dict_get_canonical(self, data: Any, key: str) -> Any:
+        if not isinstance(data, dict):
             return None
+        if key in data:
+            return data.get(key)
 
-        for key in candidate_keys:
-            if key in mapping:
-                return mapping.get(key)
-
-        normalized_candidates = {self._normalize_metric_key(key) for key in candidate_keys if key}
-        if not normalized_candidates:
-            return None
-
-        for key, value in mapping.items():
-            if self._normalize_metric_key(key) in normalized_candidates:
-                return value
+        wanted = re.sub(r"[^a-z0-9]", "", str(key).lower())
+        for candidate_key, candidate_value in data.items():
+            normalized = re.sub(r"[^a-z0-9]", "", str(candidate_key).lower())
+            if normalized == wanted:
+                return candidate_value
         return None
 
     def _safe_metric_float(self, value: Any, default: float | None) -> float | None:
