@@ -30,7 +30,7 @@ class WhatsminerMiner(MinerAdapter):
     Notes:
     - Readable API is sent as plaintext JSON over TCP/4028.
     - Writable API uses the documented get_token + encrypted payload flow.
-    - PV2Hash verwendet für die Ist-Leistung SUMMARY.PowerRT, mit Fallback auf SUMMARY.Power.
+    - PV2Hash verwendet für die Ist-Leistung ausschließlich SUMMARY.Power.
     - PV2Hash verwendet für das Basis-Power-Limit ausschließlich STATUS.Msg.power_limit.
     """
 
@@ -224,7 +224,7 @@ class WhatsminerMiner(MinerAdapter):
         actual_power_w = self._extract_live_power_w(bundle)
         if actual_power_w is None and hashrate_mhs is not None and not self._logged_missing_powerrt:
             logger.warning(
-                "WhatsMiner live power not found for %s (%s:%s): tried=[PowerRT,Power] summary_type=%s summary_keys=%s status_msg_keys=%s",
+                "WhatsMiner live power not found for %s (%s:%s): tried=[Power] summary_type=%s summary_keys=%s status_msg_keys=%s",
                 self.info.name,
                 self.host,
                 self.port,
@@ -283,10 +283,7 @@ class WhatsminerMiner(MinerAdapter):
     def _extract_live_power_w(self, bundle: dict[str, Any]) -> float | None:
         summary = bundle.get("summary") or {}
         summary_row = self._first_list_item(summary.get("SUMMARY"))
-        return self._safe_float(
-            summary_row.get("PowerRT", summary_row.get("PowerRT", summary_row.get("Power"))),
-            None,
-        )
+        return self._safe_float(summary_row.get("Power"), None)
 
     def _apply_profile_sync(self, profile: str, desired_w: float) -> None:
         miner_is_off = self._is_miner_off(timeout_s=0.8)
