@@ -38,6 +38,7 @@ class WhatsminerMiner(MinerAdapter):
     POWER_ON_MODE_MARKER = "single_variant_v2_json_token"
     POWER_OFF_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment"
     POWER_LIMIT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
+    POWEROFF_COOL_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
     POWER_PERCENT_PREFERRED_LABELS = (
         "json_prefixed/scheme=md5crypt,pwd=fullpwd,time=last4,key=full",
         "json_prefixed/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment",
@@ -417,6 +418,12 @@ class WhatsminerMiner(MinerAdapter):
     ) -> dict[str, Any] | None:
         if cmd == "power_off":
             try:
+                logger.info(
+                    "WhatsMiner set_poweroff_cool request for %s (%s:%s): poweroff_cool=0",
+                    self.info.name,
+                    self.host,
+                    self.port,
+                )
                 self._write_command_sync("set_poweroff_cool", ["0"])
             except Exception as exc:
                 logger.warning(
@@ -598,7 +605,7 @@ class WhatsminerMiner(MinerAdapter):
                 token_time=token_time,
                 payload=payload,
                 token_materials=token_materials,
-                wide=is_power_state_cmd or cmd in {"set_power_pct", "set_poweroff_cool"},
+                wide=is_power_state_cmd or cmd == "set_power_pct",
             )
             if cmd == "power_on":
                 logger.info(
@@ -644,6 +651,15 @@ class WhatsminerMiner(MinerAdapter):
                         ordered.extend(matches)
                         remaining = [v for v in remaining if v.get("label") != label]
                 variants = ordered + remaining
+            elif cmd == "set_poweroff_cool":
+                logger.info(
+                    "WhatsMiner poweroff_cool mode for %s (%s:%s): single_variant_v1_json_token",
+                    self.info.name,
+                    self.host,
+                    self.port,
+                )
+                preferred = [v for v in variants if v.get("label") == self.POWEROFF_COOL_VARIANT_LABEL]
+                variants = preferred[:1] if preferred else variants[:1]
             for variant in variants:
                 attempt_started = time.monotonic()
                 try:
