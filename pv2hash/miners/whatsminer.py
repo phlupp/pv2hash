@@ -38,7 +38,7 @@ class WhatsminerMiner(MinerAdapter):
     POWER_ON_MODE_MARKER = "single_variant_v2_json_token"
     POWER_OFF_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment"
     POWER_LIMIT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
-    POWEROFF_COOL_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
+    POWEROFF_COOL_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment"
     POWER_PERCENT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
     POWER_PERCENT_MODE_MARKER = "single_variant_v1_json_token"
 
@@ -827,16 +827,18 @@ class WhatsminerMiner(MinerAdapter):
                             }
                         )
             else:
-                single_fragment_mode = power_on_single or power_limit_single or power_percent_single or poweroff_cool_single
-                time_for_sign = token_time if single_fragment_mode else time_last4
+                poweroff_fragment_last4_mode = poweroff_cool_single
+                single_fragment_full_mode = power_on_single or power_limit_single or power_percent_single
+                fragment_mode = single_fragment_full_mode or poweroff_fragment_last4_mode
+                time_for_sign = token_time if single_fragment_full_mode else time_last4
                 sign_output = self._openssl_md5_crypt_output(
                     salt=newsalt,
                     value=f"{pwd_fragment}{time_for_sign}",
                 )
                 sign_fragment = self._md5_crypt_fragment(sign_output)
-                key_source = pwd_fragment if single_fragment_mode else full_pwd_output
-                key_mode = "fragment" if single_fragment_mode else "full"
-                time_mode = "full" if single_fragment_mode else "last4"
+                key_source = pwd_fragment if fragment_mode else full_pwd_output
+                key_mode = "fragment" if fragment_mode else "full"
+                time_mode = "full" if single_fragment_full_mode else "last4"
                 aes_key_hex = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
                 materials.append(
                     {
