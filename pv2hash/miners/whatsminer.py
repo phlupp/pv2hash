@@ -25,7 +25,7 @@ class WhatsminerMiner(MinerAdapter):
     API 2.x strategy in PV2Hash:
     - start/stop via power_on / power_off
     - watt-based profiles remain visible in PV2Hash
-    - Regelung erfolgt über set_power_pct_v2 auf Basis von power_limit
+    - Regelung erfolgt über set_power_pct auf Basis von power_limit
 
     Notes:
     - Readable API is sent as plaintext JSON over TCP/4028.
@@ -370,7 +370,7 @@ class WhatsminerMiner(MinerAdapter):
         power_limit_w: float,
     ) -> dict[str, Any] | None:
         logger.info(
-            "WhatsMiner set_power_pct_v2 request for %s (%s:%s): desired_w=%.0f power_limit_w=%.0f percent=%s",
+            "WhatsMiner set_power_pct request for %s (%s:%s): desired_w=%.0f power_limit_w=%.0f percent=%s",
             self.info.name,
             self.host,
             self.port,
@@ -381,7 +381,7 @@ class WhatsminerMiner(MinerAdapter):
         self._pending_power_pct = percent
         self._pending_power_pct_started_at = time.monotonic()
         response = self._write_command_sync(
-            "set_power_pct_v2",
+            "set_power_pct",
             [str(percent)],
             verifier=lambda: self._verify_power_percent(expected_percent=percent, power_limit_w=power_limit_w, timeout_s=8.0),
             allow_encrypted_ack=True,
@@ -485,7 +485,7 @@ class WhatsminerMiner(MinerAdapter):
             wide=is_power_state_cmd,
             power_on_single=(cmd == "power_on"),
             power_limit_single=(cmd == "adjust_power_limit"),
-            power_percent_single=(cmd == "set_power_pct_v2"),
+            power_percent_single=(cmd == "set_power_pct"),
         )
         command_payloads = self._build_command_payload_candidates(cmd=cmd, params=params)
         if not command_payloads:
@@ -527,7 +527,7 @@ class WhatsminerMiner(MinerAdapter):
                 )
                 preferred = [v for v in variants if v.get("label") == self.POWER_LIMIT_VARIANT_LABEL]
                 variants = preferred[:1] if preferred else variants[:1]
-            elif cmd == "set_power_pct_v2":
+            elif cmd == "set_power_pct":
                 logger.info(
                     "WhatsMiner power percent mode for %s (%s:%s): %s",
                     self.info.name,
@@ -657,7 +657,7 @@ class WhatsminerMiner(MinerAdapter):
                 ("power_limit", {"cmd": cmd, "power_limit": value}),
             ]
 
-        if cmd == "set_power_pct_v2":
+        if cmd == "set_power_pct":
             return [
                 ("percent", {"cmd": cmd, "percent": value}),
             ]
