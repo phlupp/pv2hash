@@ -587,7 +587,8 @@ class WhatsminerMiner(MinerAdapter):
             wide=is_power_state_cmd,
             power_on_single=(cmd == "power_on"),
             power_limit_single=(cmd == "adjust_power_limit"),
-            power_percent_single=False,
+            power_percent_single=(cmd == "set_power_pct"),
+            poweroff_cool_single=(cmd == "set_poweroff_cool"),
         )
         command_payloads = self._build_command_payload_candidates(cmd=cmd, params=params)
         if not command_payloads:
@@ -790,6 +791,7 @@ class WhatsminerMiner(MinerAdapter):
         power_on_single: bool = False,
         power_limit_single: bool = False,
         power_percent_single: bool = False,
+        poweroff_cool_single: bool = False,
     ) -> list[dict[str, str]]:
         time_last4 = token_time[-4:]
         passwords: list[tuple[str, str]] = [("fullpwd", self.password)]
@@ -800,12 +802,12 @@ class WhatsminerMiner(MinerAdapter):
         materials: list[dict[str, str]] = []
 
         for password_mode, password_value in passwords:
-            if (power_on_single or power_limit_single or power_percent_single) and password_mode != "fullpwd":
+            if (power_on_single or power_limit_single or power_percent_single or poweroff_cool_single) and password_mode != "fullpwd":
                 continue
             full_pwd_output = self._openssl_md5_crypt_output(salt=salt, value=password_value)
             pwd_fragment = self._md5_crypt_fragment(full_pwd_output)
 
-            if wide and not power_on_single and not power_limit_single and not power_percent_single:
+            if wide and not power_on_single and not power_limit_single and not power_percent_single and not poweroff_cool_single:
                 for time_mode, time_for_sign in (("last4", time_last4), ("full", token_time)):
                     sign_output = self._openssl_md5_crypt_output(
                         salt=newsalt,
@@ -825,7 +827,7 @@ class WhatsminerMiner(MinerAdapter):
                             }
                         )
             else:
-                single_fragment_mode = power_on_single or power_limit_single or power_percent_single
+                single_fragment_mode = power_on_single or power_limit_single or power_percent_single or poweroff_cool_single
                 time_for_sign = token_time if single_fragment_mode else time_last4
                 sign_output = self._openssl_md5_crypt_output(
                     salt=newsalt,
@@ -847,7 +849,7 @@ class WhatsminerMiner(MinerAdapter):
                     }
                 )
 
-            if not (power_on_single or power_limit_single or power_percent_single):
+            if not (power_on_single or power_limit_single or power_percent_single or poweroff_cool_single):
                 simple_key = hashlib.md5(f"{salt}{password_value}".encode("utf-8")).hexdigest()
                 simple_sign = hashlib.md5(f"{newsalt}{simple_key}{time_last4}".encode("utf-8")).hexdigest()
                 simple_aes_key_hex = hashlib.sha256(simple_key.encode("utf-8")).hexdigest()
