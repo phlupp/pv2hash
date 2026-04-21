@@ -263,10 +263,19 @@ class WhatsminerMiner(MinerAdapter):
                 self.info.profile = "off"
         else:
             self.info.runtime_state = "running"
-            inferred_from_w = actual_power_w
-            if inferred_from_w is None and effective_power_limit_w is not None and self.reported_hash_percent is not None:
-                inferred_from_w = effective_power_limit_w * (self.reported_hash_percent / 100.0)
-            inferred_profile = self._infer_profile_from_power(inferred_from_w)
+            inferred_profile_from_percent = self._infer_profile_from_percent(
+                self.reported_hash_percent,
+                effective_power_limit_w,
+            )
+            pending_profile = self._pending_profile_hint(effective_power_limit_w)
+            inferred_profile_from_power = self._infer_profile_from_power(actual_power_w)
+
+            inferred_profile = (
+                inferred_profile_from_percent
+                or pending_profile
+                or inferred_profile_from_power
+            )
+
             if inferred_profile and inferred_profile != "off":
                 self.info.profile = inferred_profile
             elif self.target_profile and self.target_profile != "off":
@@ -284,6 +293,20 @@ class WhatsminerMiner(MinerAdapter):
         summary = bundle.get("summary") or {}
         summary_row = self._first_list_item(summary.get("SUMMARY"))
         return self._safe_float(summary_row.get("Power"), None)
+
+    def _infer_profile_from_percent(self, percent: float | None, power_limit_w: float | None) -> str | None:
+        if percent is None or power_limit_w is None or power_limit_w <= 0:
+            return None
+        estimated_power_w = float(power_limit_w) * (float(percent) / 100.0)
+        return self._infer_profile_from_power(estimated_power_w)
+
+    def _pending_profile_hint(self, power_limit_w: float | None, settle_s: float = 30.0) -> str | None:
+        if self._pending_power_pct is None or power_limit_w is None or power_limit_w <= 0:
+            return None
+        age_s = time.monotonic() - self._pending_power_pct_started_at
+        if age_s > settle_s:
+            return None
+        return self._infer_profile_from_percent(float(self._pending_power_pct), power_limit_w)
 
     def _apply_profile_sync(self, profile: str, desired_w: float) -> None:
         miner_is_off = self._is_miner_off(timeout_s=0.8)
