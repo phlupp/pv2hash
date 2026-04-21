@@ -120,11 +120,18 @@ class WhatsminerMiner(MinerAdapter):
         self.target_profile = "off"
         self._logged_missing_powerrt = False
         self._last_applied_power_pct: int | None = None
+        self._last_power_pct_attempt_at: float = 0.0
         self._pending_power_pct: int | None = None
         self._pending_power_pct_started_at: float = 0.0
+        self._startup_target_profile: str | None = None
+        self._startup_started_at: float = 0.0
 
     async def set_profile(self, profile: str) -> None:
         self.target_profile = profile
+        if profile == "off":
+            self._clear_startup_pending()
+        elif self._startup_active():
+            self._startup_target_profile = profile
         self.info.profile = profile
         desired_w = 0.0 if profile == "off" else self.get_profile_power_w(profile)
 
@@ -187,6 +194,37 @@ class WhatsminerMiner(MinerAdapter):
             "devdetails": self._read_command_sync("devdetails"),
             "psu": self._read_command_sync("get_psu"),
         }
+
+    def _startup_active(self, grace_s: float = 300.0) -> bool:
+        if not self._startup_target_profile or self._startup_started_at <= 0:
+            return False
+        return (time.monotonic() - self._startup_started_at) <= grace_s
+
+    def _clear_startup_pending(self) -> None:
+        self._startup_target_profile = None
+        self._startup_started_at = 0.0
+
+    def _startup_target_pending(self, power_limit_w: float | None) -> str | None:
+        if not self._startup_active() or not self._startup_target_profile or self._startup_target_profile == "off":
+            return None
+        if self._profile_matches_runtime(self._startup_target_profile, power_limit_w=power_limit_w):
+            self._clear_startup_pending()
+            return None
+        return self._startup_target_profile
+
+    def _desired_percent_for_profile(self, profile: str, power_limit_w: float | None) -> int | None:
+        if not profile or profile == "off" or power_limit_w is None or power_limit_w <= 0:
+            return None
+        desired_w = self.get_profile_power_w(profile)
+        if desired_w <= 0:
+            return None
+        return self._desired_power_percent(desired_w, power_limit_w)
+
+    def _profile_matches_runtime(self, profile: str, *, power_limit_w: float | None) -> bool:
+        desired_percent = self._desired_percent_for_profile(profile, power_limit_w)
+        if desired_percent is None:
+            return False
+        return self._power_percent_matches_runtime(desired_percent, power_limit_w=power_limit_w)
 
     def _apply_bundle(self, bundle: dict[str, Any]) -> None:
         self._set_runtime_defaults()
@@ -257,16 +295,16 @@ class WhatsminerMiner(MinerAdapter):
         if power_mode:
             self.info.control_mode = f"power_pct_v2:{power_mode}"
 
+        startup_profile = self._startup_target_pending(effective_power_limit_w)
         mineroff = self._status_mineroff(status)
         if mineroff:
-            if self.target_profile and self.target_profile != "off":
+            if startup_profile or (self.target_profile and self.target_profile != "off"):
                 self.info.runtime_state = "starting"
-                self.info.profile = self.target_profile
+                self.info.profile = startup_profile or self.target_profile
             else:
                 self.info.runtime_state = "paused"
                 self.info.profile = "off"
         else:
-            self.info.runtime_state = "running"
             inferred_profile_from_percent = self._infer_profile_from_percent(
                 self.reported_hash_percent,
                 effective_power_limit_w,
@@ -274,22 +312,27 @@ class WhatsminerMiner(MinerAdapter):
             pending_profile = self._pending_profile_hint(effective_power_limit_w)
             inferred_profile_from_power = self._infer_profile_from_power(actual_power_w)
 
-            inferred_profile = (
-                inferred_profile_from_percent
-                or pending_profile
-                or inferred_profile_from_power
-            )
+            if startup_profile:
+                self.info.runtime_state = "starting"
+                self.info.profile = startup_profile
+            else:
+                self.info.runtime_state = "running"
+                inferred_profile = (
+                    inferred_profile_from_percent
+                    or pending_profile
+                    or inferred_profile_from_power
+                )
 
-            if inferred_profile and inferred_profile != "off":
-                self.info.profile = inferred_profile
-            elif self.target_profile and self.target_profile != "off":
-                self.info.profile = self.target_profile
-                if (actual_power_w is None or actual_power_w <= 0) and (
-                    self.reported_hash_percent is None or self.reported_hash_percent <= 0
-                ):
-                    self.info.runtime_state = "starting"
-            elif inferred_profile:
-                self.info.profile = inferred_profile
+                if inferred_profile and inferred_profile != "off":
+                    self.info.profile = inferred_profile
+                elif self.target_profile and self.target_profile != "off":
+                    self.info.profile = self.target_profile
+                    if (actual_power_w is None or actual_power_w <= 0) and (
+                        self.reported_hash_percent is None or self.reported_hash_percent <= 0
+                    ):
+                        self.info.runtime_state = "starting"
+                elif inferred_profile:
+                    self.info.profile = inferred_profile
 
         self.info.last_error = None
 
@@ -317,8 +360,10 @@ class WhatsminerMiner(MinerAdapter):
 
         if profile == "off" or desired_w <= 0:
             self._last_applied_power_pct = None
+            self._last_power_pct_attempt_at = 0.0
             self._pending_power_pct = None
             self._pending_power_pct_started_at = 0.0
+            self._clear_startup_pending()
             if miner_is_off:
                 return
             self._write_power_state(
@@ -328,6 +373,8 @@ class WhatsminerMiner(MinerAdapter):
             return
 
         if miner_is_off:
+            self._startup_target_profile = profile
+            self._startup_started_at = time.monotonic()
             self._write_power_state(
                 "power_on",
                 verifier=lambda: self._verify_power_state(expected_off=False, timeout_s=6.0),
@@ -365,8 +412,10 @@ class WhatsminerMiner(MinerAdapter):
         response = self._write_command_sync(cmd, ["true"] if cmd == "power_off" else None, verifier=verifier)
         if cmd == "power_off":
             self._last_applied_power_pct = None
+            self._last_power_pct_attempt_at = 0.0
             self._pending_power_pct = None
             self._pending_power_pct_started_at = 0.0
+            self._clear_startup_pending()
         return response
 
     def _needs_power_percent_update(self, desired_percent: int, *, power_limit_w: float) -> bool:
@@ -377,14 +426,20 @@ class WhatsminerMiner(MinerAdapter):
             self._last_applied_power_pct = desired_percent
             self._pending_power_pct = None
             self._pending_power_pct_started_at = 0.0
-            return False
-
-        if self._last_applied_power_pct is not None and self._last_applied_power_pct == desired_percent:
+            if self._startup_target_profile:
+                startup_desired = self._desired_percent_for_profile(self._startup_target_profile, power_limit_w)
+                if startup_desired is not None and startup_desired == desired_percent:
+                    self._clear_startup_pending()
             return False
 
         if self._pending_power_pct is not None and self._pending_power_pct == desired_percent:
             age_s = time.monotonic() - self._pending_power_pct_started_at
             if age_s < 15.0:
+                return False
+
+        if self._last_applied_power_pct is not None and self._last_applied_power_pct == desired_percent:
+            retry_interval_s = 45.0 if self._startup_active() else 90.0
+            if (time.monotonic() - self._last_power_pct_attempt_at) < retry_interval_s:
                 return False
 
         return True
@@ -405,8 +460,10 @@ class WhatsminerMiner(MinerAdapter):
             power_limit_w,
             percent,
         )
+        now_mono = time.monotonic()
         self._pending_power_pct = percent
-        self._pending_power_pct_started_at = time.monotonic()
+        self._pending_power_pct_started_at = now_mono
+        self._last_power_pct_attempt_at = now_mono
         response = self._write_command_sync(
             "set_power_pct",
             [str(percent)],
