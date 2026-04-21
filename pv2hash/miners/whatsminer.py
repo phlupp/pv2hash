@@ -30,7 +30,7 @@ class WhatsminerMiner(MinerAdapter):
     Notes:
     - Readable API is sent as plaintext JSON over TCP/4028.
     - Writable API uses the documented get_token + encrypted payload flow.
-    - PV2Hash verwendet für die Ist-Leistung ausschließlich SUMMARY.Power.
+    - PV2Hash verwendet für die Ist-Leistung ausschließlich GET_PSU.Msg.pin.
     - PV2Hash verwendet für das Basis-Power-Limit ausschließlich STATUS.Msg.power_limit.
     """
 
@@ -185,6 +185,7 @@ class WhatsminerMiner(MinerAdapter):
             "status": self._read_command_sync("status"),
             "version": self._read_command_sync("get_version"),
             "devdetails": self._read_command_sync("devdetails"),
+            "psu": self._read_command_sync("get_psu"),
         }
 
     def _apply_bundle(self, bundle: dict[str, Any]) -> None:
@@ -197,9 +198,11 @@ class WhatsminerMiner(MinerAdapter):
         status = bundle.get("status") or {}
         version = bundle.get("version") or {}
         devdetails = bundle.get("devdetails") or {}
+        psu = bundle.get("psu") or {}
 
         summary_row = self._first_list_item(summary.get("SUMMARY"))
         version_msg = version.get("Msg") or {}
+        psu_msg = psu.get("Msg") if isinstance(psu.get("Msg"), dict) else {}
         details_rows = devdetails.get("DEVDETAILS") or []
 
         for item in details_rows:
@@ -224,10 +227,11 @@ class WhatsminerMiner(MinerAdapter):
         actual_power_w = self._extract_live_power_w(bundle)
         if actual_power_w is None and hashrate_mhs is not None and not self._logged_missing_powerrt:
             logger.warning(
-                "WhatsMiner live power not found for %s (%s:%s): tried=[Power] summary_type=%s summary_keys=%s status_msg_keys=%s",
+                "WhatsMiner live power not found for %s (%s:%s): tried=[get_psu.Msg.pin] psu_msg_keys=%s summary_type=%s summary_keys=%s status_msg_keys=%s",
                 self.info.name,
                 self.host,
                 self.port,
+                sorted(str(k) for k in psu_msg.keys()),
                 type(summary.get("SUMMARY")).__name__,
                 sorted(str(k) for k in summary_row.keys()),
                 sorted(str(k) for k in status_msg.keys()),
@@ -290,9 +294,9 @@ class WhatsminerMiner(MinerAdapter):
         self.info.last_error = None
 
     def _extract_live_power_w(self, bundle: dict[str, Any]) -> float | None:
-        summary = bundle.get("summary") or {}
-        summary_row = self._first_list_item(summary.get("SUMMARY"))
-        return self._safe_float(summary_row.get("Power"), None)
+        psu = bundle.get("psu") or {}
+        psu_msg = psu.get("Msg") if isinstance(psu.get("Msg"), dict) else {}
+        return self._safe_float(psu_msg.get("pin"), None)
 
     def _infer_profile_from_percent(self, percent: float | None, power_limit_w: float | None) -> str | None:
         if percent is None or power_limit_w is None or power_limit_w <= 0:
@@ -1023,8 +1027,8 @@ class WhatsminerMiner(MinerAdapter):
                 if current_percent is not None and abs(current_percent - float(expected_percent)) <= 1.0:
                     return True
 
-                summary = self._read_command_sync("summary", timeout_s=remaining)
-                actual_power_w = self._extract_live_power_w({"summary": summary})
+                psu = self._read_command_sync("get_psu", timeout_s=remaining)
+                actual_power_w = self._extract_live_power_w({"psu": psu})
                 effective_limit = self._safe_metric_float(self._dict_get_canonical(self._status_msg(status), "power_limit"), None)
                 if actual_power_w is not None and effective_limit and effective_limit > 0:
                     current_percent = max(0.0, min(100.0, (float(actual_power_w) / float(effective_limit)) * 100.0))
