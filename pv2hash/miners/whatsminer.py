@@ -38,8 +38,14 @@ class WhatsminerMiner(MinerAdapter):
     POWER_ON_MODE_MARKER = "single_variant_v2_json_token"
     POWER_OFF_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment"
     POWER_LIMIT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
-    POWER_PERCENT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
-    POWER_PERCENT_MODE_MARKER = "single_variant_v1_json_token"
+    POWER_PERCENT_PREFERRED_LABELS = (
+        "json_prefixed/scheme=md5crypt,pwd=fullpwd,time=last4,key=full",
+        "json_prefixed/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment",
+        "pipe_prefixed/scheme=md5crypt,pwd=fullpwd,time=last4,key=full",
+        "pipe_prefixed/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment",
+        "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment",
+    )
+    POWER_PERCENT_MODE_MARKER = "preferred_prefixed_then_fallback"
 
     def __init__(
         self,
@@ -409,6 +415,17 @@ class WhatsminerMiner(MinerAdapter):
         *,
         verifier: Callable[[], bool] | None = None,
     ) -> dict[str, Any] | None:
+        if cmd == "power_off":
+            try:
+                self._write_command_sync("set_poweroff_cool", ["0"])
+            except Exception as exc:
+                logger.warning(
+                    "WhatsMiner set_poweroff_cool=0 failed for %s (%s:%s): %s",
+                    self.info.name,
+                    self.host,
+                    self.port,
+                    exc,
+                )
         response = self._write_command_sync(cmd, ["true"] if cmd == "power_off" else None, verifier=verifier)
         if cmd == "power_off":
             self._last_applied_power_pct = None
@@ -569,7 +586,7 @@ class WhatsminerMiner(MinerAdapter):
             wide=is_power_state_cmd,
             power_on_single=(cmd == "power_on"),
             power_limit_single=(cmd == "adjust_power_limit"),
-            power_percent_single=(cmd == "set_power_pct"),
+            power_percent_single=False,
         )
         command_payloads = self._build_command_payload_candidates(cmd=cmd, params=params)
         if not command_payloads:
@@ -581,7 +598,7 @@ class WhatsminerMiner(MinerAdapter):
                 token_time=token_time,
                 payload=payload,
                 token_materials=token_materials,
-                wide=is_power_state_cmd,
+                wide=is_power_state_cmd or cmd in {"set_power_pct", "set_poweroff_cool"},
             )
             if cmd == "power_on":
                 logger.info(
@@ -619,8 +636,14 @@ class WhatsminerMiner(MinerAdapter):
                     self.port,
                     self.POWER_PERCENT_MODE_MARKER,
                 )
-                preferred = [v for v in variants if v.get("label") == self.POWER_PERCENT_VARIANT_LABEL]
-                variants = preferred[:1] if preferred else variants[:1]
+                remaining = list(variants)
+                ordered: list[dict[str, Any]] = []
+                for label in self.POWER_PERCENT_PREFERRED_LABELS:
+                    matches = [v for v in remaining if v.get("label") == label]
+                    if matches:
+                        ordered.extend(matches)
+                        remaining = [v for v in remaining if v.get("label") != label]
+                variants = ordered + remaining
             for variant in variants:
                 attempt_started = time.monotonic()
                 try:
@@ -746,6 +769,11 @@ class WhatsminerMiner(MinerAdapter):
                 ("percent", {"cmd": cmd, "percent": value}),
             ]
 
+        if cmd == "set_poweroff_cool":
+            return [
+                ("poweroff_cool", {"cmd": cmd, "poweroff_cool": value}),
+            ]
+
         return [("generic", {"cmd": cmd, "param": value})]
 
     def _derive_token_materials(
@@ -865,7 +893,7 @@ class WhatsminerMiner(MinerAdapter):
             plaintext_candidates = [
                 (f"json_token/{variant_id}", payload_json_with_token),
             ]
-            if wide and is_power_state_cmd:
+            if wide:
                 plaintext_candidates.extend([
                     (f"json_prefixed/{variant_id}", f"{token_time},{sign}|{payload_json}"),
                     (f"pipe_prefixed/{variant_id}", f"{token_time},{sign}|{pipe_plain}"),
