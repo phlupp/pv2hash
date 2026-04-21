@@ -39,14 +39,8 @@ class WhatsminerMiner(MinerAdapter):
     POWER_OFF_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment"
     POWER_LIMIT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
     POWEROFF_COOL_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
-    POWER_PERCENT_PREFERRED_LABELS = (
-        "json_prefixed/scheme=md5crypt,pwd=fullpwd,time=last4,key=full",
-        "json_prefixed/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment",
-        "pipe_prefixed/scheme=md5crypt,pwd=fullpwd,time=last4,key=full",
-        "pipe_prefixed/scheme=md5crypt,pwd=fullpwd,time=last4,key=fragment",
-        "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment",
-    )
-    POWER_PERCENT_MODE_MARKER = "preferred_prefixed_then_fallback"
+    POWER_PERCENT_VARIANT_LABEL = "json_token/scheme=md5crypt,pwd=fullpwd,time=full,key=fragment"
+    POWER_PERCENT_MODE_MARKER = "single_variant_v1_json_token"
 
     def __init__(
         self,
@@ -643,14 +637,8 @@ class WhatsminerMiner(MinerAdapter):
                     self.port,
                     self.POWER_PERCENT_MODE_MARKER,
                 )
-                remaining = list(variants)
-                ordered: list[dict[str, Any]] = []
-                for label in self.POWER_PERCENT_PREFERRED_LABELS:
-                    matches = [v for v in remaining if v.get("label") == label]
-                    if matches:
-                        ordered.extend(matches)
-                        remaining = [v for v in remaining if v.get("label") != label]
-                variants = ordered + remaining
+                preferred = [v for v in variants if v.get("label") == self.POWER_PERCENT_VARIANT_LABEL]
+                variants = preferred[:1] if preferred else variants[:1]
             elif cmd == "set_poweroff_cool":
                 logger.info(
                     "WhatsMiner poweroff_cool mode for %s (%s:%s): single_variant_v1_json_token",
