@@ -216,6 +216,13 @@ class WhatsminerApi3Miner(MinerAdapter):
         except Exception:
             return default
 
+
+    def _set_unreachable(self, exc: Exception) -> None:
+        self.info.reachable = False
+        self.info.runtime_state = "unreachable"
+        self.info.last_error = str(exc)
+        self.info.last_seen = datetime.now(UTC)
+
     def _percent_from_power(self, desired_w: float, power_limit_w: float) -> str:
         if power_limit_w <= 0:
             raise RuntimeError("WhatsMiner API 3 power-limit ist nicht nutzbar")
@@ -241,63 +248,70 @@ class WhatsminerApi3Miner(MinerAdapter):
         await asyncio.to_thread(self._set_profile_sync, profile)
 
     def _set_profile_sync(self, profile: str) -> None:
-        status = self._refresh_status()
-        if profile == "off":
+        try:
+            status = self._refresh_status()
+            if profile == "off":
+                self._desired_profile_after_start = None
+                self._last_requested_percent = None
+                self._last_sent_profile = "off"
+                if status.get("working"):
+                    logger.info("WhatsMiner API3 stop service for %s (%s:%s)", self.info.name, self.host, self.port)
+                    self._write_command("set.miner.service", "stop")
+                self.info.profile = "off"
+                self.info.runtime_state = "paused"
+                return
+
+            desired_w = float(self.get_profile_power_w(profile))
+            if desired_w <= 0:
+                self._set_profile_sync("off")
+                return
+
+            if not status.get("working"):
+                logger.info("WhatsMiner API3 start service for %s (%s:%s)", self.info.name, self.host, self.port)
+                self._desired_profile_after_start = profile
+                self._last_sent_profile = profile
+                self._write_command("set.miner.service", "start")
+                self.info.runtime_state = "starting"
+                self.info.profile = profile
+                return
+
+            if status.get("up_freq_finish") != 1:
+                self._desired_profile_after_start = profile
+                self._last_sent_profile = profile
+                self.info.runtime_state = "starting"
+                self.info.profile = profile
+                return
+
+            power_limit_w = status.get("power_limit_w") or self._cached_power_limit_w
+            if not power_limit_w:
+                raise RuntimeError("WhatsMiner API 3 power-limit fehlt für Prozentregelung")
+
+            desired_percent = self._percent_from_power(desired_w, power_limit_w)
+            if self._last_requested_percent == desired_percent and self._last_sent_profile == profile:
+                self.info.profile = profile
+                return
+
+            logger.info(
+                "WhatsMiner API3 set power percent for %s (%s:%s): desired_w=%.0f power_limit_w=%.0f percent=%s",
+                self.info.name, self.host, self.port, desired_w, power_limit_w, desired_percent
+            )
+            resp = self._write_command(
+                "set.miner.power_percent",
+                {"percent": desired_percent, "mode": "fast"},
+            )
+            if resp.get("code") != 0:
+                raise RuntimeError(f"WhatsMiner API 3 set.miner.power_percent failed: {resp}")
+            self._last_requested_percent = desired_percent
+            self._last_sent_profile = profile
             self._desired_profile_after_start = None
-            self._last_requested_percent = None
-            self._last_sent_profile = "off"
-            if status.get("working"):
-                logger.info("WhatsMiner API3 stop service for %s (%s:%s)", self.info.name, self.host, self.port)
-                self._write_command("set.miner.service", "stop")
-            self.info.profile = "off"
-            self.info.runtime_state = "paused"
-            return
-
-        desired_w = float(self.get_profile_power_w(profile))
-        if desired_w <= 0:
-            self._set_profile_sync("off")
-            return
-
-        if not status.get("working"):
-            logger.info("WhatsMiner API3 start service for %s (%s:%s)", self.info.name, self.host, self.port)
-            self._desired_profile_after_start = profile
-            self._last_sent_profile = profile
-            self._write_command("set.miner.service", "start")
-            self.info.runtime_state = "starting"
             self.info.profile = profile
-            return
-
-        if status.get("up_freq_finish") != 1:
-            self._desired_profile_after_start = profile
-            self._last_sent_profile = profile
-            self.info.runtime_state = "starting"
-            self.info.profile = profile
-            return
-
-        power_limit_w = status.get("power_limit_w") or self._cached_power_limit_w
-        if not power_limit_w:
-            raise RuntimeError("WhatsMiner API 3 power-limit fehlt für Prozentregelung")
-
-        desired_percent = self._percent_from_power(desired_w, power_limit_w)
-        if self._last_requested_percent == desired_percent and self._last_sent_profile == profile:
-            self.info.profile = profile
-            return
-
-        logger.info(
-            "WhatsMiner API3 set power percent for %s (%s:%s): desired_w=%.0f power_limit_w=%.0f percent=%s",
-            self.info.name, self.host, self.port, desired_w, power_limit_w, desired_percent
-        )
-        resp = self._write_command(
-            "set.miner.power_percent",
-            {"percent": desired_percent, "mode": "fast"},
-        )
-        if resp.get("code") != 0:
-            raise RuntimeError(f"WhatsMiner API 3 set.miner.power_percent failed: {resp}")
-        self._last_requested_percent = desired_percent
-        self._last_sent_profile = profile
-        self._desired_profile_after_start = None
-        self.info.profile = profile
-        self.info.runtime_state = "running"
+            self.info.runtime_state = "running"
+        except Exception as exc:
+            self._set_unreachable(exc)
+            logger.warning(
+                "WhatsMiner API3 control action failed for %s (%s:%s): %s",
+                self.info.name, self.host, self.port, exc,
+            )
 
     async def get_status(self) -> MinerInfo:
         return await asyncio.to_thread(self._get_status_sync)
@@ -360,10 +374,7 @@ class WhatsminerApi3Miner(MinerAdapter):
         try:
             self._refresh_status()
         except Exception as exc:
-            self.info.reachable = False
-            self.info.runtime_state = "unreachable"
-            self.info.last_error = str(exc)
-            self.info.last_seen = datetime.now(UTC)
+            self._set_unreachable(exc)
             logger.warning("WhatsMiner API3 status failed for %s (%s:%s): %s", self.info.name, self.host, self.port, exc)
         return self.info
 
