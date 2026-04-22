@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any, ClassVar
 
 from pv2hash.models.miner import MinerInfo
 
@@ -6,8 +8,42 @@ PROFILE_ORDER = ("off", "p1", "p2", "p3", "p4")
 BATTERY_PROFILE_ORDER = ("p1", "p2", "p3", "p4")
 
 
+@dataclass(frozen=True)
+class DriverFieldChoice:
+    value: str
+    label: str
+
+
+@dataclass(frozen=True)
+class DriverField:
+    name: str
+    label: str
+    type: str
+    required: bool = False
+    preset: Any = None
+    default: Any = None
+    placeholder: str = ""
+    help: str = ""
+    create_phase: str = "full"
+    advanced: bool = False
+    choices: tuple[DriverFieldChoice, ...] = field(default_factory=tuple)
+
+
 class MinerAdapter(ABC):
     info: MinerInfo
+    DRIVER_LABEL: ClassVar[str] = "Unknown"
+
+    @classmethod
+    def get_driver_label(cls) -> str:
+        return cls.DRIVER_LABEL
+
+    @classmethod
+    def get_config_schema(cls) -> list[DriverField]:
+        return []
+
+    @classmethod
+    def supports_gui_schema(cls) -> bool:
+        return len(cls.get_config_schema()) > 0
 
     @abstractmethod
     async def set_profile(self, profile: str) -> None:
@@ -33,7 +69,7 @@ class MinerAdapter(ABC):
     def get_min_regulated_profile(self) -> str:
         profile = getattr(self.info, "min_regulated_profile", "off")
         if profile in PROFILE_ORDER:
-            return profile
+            return "off" if profile == "off" else profile
         return "off"
 
     def use_battery_when_charging(self) -> bool:

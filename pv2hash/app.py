@@ -9,6 +9,7 @@ import socket
 import sys
 from copy import deepcopy
 from dataclasses import asdict, replace
+from typing import Any
 from datetime import UTC, datetime
 from time import monotonic
 from pathlib import Path
@@ -29,6 +30,10 @@ from pv2hash.logging_ext.setup import (
     setup_logging,
 )
 from pv2hash.runtime import AppState
+from pv2hash.miners.base import DriverField, DriverFieldChoice, MinerAdapter
+from pv2hash.miners.braiins import BraiinsMiner
+from pv2hash.miners.simulator import SimulatorMiner
+from pv2hash.miners.whatsminer import WhatsminerMiner
 from pv2hash.self_update import SelfUpdateManager
 from pv2hash.services import RuntimeServices
 from pv2hash.update_check import UpdateChecker
@@ -59,6 +64,163 @@ EDITABLE_MIN_REGULATED_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
 MODBUS_REGISTER_TYPES = ("holding", "input", "coil", "discrete_input")
 MODBUS_VALUE_TYPES = ("int8", "uint8", "int16", "uint16", "int32", "uint32", "float32")
 MODBUS_ENDIAN_TYPES = ("big_endian", "little_endian")
+
+
+DRIVER_CLASSES: dict[str, type[MinerAdapter]] = {
+    "simulator": SimulatorMiner,
+    "braiins": BraiinsMiner,
+    "whatsminer_api2": WhatsminerMiner,
+}
+
+
+def _driver_class_for(driver: str | None) -> type[MinerAdapter] | None:
+    return DRIVER_CLASSES.get(_normalize_miner_driver(driver))
+
+
+def _driver_supports_gui_schema(driver: str | None) -> bool:
+    driver_cls = _driver_class_for(driver)
+    return bool(driver_cls and driver_cls.supports_gui_schema())
+
+
+def _choice(value: str, label: str) -> DriverFieldChoice:
+    return DriverFieldChoice(value=value, label=label)
+
+
+def _core_config_schema() -> list[DriverField]:
+    battery_choices = (
+        _choice("p1", "p1"),
+        _choice("p2", "p2"),
+        _choice("p3", "p3"),
+        _choice("p4", "p4"),
+    )
+    min_profile_choices = (
+        _choice("off", "off"),
+        _choice("p1", "p1"),
+        _choice("p2", "p2"),
+        _choice("p3", "p3"),
+        _choice("p4", "p4"),
+    )
+    return [
+        DriverField(name="enabled", label="Miner aktiv", type="checkbox", default=True),
+        DriverField(name="priority", label="Priorität", type="number", default=100, placeholder="100"),
+        DriverField(name="min_regulated_profile", label="Min. Regelprofil", type="select", default="off", choices=min_profile_choices),
+        DriverField(name="profiles.p1.power_w", label="Profil p1 (W)", type="number", default=900),
+        DriverField(name="profiles.p2.power_w", label="Profil p2 (W)", type="number", default=1800),
+        DriverField(name="profiles.p3.power_w", label="Profil p3 (W)", type="number", default=3000),
+        DriverField(name="profiles.p4.power_w", label="Profil p4 (W)", type="number", default=4200),
+        DriverField(name="use_battery_when_charging", label="Beim Laden Batterie-Regelung nutzen", type="checkbox", default=False),
+        DriverField(name="battery_charge_soc_min", label="SOC min. Laden (%)", type="number", default=95),
+        DriverField(name="battery_charge_profile", label="Profil bei Laden", type="select", default="p1", choices=battery_choices),
+        DriverField(name="use_battery_when_discharging", label="Beim Entladen Batterie-Regelung nutzen", type="checkbox", default=False),
+        DriverField(name="battery_discharge_soc_min", label="SOC min. Entladen (%)", type="number", default=80),
+        DriverField(name="battery_discharge_profile", label="Profil bei Entladen", type="select", default="p1", choices=battery_choices),
+    ]
+
+
+def _get_nested_value(data: dict, path: str, fallback: Any = None) -> Any:
+    current: Any = data
+    for part in path.split('.'):
+        if not isinstance(current, dict) or part not in current:
+            return fallback
+        current = current[part]
+    return current
+
+
+def _set_nested_value(data: dict, path: str, value: Any) -> None:
+    parts = path.split('.')
+    current = data
+    for part in parts[:-1]:
+        child = current.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            current[part] = child
+        current = child
+    current[parts[-1]] = value
+
+
+def _field_value_from_config(field: DriverField, miner_cfg: dict) -> Any:
+    value = _get_nested_value(miner_cfg, field.name, None)
+    if value is None:
+        if field.default is not None:
+            return field.default
+        return field.preset
+    return value
+
+
+def _coerce_field_value(field: DriverField, raw: Any, fallback: Any = None) -> Any:
+    if field.type == "checkbox":
+        return bool(raw)
+    if raw in (None, ""):
+        if fallback is not None:
+            return fallback
+        if field.default is not None:
+            return field.default
+        return field.preset
+    if field.type == "number":
+        default_value = fallback
+        if default_value is None:
+            default_value = field.default if field.default is not None else field.preset
+        if isinstance(default_value, float):
+            return _safe_float(raw, float(default_value))
+        return _safe_int(raw, int(float(default_value or 0)))
+    return str(raw).strip()
+
+
+def _render_field(field: DriverField, value: Any) -> dict:
+    return {
+        **asdict(field),
+        "value": value,
+        "id": field.name.replace('.', '-'),
+    }
+
+
+def _driver_schema(driver: str | None) -> list[DriverField]:
+    driver_cls = _driver_class_for(driver)
+    if driver_cls is None:
+        return []
+    return list(driver_cls.get_config_schema())
+
+
+def _driver_basic_fields(driver: str | None) -> list[dict]:
+    fields = []
+    for field in _driver_schema(driver):
+        if field.create_phase == "basic":
+            initial = field.preset if field.preset is not None else field.default
+            fields.append(_render_field(field, initial))
+    return fields
+
+
+def _driver_full_fields(driver: str | None, miner_cfg: dict) -> list[dict]:
+    return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _driver_schema(driver)]
+
+
+def _core_full_fields(miner_cfg: dict) -> list[dict]:
+    return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _core_config_schema()]
+
+
+def _build_driver_catalog() -> list[dict]:
+    catalog = []
+    for driver_key in ("simulator", "braiins", "whatsminer_api2"):
+        catalog.append({
+            "key": driver_key,
+            "label": _resolve_miner_driver_label(driver_key),
+            "supports_gui_schema": _driver_supports_gui_schema(driver_key),
+            "basic_fields": _driver_basic_fields(driver_key),
+        })
+    return catalog
+
+
+def _miner_card_summary(miner_cfg: dict, runtime: dict) -> dict:
+    reachable = runtime.get("reachable") if runtime else None
+    runtime_state = runtime.get("runtime_state") if runtime else None
+    return {
+        "active": bool(miner_cfg.get("enabled", True)),
+        "connection_ok": True if reachable is True else False if reachable is False else None,
+        "runtime_state": runtime_state or "unknown",
+        "priority": miner_cfg.get("priority", 100),
+        "power_w": runtime.get("power_w") if runtime else None,
+        "profile": runtime.get("profile") if runtime else None,
+    }
 
 
 def _safe_int(value, default: int) -> int:
@@ -669,11 +831,15 @@ def _build_miners_view() -> list[dict]:
     for miner_cfg in state.config.get("miners", []):
         merged = deepcopy(miner_cfg)
         runtime = runtime_map.get(miner_cfg.get("id"), {})
-        merged["runtime"] = runtime
         merged.setdefault("settings", {})
         merged.setdefault("profiles", {})
         merged.setdefault("min_regulated_profile", "off")
         merged["driver"] = _normalize_miner_driver(merged.get("driver"))
+        merged["runtime"] = runtime
+        merged["summary"] = _miner_card_summary(merged, runtime)
+        merged["supports_gui_schema"] = _driver_supports_gui_schema(merged.get("driver"))
+        merged["core_fields"] = _core_full_fields(merged)
+        merged["driver_fields"] = _driver_full_fields(merged.get("driver"), merged)
         miner_views.append(merged)
 
     return miner_views
@@ -684,12 +850,9 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
         "request": request,
         "miners": _build_miners_view(),
         "saved": request.query_params.get("saved") == "1",
+        "open_miner_id": request.query_params.get("open"),
         "error_message": error_message,
-        "driver_labels": {
-            "simulator": _resolve_miner_driver_label("simulator"),
-            "braiins": _resolve_miner_driver_label("braiins"),
-            "whatsminer_api2": _resolve_miner_driver_label("whatsminer_api2"),
-        },
+        "driver_catalog": _build_driver_catalog(),
         "wiki_links": {
             "overview": "https://github.com/phlupp/pv2hash/wiki/Miner",
             "profiles": "https://github.com/phlupp/pv2hash/wiki/Leistungsprofile",
@@ -1212,22 +1375,45 @@ async def add_miner(request: Request):
 
     miner_id = f"m-{uuid4().hex[:8]}"
     driver = _normalize_miner_driver(form.get("driver", "simulator"))
-    name = form.get("name", "Miner")
-    host = form.get("host", "")
-    min_regulated_profile = _normalize_min_regulated_profile(
-        form.get("min_regulated_profile", "off")
-    )
-
-    default_port, _, _, _, _ = _driver_profile_defaults(driver)
-    settings = _build_miner_settings(form, driver, default_port)
-    profile_values = _parse_profile_values(form, driver)
-
-    validation_error = _validate_profile_values(profile_values=profile_values)
-    if not validation_error and driver == "whatsminer_api2":
-        validation_error = _validate_whatsminer_api2_settings(
-            profile_values=profile_values,
-            settings=settings,
+    if not _driver_supports_gui_schema(driver):
+        return templates.TemplateResponse(
+            request=request,
+            name="miners.html",
+            context=_miners_context(request, error_message="Dieser Treiber ist noch nicht auf das neue GUI-Schema migriert."),
+            status_code=400,
         )
+
+    name = str(form.get("name", "")).strip() or "Miner"
+    miner_cfg = {
+        "id": miner_id,
+        "name": name,
+        "driver": driver,
+        "enabled": True,
+        "priority": 100,
+        "host": "",
+        "settings": {},
+        "profiles": deepcopy(_normalize_profiles(driver, None)),
+        "min_regulated_profile": "off",
+        "use_battery_when_charging": False,
+        "battery_charge_soc_min": 95,
+        "battery_charge_profile": "p1",
+        "use_battery_when_discharging": False,
+        "battery_discharge_soc_min": 80,
+        "battery_discharge_profile": "p1",
+    }
+
+    validation_error = None
+    for field in _driver_schema(driver):
+        if field.create_phase != "basic":
+            continue
+        raw = form.get(field.name)
+        value = _coerce_field_value(field, raw)
+        if field.required and value in (None, ""):
+            validation_error = f"Feld '{field.label}' ist erforderlich."
+            break
+        if value is not None:
+            _set_nested_value(miner_cfg, field.name, value)
+
     if validation_error:
         return templates.TemplateResponse(
             request=request,
@@ -1236,156 +1422,65 @@ async def add_miner(request: Request):
             status_code=400,
         )
 
-    state.config.setdefault("miners", []).append(
-        {
-            "id": miner_id,
-            "name": name,
-            "host": host,
-            "driver": driver,
-            "enabled": True,
-            "priority": int(form.get("priority", 100)),
-            "settings": settings,
-            "profiles": profile_values,
-            "min_regulated_profile": min_regulated_profile,
-            "use_battery_when_charging": form.get("use_battery_when_charging") == "on",
-            "battery_charge_soc_min": _safe_int(
-                form.get("battery_charge_soc_min", 95),
-                95,
-            ),
-            "battery_charge_profile": _normalize_battery_override_profile(
-                form.get("battery_charge_profile", "p1"),
-                "p1",
-            ),
-            "use_battery_when_discharging": form.get("use_battery_when_discharging") == "on",
-            "battery_discharge_soc_min": _safe_int(
-                form.get("battery_discharge_soc_min", 80),
-                80,
-            ),
-            "battery_discharge_profile": _normalize_battery_override_profile(
-                form.get("battery_discharge_profile", "p1"),
-                "p1",
-            ),
-        }
-    )
-
+    state.config.setdefault("miners", []).append(miner_cfg)
     save_config(state.config)
-    logger.info("Miner added: id=%s name=%s driver=%s host=%s", miner_id, name, driver, host)
+    logger.info("Miner added via metadata UI: id=%s name=%s driver=%s host=%s", miner_id, name, driver, miner_cfg.get("host"))
     reload_runtime()
-    return RedirectResponse(url="/miners?saved=1", status_code=303)
+    return RedirectResponse(url=f"/miners?saved=1&open={miner_id}", status_code=303)
 
 
 @app.post("/miners/update")
 async def update_miner(request: Request):
     form = await request.form()
-    miner_id = form.get("miner_id")
+    miner_id = str(form.get("miner_id", "")).strip()
     runtime_map = _get_runtime_miner_map()
 
     for miner in state.config.get("miners", []):
-        if miner["id"] == miner_id:
-            driver = _normalize_miner_driver(form.get("driver", miner["driver"]))
-            min_regulated_profile = _normalize_min_regulated_profile(
-                form.get("min_regulated_profile", miner.get("min_regulated_profile", "off"))
+        if miner.get("id") != miner_id:
+            continue
+
+        driver = _normalize_miner_driver(miner.get("driver", "simulator"))
+        if not _driver_supports_gui_schema(driver):
+            return templates.TemplateResponse(
+                request=request,
+                name="miners.html",
+                context=_miners_context(request, error_message="Dieser Treiber ist noch nicht auf das neue GUI-Schema migriert."),
+                status_code=400,
             )
 
-            default_port, _, _, _, _ = _driver_profile_defaults(driver)
-            settings = _build_miner_settings(
-                form,
-                driver,
-                default_port,
-                existing=miner.get("settings", {}),
-            )
-            profile_values = _parse_profile_values(form, driver)
+        updated = deepcopy(miner)
+        for field in _core_config_schema() + _driver_schema(driver):
+            if field.type == "checkbox":
+                raw = form.get(field.name) == "on"
+            else:
+                raw = form.get(field.name)
+            fallback = _field_value_from_config(field, miner)
+            value = _coerce_field_value(field, raw, fallback=fallback)
+            _set_nested_value(updated, field.name, value)
 
-            validation_error = _validate_profile_values(
-                profile_values=profile_values,
-                runtime_constraints=runtime_map.get(miner_id),
-            )
-            if not validation_error and driver == "whatsminer_api2":
-                validation_error = _validate_whatsminer_api2_settings(
-                    profile_values=profile_values,
-                    settings=settings,
-                )
-            if validation_error:
-                return templates.TemplateResponse(
-                    request=request,
-                    name="miners.html",
-                    context=_miners_context(request, error_message=validation_error),
-                    status_code=400,
-                )
-
-            previous_driver = _normalize_miner_driver(miner.get("driver", driver))
-            previous_settings = dict(miner.get("settings", {}) or {})
-            previous_power_limit_w = _safe_int(previous_settings.get("power_limit_w"), 0)
-            next_power_limit_w = _safe_int(settings.get("power_limit_w"), 0)
-
-            miner["name"] = form.get("name", miner["name"])
-            miner["host"] = form.get("host", miner["host"])
-            miner["driver"] = driver
-            miner["priority"] = int(form.get("priority", miner.get("priority", 100)))
-            miner["enabled"] = form.get("enabled") == "on"
-            miner["settings"] = settings
-            miner["profiles"] = profile_values
-            miner["min_regulated_profile"] = min_regulated_profile
-            miner["use_battery_when_charging"] = form.get("use_battery_when_charging") == "on"
-            miner["battery_charge_soc_min"] = _safe_int(
-                form.get(
-                    "battery_charge_soc_min",
-                    miner.get("battery_charge_soc_min", 95),
-                ),
-                int(float(miner.get("battery_charge_soc_min", 95))),
-            )
-            miner["battery_charge_profile"] = _normalize_battery_override_profile(
-                form.get(
-                    "battery_charge_profile",
-                    miner.get("battery_charge_profile", "p1"),
-                ),
-                str(miner.get("battery_charge_profile", "p1")),
-            )
-            miner["use_battery_when_discharging"] = form.get("use_battery_when_discharging") == "on"
-            miner["battery_discharge_soc_min"] = _safe_int(
-                form.get(
-                    "battery_discharge_soc_min",
-                    miner.get("battery_discharge_soc_min", 80),
-                ),
-                int(float(miner.get("battery_discharge_soc_min", 80))),
-            )
-            miner["battery_discharge_profile"] = _normalize_battery_override_profile(
-                form.get(
-                    "battery_discharge_profile",
-                    miner.get("battery_discharge_profile", "p1"),
-                ),
-                str(miner.get("battery_discharge_profile", "p1")),
+        validation_error = _validate_profile_values(
+            profile_values=updated.get("profiles", {}),
+            runtime_constraints=runtime_map.get(miner_id),
+        )
+        if validation_error:
+            return templates.TemplateResponse(
+                request=request,
+                name="miners.html",
+                context=_miners_context(request, error_message=validation_error),
+                status_code=400,
             )
 
-            should_apply_whatsminer_power_limit = (
-                driver == "whatsminer_api2"
-                and next_power_limit_w > 0
-                and (previous_driver != "whatsminer_api2" or previous_power_limit_w != next_power_limit_w)
-            )
-            if should_apply_whatsminer_power_limit:
-                logger.info(
-                    "WhatsMiner base power limit changed in config: id=%s old=%s new=%s",
-                    miner["id"],
-                    previous_power_limit_w,
-                    next_power_limit_w,
-                )
-
-            logger.info(
-                "Miner updated: id=%s name=%s driver=%s host=%s enabled=%s min_regulated_profile=%s",
-                miner["id"],
-                miner["name"],
-                miner["driver"],
-                miner["host"],
-                miner["enabled"],
-                miner["min_regulated_profile"],
-            )
-            break
+        miner.clear()
+        miner.update(updated)
+        logger.info(
+            "Miner updated via metadata UI: id=%s name=%s driver=%s host=%s enabled=%s",
+            miner.get("id"), miner.get("name"), driver, miner.get("host"), miner.get("enabled")
+        )
+        break
 
     save_config(state.config)
     reload_runtime()
-    if 'should_apply_whatsminer_power_limit' in locals() and should_apply_whatsminer_power_limit:
-        asyncio.create_task(_apply_whatsminer_power_limit_after_reload(str(miner_id), int(next_power_limit_w)))
-    return RedirectResponse(url="/miners?saved=1", status_code=303)
+    return RedirectResponse(url=f"/miners?saved=1&open={miner_id}", status_code=303)
 
 
 @app.post("/miners/set-enabled")

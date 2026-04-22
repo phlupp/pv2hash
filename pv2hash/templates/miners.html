@@ -5,949 +5,217 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PV2Hash – Miner</title>
     <link rel="stylesheet" href="/static/css/app.css">
+    <style>
+        .miner-create-grid,.miner-field-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem}
+        .miner-card{border:1px solid rgba(255,255,255,.08);border-radius:18px;background:rgba(17,24,39,.92);margin-bottom:1rem;overflow:hidden}
+        .miner-card summary{list-style:none;cursor:pointer;padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:flex-start;gap:1rem}
+        .miner-card summary::-webkit-details-marker{display:none}
+        .miner-card-body{padding:0 1.25rem 1.25rem}
+        .miner-meta{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.35rem}
+        .pill{display:inline-flex;align-items:center;padding:.2rem .55rem;border-radius:999px;font-size:.8rem;background:rgba(255,255,255,.08)}
+        .pill.ok{background:rgba(34,197,94,.15);color:#8ef0a8}.pill.bad{background:rgba(239,68,68,.15);color:#ffb1b1}.pill.neutral{background:rgba(148,163,184,.18);color:#dbe7ff}
+        .field{display:flex;flex-direction:column;gap:.35rem}.field input,.field select{width:100%}
+        .field-help{font-size:.82rem;opacity:.75}.section-title{margin:1.25rem 0 .75rem;font-size:1rem}.legacy-note{padding:1rem;border:1px dashed rgba(255,255,255,.16);border-radius:14px;background:rgba(255,255,255,.03)}
+        .checkbox-field{display:flex;align-items:center;gap:.55rem;padding-top:1.6rem}
+        .actions-row{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1rem}
+        .details-form{margin-top:1rem}
+    </style>
 </head>
 <body>
-    {% macro help_link(url, label='Hilfe') -%}
-    <a class="btn btn-secondary btn-small" href="{{ url }}" target="_blank" rel="noopener">{{ label }}</a>
-    {%- endmacro %}
-
-    {% macro battery_profile_options(current) -%}
-        <option value="p1" {% if current == 'p1' %}selected{% endif %}>p1</option>
-        <option value="p2" {% if current == 'p2' %}selected{% endif %}>p2</option>
-        <option value="p3" {% if current == 'p3' %}selected{% endif %}>p3</option>
-        <option value="p4" {% if current == 'p4' %}selected{% endif %}>p4</option>
-    {%- endmacro %}
-
-    {% macro min_regulated_options(current) -%}
-        <option value="off" {% if current == 'off' %}selected{% endif %}>off</option>
-        <option value="p1" {% if current == 'p1' %}selected{% endif %}>p1</option>
-        <option value="p2" {% if current == 'p2' %}selected{% endif %}>p2</option>
-        <option value="p3" {% if current == 'p3' %}selected{% endif %}>p3</option>
-        <option value="p4" {% if current == 'p4' %}selected{% endif %}>p4</option>
-    {%- endmacro %}
-
-
-    {% macro inline_icon(name) -%}
-        {% if name == 'network' %}
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M12 5c-4.97 0-9 4.03-9 9h2.5a6.5 6.5 0 0 1 13 0H21c0-4.97-4.03-9-9-9Zm0 4a5 5 0 0 0-5 5h2.5a2.5 2.5 0 0 1 5 0H17a5 5 0 0 0-5-5Zm0 5.5a1.5 1.5 0 1 0 0 3a1.5 1.5 0 0 0 0-3Z"/>
-        </svg>
-        {% elif name == 'play' %}
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M8 6.5v11l9-5.5l-9-5.5Z"/>
-        </svg>
-        {% elif name == 'pause' %}
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M8 6h3.5v12H8zm4.5 0H16v12h-3.5z"/>
-        </svg>
-        {% endif %}
-    {%- endmacro %}
-
-    <div class="layout">
-        <aside class="sidebar">
-            <div class="brand">
-                <div class="brand-mark">PV</div>
-                <div>
-                    <div class="brand-title">PV2Hash</div>
-                    <div class="brand-subtitle">Miner</div>
-                </div>
+<div class="layout">
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-mark">PV</div>
+            <div>
+                <div class="brand-title">PV2Hash</div>
+                <div class="brand-subtitle">Miner</div>
             </div>
+        </div>
+        <nav class="nav">
+            <a class="nav-item" href="/">Dashboard</a>
+            <a class="nav-item" href="/sources">Messungen</a>
+            <a class="nav-item active" href="/miners">Miner</a>
+            <a class="nav-item" href="/settings">Einstellungen</a>
+            <span class="nav-item disabled">Verlauf</span>
+            <a class="nav-item" href="/system">System</a>
+        </nav>
+    </aside>
 
-            <nav class="nav">
-                <a class="nav-item" href="/">Dashboard</a>
-                <a class="nav-item" href="/sources">Messungen</a>
-                <a class="nav-item active" href="/miners">Miner</a>
-                <a class="nav-item" href="/settings">Einstellungen</a>
-                <span class="nav-item disabled">Verlauf</span>
-                <a class="nav-item" href="/system">System</a>
-            </nav>
-        </aside>
+    <main class="content">
+        <header class="topbar">
+            <div>
+                <h1>Miner</h1>
+                <p>Neue Miner über Basic-Felder anlegen und bestehende Miner in einklappbaren Karten konfigurieren.</p>
+            </div>
+        </header>
 
-        <main class="content">
-            <header class="topbar">
-                <div>
-                    <h1>Miner</h1>
-                    <p>Bestehende Miner kompakt verwalten und neue Miner erst nach Auswahl des Treibers anlegen.</p>
-                </div>
-                <div class="topbar-actions">
-                    {{ help_link(wiki_links.overview, 'Wiki: Miner') }}
-                </div>
-            </header>
+        {% if saved %}<section class="alert success">Miner-Konfiguration gespeichert und Runtime neu geladen.</section>{% endif %}
+        {% if error_message %}<section class="alert danger">{{ error_message }}</section>{% endif %}
 
-            {% if saved %}
-            <section class="alert success">
-                Miner-Konfiguration gespeichert und Runtime neu geladen.
-            </section>
-            {% endif %}
-
-            {% if error_message %}
-            <section class="alert danger">
-                {{ error_message }}
-            </section>
-            {% endif %}
-
-            <section class="card disclosure-card miner-add-card">
-                <div class="disclosure-summary disclosure-summary-static">
-                    <div>
-                        <strong>Neuen Miner hinzufügen</strong>
-                        <small>Erst Treiber wählen, dann nur die passenden Felder ausfüllen.</small>
+        <section class="card">
+            <h2>Neuen Miner anlegen</h2>
+            <p>Erst Treiber auswählen, dann die Basic-Felder ausfüllen. Die restliche Konfiguration erfolgt danach in der geöffneten Miner-Karte.</p>
+            <form method="post" action="/miners/add" id="miner-create-form">
+                <div class="miner-create-grid">
+                    <div class="field">
+                        <label for="create-name">Name</label>
+                        <input id="create-name" type="text" name="name" value="Miner" required>
                     </div>
-                    <button class="btn btn-small" type="button" data-toggle-target="add-miner-panel">Neuen Miner hinzufügen</button>
+                    <div class="field">
+                        <label for="create-driver">Treiber</label>
+                        <select id="create-driver" name="driver">
+                            {% for driver in driver_catalog %}
+                            <option value="{{ driver.key }}">{{ driver.label }}{% if not driver.supports_gui_schema %} (noch nicht migriert){% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                 </div>
 
-                <div class="disclosure-body" id="add-miner-panel" {% if not error_message %}hidden{% endif %}>
-                    <form method="post" action="/miners/add" class="form-grid miner-config-form" data-driver-form data-apply-driver-defaults="true" data-dirty-form>
-                        <section class="card type-subcard">
-                            <div class="card-head">
-                                <div>
-                                    <h2>Grunddaten</h2>
-                                    <p class="card-subtitle">Der Treiber bestimmt, welche zusätzlichen Felder benötigt werden.</p>
-                                </div>
-                            </div>
-
-                            <div class="form-grid miner-basics-grid">
-                                <label class="form-grid-span-2">
-                                    <span>Name</span>
-                                    <input type="text" name="name" required>
-                                </label>
-
-                                <label>
-                                    <span>Treiber</span>
-                                    <select name="driver" data-driver-select data-default-port-target="add-port-field">
-                                        <option value="simulator">{{ driver_labels.simulator }}</option>
-                                        <option value="braiins">{{ driver_labels.braiins }}</option>
-                                        <option value="whatsminer_api2">{{ driver_labels.whatsminer_api2 }}</option>
-                                    </select>
-                                </label>
-
-                                <label class="field-narrow">
-                                    <span>Priorität</span>
-                                    <input type="number" name="priority" value="100" min="1" max="999">
-                                </label>
-
-                                <label class="checkbox-row form-grid-span-2">
-                                    <input type="checkbox" checked disabled>
-                                    <span>Miner beim Anlegen aktivieren</span>
-                                    <small class="help">Neue Miner werden direkt aktiviert. Danach kann der Miner jederzeit deaktiviert werden.</small>
-                                </label>
-                            </div>
-                        </section>
-
-                        <section class="card type-subcard top-gap">
-                            <div class="card-head">
-                                <div>
-                                    <h2>Verbindung</h2>
-                                    <p class="card-subtitle">Netzwerk und – falls nötig – Zugangsdaten für den Miner.</p>
-                                </div>
-                                <span class="help-links-inline">
-                                    {{ help_link(wiki_links.braiins, 'Hilfe Braiins') }}
-                                    {{ help_link(wiki_links.whatsminer_api2, 'Hilfe WhatsMiner') }}
-                                    {{ help_link(wiki_links.simulator, 'Hilfe Simulator') }}
-                                </span>
-                            </div>
-
-                            <div class="form-grid miner-connection-grid">
-                                <label>
-                                    <span>Host / IP</span>
-                                    <input type="text" name="host" required>
-                                </label>
-
-                                <label class="field-narrow">
-                                    <span>API Port</span>
-                                    <input id="add-port-field" type="number" name="port" value="4028">
-                                </label>
-
-                                <label data-driver-types="braiins">
-                                    <span>Braiins Benutzer</span>
-                                    <input type="text" name="username" value="root">
-                                </label>
-
-                                <label data-driver-types="braiins">
-                                    <span>Braiins Passwort</span>
-                                    <input type="password" name="password">
-                                </label>
-
-                                <label data-driver-types="whatsminer_api2">
-                                    <span>WhatsMiner API Passwort</span>
-                                    <input type="password" name="whatsminer_password">
-                                    <small class="help">Admin-Passwort. API muss aktiviert sein.</small>
-                                </label>
-
-                                <label data-driver-types="whatsminer_api2">
-                                    <span>Basis-Power-Limit (W)</span>
-                                    <input type="number" name="whatsminer_power_limit_w" min="1" step="1" inputmode="numeric">
-                                    <small class="help">Pflichtfeld für API 2.x. Wenn der Miner noch kein Power-Limit meldet, nutzt PV2Hash diesen Wert als Fallback.</small>
-                                </label>
-                            </div>
-                        </section>
-
-                        <section class="card type-subcard top-gap">
-                            <div class="card-head">
-                                <div>
-                                    <h2>Leistungsprofile</h2>
-                                    <p class="card-subtitle">Die Profile definieren die festen Leistungsstufen des Miners.</p>
-                                </div>
-                                {{ help_link(wiki_links.profiles, 'Hilfe') }}
-                            </div>
-
-                            <div class="form-grid miner-profile-grid">
-                                <label>
-                                    <span>P1 Leistung (W)</span>
-                                    <input type="number" name="profile_p1_power_w" value="900" min="1" step="1" inputmode="numeric">
-                                    <small class="help">Kleinste echte Leistungsstufe.</small>
-                                </label>
-
-                                <label>
-                                    <span>P2 Leistung (W)</span>
-                                    <input type="number" name="profile_p2_power_w" value="1800" min="1" step="1" inputmode="numeric">
-                                </label>
-
-                                <label>
-                                    <span>P3 Leistung (W)</span>
-                                    <input type="number" name="profile_p3_power_w" value="3000" min="1" step="1" inputmode="numeric">
-                                </label>
-
-                                <label>
-                                    <span>P4 Leistung (W)</span>
-                                    <input type="number" name="profile_p4_power_w" value="4200" min="1" step="1" inputmode="numeric">
-                                </label>
-
-                                <label>
-                                    <span>Min. Regelprofil</span>
-                                    <select name="min_regulated_profile">
-                                        {{ min_regulated_options('off') }}
-                                    </select>
-                                    <small class="help">Wie weit der Regler diesen Miner automatisch herunterstufen darf.</small>
-                                </label>
-                            </div>
-                        </section>
-
-                        <section class="card type-subcard top-gap">
-                            <div class="card-head">
-                                <div>
-                                    <h2>Batterieverhalten</h2>
-                                    <p class="card-subtitle">Optionales Verhalten, wenn Batterie-Laden oder -Entladen erkannt wird.</p>
-                                </div>
-                                {{ help_link(wiki_links.battery, 'Hilfe') }}
-                            </div>
-
-                            <div class="grid grid-2 miner-battery-grid">
-                                <fieldset class="form-section">
-                                    <legend>Batterie-Laden</legend>
-
-                                    <label class="checkbox-row">
-                                        <input type="checkbox" name="use_battery_when_charging">
-                                        <span>Batterie beim Laden zum Mining verwenden</span>
-                                    </label>
-
-                                    <div class="form-grid miner-battery-row">
-                                        <label>
-                                            <span>Ab SOC (%)</span>
-                                            <input type="number" name="battery_charge_soc_min" value="95" min="0" max="100" step="1" inputmode="numeric">
-                                        </label>
-
-                                        <label>
-                                            <span>Profil</span>
-                                            <select name="battery_charge_profile">
-                                                {{ battery_profile_options('p1') }}
-                                            </select>
-                                        </label>
-                                    </div>
-                                    <small class="help">Ab diesem Ladezustand darf der Ladebetrieb das Profil freigeben.</small>
-                                </fieldset>
-
-                                <fieldset class="form-section">
-                                    <legend>Batterie-Entladen</legend>
-
-                                    <label class="checkbox-row">
-                                        <input type="checkbox" name="use_battery_when_discharging">
-                                        <span>Batterie beim Entladen zum Mining verwenden</span>
-                                    </label>
-
-                                    <div class="form-grid miner-battery-row">
-                                        <label>
-                                            <span>Bis SOC (%)</span>
-                                            <input type="number" name="battery_discharge_soc_min" value="80" min="0" max="100" step="1" inputmode="numeric">
-                                        </label>
-
-                                        <label>
-                                            <span>Profil</span>
-                                            <select name="battery_discharge_profile">
-                                                {{ battery_profile_options('p1') }}
-                                            </select>
-                                        </label>
-                                    </div>
-                                    <small class="help">Fällt der SOC darunter, geht der Regler auf das Min.-Regelprofil zurück.</small>
-                                </fieldset>
-                            </div>
-                        </section>
-
-                        <div class="actions top-gap split">
-                            <span class="dirty-indicator" data-dirty-indicator hidden>Ungespeicherte Änderungen</span>
-                            <button class="btn" type="submit" data-dirty-submit>Miner anlegen</button>
-                        </div>
-                    </form>
-                </div>
-            </section>
-
-            <section class="grid miner-card-grid top-gap">
-                {% for miner in miners %}
-                {% set rt = miner.runtime or {} %}
-                {% set reachable = rt.get("reachable", false) %}
-                {% set runtime_state = rt.get("runtime_state") or "unknown" %}
-                {% set current_profile = rt.get("profile") or "off" %}
-                {% set current_power_w = rt.get("power_w") %}
-                {% set api_version = rt.get("api_version") %}
-                {% set control_mode = rt.get("control_mode") %}
-                {% set autotuning_enabled = rt.get("autotuning_enabled") %}
-                {% set pt_min = rt.get("power_target_min_w") %}
-                {% set pt_def = rt.get("power_target_default_w") %}
-                {% set pt_max = rt.get("power_target_max_w") %}
-                {% set last_error = rt.get("last_error") %}
-                {% set last_seen = rt.get("last_seen") %}
-                {% set driver_label = driver_labels.get(miner.driver, miner.driver) %}
-                {% set runtime_serial = rt.get("serial_number") or miner.serial_number or None %}
-                {% set runtime_model = rt.get("model") or miner.model or None %}
-                {% set runtime_firmware = rt.get("firmware_version") or miner.firmware_version or None %}
-                {% set runtime_state_normalized = (runtime_state|string)|lower %}
-                {% set is_running = runtime_state_normalized not in ['paused', 'stopped', 'off', 'idle', 'unknown'] %}
-                {% set has_error_state = runtime_state_normalized in ['error', 'fault', 'failed'] %}
-                {% set min_profile = miner.min_regulated_profile if miner.min_regulated_profile is defined else 'off' %}
-                {% set charge_profile = miner.battery_charge_profile if miner.battery_charge_profile is defined else 'p1' %}
-                {% set discharge_profile = miner.battery_discharge_profile if miner.battery_discharge_profile is defined else 'p1' %}
-                {% set profile_p1 = miner.profiles.p1.power_w if miner.profiles and miner.profiles.p1 is defined else (1200 if miner.driver in ['braiins', 'whatsminer_api2'] else 900) %}
-                {% set profile_p2 = miner.profiles.p2.power_w if miner.profiles and miner.profiles.p2 is defined else (2200 if miner.driver in ['braiins', 'whatsminer_api2'] else 1800) %}
-                {% set profile_p3 = miner.profiles.p3.power_w if miner.profiles and miner.profiles.p3 is defined else (3200 if miner.driver in ['braiins', 'whatsminer_api2'] else 3000) %}
-                {% set profile_p4 = miner.profiles.p4.power_w if miner.profiles and miner.profiles.p4 is defined else 4200 %}
-
-                <article class="card miner-card" data-miner-card data-miner-id="{{ miner.id }}" data-editing="false">
-                    <div class="card-head">
-                        <div>
-                            <h2 class="miner-card-title">
-                                <span class="miner-state-icons" aria-label="Minerstatus">
-                                    <span class="status-dot {% if miner.enabled %}is-enabled{% else %}is-disabled{% endif %}" data-runtime-field="icon-enabled" title="Freigabe"></span>
-                                    <span class="status-icon status-icon-network {% if reachable %}is-active{% else %}is-inactive{% endif %}" data-runtime-field="icon-reachable" title="Erreichbarkeit">{{ inline_icon('network') }}</span>
-                                    <span class="status-icon status-icon-run {% if is_running %}is-active{% else %}is-paused{% endif %}" data-runtime-field="icon-run" title="Laufstatus">
-                                        <span data-runtime-field="icon-run-glyph">{{ inline_icon('play') if is_running else inline_icon('pause') }}</span>
-                                    </span>
-                                </span>
-                                <span>{{ miner.name }}</span>
-                            </h2>
-                            <p class="card-subtitle" data-driver-label="{{ driver_label }}">
-                                <span>{{ driver_label }}</span>
-                                {% if runtime_model %}<span> · {{ runtime_model }}</span>{% endif %}
-                                {% if runtime_serial %}<span> · SN {{ runtime_serial }}</span>{% endif %}
-                            </p>
-                        </div>
-                        <div class="topbar-actions">
-                            <button class="btn btn-small" type="button" data-toggle-target="miner-config-{{ miner.id }}" data-editing-card="{{ miner.id }}">Konfigurieren</button>
-                            {% if miner.driver == 'braiins' %}
-                                {{ help_link(wiki_links.braiins, 'Hilfe') }}
+                {% for driver in driver_catalog %}
+                <div class="driver-basic-fields" data-driver="{{ driver.key }}" {% if not loop.first %}hidden{% endif %}>
+                    {% if driver.supports_gui_schema %}
+                    <div class="miner-create-grid" style="margin-top:1rem;">
+                        {% for field in driver.basic_fields %}
+                        <div class="field {% if field.type == 'checkbox' %}checkbox-field{% endif %}">
+                            {% if field.type == 'checkbox' %}
+                            <label><input type="checkbox" name="{{ field.name }}" {% if field.value %}checked{% endif %}> {{ field.label }}</label>
                             {% else %}
-                                {{ help_link(wiki_links.simulator, 'Hilfe') }}
+                            <label for="create-{{ driver.key }}-{{ field.id }}">{{ field.label }}</label>
+                            {% if field.type == 'select' %}
+                            <select id="create-{{ driver.key }}-{{ field.id }}" name="{{ field.name }}">
+                                {% for choice in field.choices %}
+                                <option value="{{ choice.value }}" {% if choice.value == field.value %}selected{% endif %}>{{ choice.label }}</option>
+                                {% endfor %}
+                            </select>
+                            {% else %}
+                            <input id="create-{{ driver.key }}-{{ field.id }}" type="{{ 'password' if field.type == 'password' else ('number' if field.type == 'number' else 'text') }}" name="{{ field.name }}" value="{{ field.value if field.value is not none else '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %} {% if field.required %}required{% endif %}>
                             {% endif %}
+                            {% endif %}
+                            {% if field.help %}<small class="field-help">{{ field.help }}</small>{% endif %}
                         </div>
+                        {% endfor %}
                     </div>
-
-                    <div class="miner-summary-grid miner-summary-grid-compact miner-summary-grid-slim">
-                        <div class="miner-summary-item">
-                            <span class="label">Aktuelles Profil</span>
-                            <strong data-runtime-field="summary-profile">{{ current_profile }}</strong>
-                        </div>
-                        <div class="miner-summary-item">
-                            <span class="label">Aktuelle Leistung</span>
-                            <strong data-runtime-field="summary-power">{% if current_power_w is not none %}{{ '%.0f'|format(current_power_w) }} W{% else %}–{% endif %}</strong>
-                        </div>
-                    </div>
-
-                    <div class="runtime-hidden-fields" hidden><span data-runtime-field="summary-state">{% if reachable %}erreichbar{% else %}nicht erreichbar{% endif %} · {{ runtime_state }}</span></div>
-
-                                <div class="kv compact-kv top-gap">
-                        <div class="kv-row"><span>Host / IP</span><strong>{{ miner.host }}</strong></div>
-                        <div class="kv-row"><span>Priorität</span><strong>{{ miner.priority }}</strong></div>
-                        <div class="kv-row"><span>Min. Regelprofil</span><strong>{{ min_profile }}</strong></div>
-                    </div>
-
-                    <div class="alert danger subtle top-gap miner-error-banner" data-runtime-field="error-row" {% if not (has_error_state and last_error) %}hidden{% endif %}>
-                        <strong>Letzter Fehler:</strong>
-                        <span data-runtime-field="summary-error">{{ last_error or '—' }}</span>
-                    </div>
-
-                    <div class="measurement-config-panel top-gap" id="miner-config-{{ miner.id }}" hidden>
-                        <form method="post" action="/miners/update" class="form-grid miner-config-form" data-driver-form data-dirty-form>
-                            <input type="hidden" name="miner_id" value="{{ miner.id }}">
-
-                            <section class="card type-subcard">
-                                <div class="card-head">
-                                    <div>
-                                        <h2>Grunddaten</h2>
-                                        <p class="card-subtitle">Treiber, Erreichbarkeit und allgemeine Eigenschaften des Miners.</p>
-                                    </div>
-                                </div>
-
-                                <div class="form-grid miner-basics-grid">
-                                    <label class="form-grid-span-2">
-                                        <span>Name</span>
-                                        <input type="text" name="name" value="{{ miner.name }}" required>
-                                    </label>
-
-                                    <label>
-                                        <span>Treiber</span>
-                                        <select name="driver" data-driver-select>
-                                            <option value="simulator" {% if miner.driver == 'simulator' %}selected{% endif %}>{{ driver_labels.simulator }}</option>
-                                            <option value="braiins" {% if miner.driver == 'braiins' %}selected{% endif %}>{{ driver_labels.braiins }}</option>
-                                            <option value="whatsminer_api2" {% if miner.driver == 'whatsminer_api2' %}selected{% endif %}>{{ driver_labels.whatsminer_api2 }}</option>
-                                        </select>
-                                    </label>
-
-                                    <label class="field-narrow">
-                                        <span>Priorität</span>
-                                        <input type="number" name="priority" value="{{ miner.priority }}" min="1" max="999">
-                                    </label>
-
-                                    <label class="checkbox-row form-grid-span-2">
-                                        <input type="checkbox" name="enabled" {% if miner.enabled %}checked{% endif %}>
-                                        <span>Miner aktiviert</span>
-                                    </label>
-                                </div>
-                            </section>
-
-                            <section class="card type-subcard top-gap">
-                                <div class="card-head">
-                                    <div>
-                                        <h2>Verbindung</h2>
-                                        <p class="card-subtitle">Netzwerk und – falls nötig – Zugangsdaten für den Miner.</p>
-                                    </div>
-                                    <span class="help-links-inline">
-                                        {% if miner.driver == 'braiins' %}
-                                            {{ help_link(wiki_links.braiins, 'Hilfe') }}
-                                        {% elif miner.driver == 'whatsminer_api2' %}
-                                            {{ help_link(wiki_links.whatsminer_api2, 'Hilfe') }}
-                                        {% else %}
-                                            {{ help_link(wiki_links.simulator, 'Hilfe') }}
-                                        {% endif %}
-                                    </span>
-                                </div>
-
-                                <div class="form-grid miner-connection-grid">
-                                    <label>
-                                        <span>Host / IP</span>
-                                        <input type="text" name="host" value="{{ miner.host }}" required>
-                                    </label>
-
-                                    <label class="field-narrow">
-                                        <span>API Port</span>
-                                        <input type="number" name="port" value="{{ miner.settings.port if miner.settings and miner.settings.port is defined else (50051 if miner.driver == 'braiins' else 4028) }}">
-                                    </label>
-
-                                    <label data-driver-types="braiins">
-                                        <span>Braiins Benutzer</span>
-                                        <input type="text" name="username" value="{{ miner.settings.username if miner.settings and miner.settings.username is defined else 'root' }}">
-                                    </label>
-
-                                    <label data-driver-types="braiins">
-                                        <span>Braiins Passwort</span>
-                                        <input type="password" name="password" value="">
-                                        <small class="help">Leer = unverändert.</small>
-                                    </label>
-
-                                    <label data-driver-types="whatsminer_api2">
-                                        <span>WhatsMiner API Passwort</span>
-                                        <input type="password" name="whatsminer_password" value="">
-                                        <small class="help">Leer = unverändert. API muss aktiviert sein.</small>
-                                    </label>
-
-                                    <label data-driver-types="whatsminer_api2">
-                                        <span>Basis-Power-Limit (W)</span>
-                                        <input type="number" name="whatsminer_power_limit_w" value="{{ miner.settings.power_limit_w if miner.settings and miner.settings.power_limit_w is defined and miner.settings.power_limit_w not in [None, ''] else (pt_def if pt_def is not none else '') }}" min="1" step="1" inputmode="numeric">
-                                        <small class="help">PV2Hash verwendet für die Rechnung immer zuerst den aktuell vom Miner gelesenen Wert. Dieser Konfigurationswert ist der Fallback und wird beim Speichern auch an den Miner geschrieben.</small>
-                                        <small class="help">Aktuell im Miner: {% if pt_def is not none %}{{ '%.0f'|format(pt_def) }} W{% else %}nicht gesetzt{% endif %}</small>
-                                    </label>
-                                </div>
-                            </section>
-
-                            <section class="card type-subcard top-gap">
-                                <div class="card-head">
-                                    <div>
-                                        <h2>Leistungsprofile</h2>
-                                        <p class="card-subtitle">P1 bis P4 sowie die Untergrenze für die automatische Regelung.</p>
-                                    </div>
-                                    {{ help_link(wiki_links.profiles, 'Hilfe') }}
-                                </div>
-
-                                <div class="form-grid miner-profile-grid">
-                                    <label>
-                                        <span>P1 Leistung (W)</span>
-                                        <input type="number" name="profile_p1_power_w" value="{{ profile_p1 }}" min="1" step="1" inputmode="numeric">
-                                        <small class="help">Kleinste echte Leistungsstufe.</small>
-                                    </label>
-
-                                    <label>
-                                        <span>P2 Leistung (W)</span>
-                                        <input type="number" name="profile_p2_power_w" value="{{ profile_p2 }}" min="1" step="1" inputmode="numeric">
-                                    </label>
-
-                                    <label>
-                                        <span>P3 Leistung (W)</span>
-                                        <input type="number" name="profile_p3_power_w" value="{{ profile_p3 }}" min="1" step="1" inputmode="numeric">
-                                    </label>
-
-                                    <label>
-                                        <span>P4 Leistung (W)</span>
-                                        <input type="number" name="profile_p4_power_w" value="{{ profile_p4 }}" min="1" step="1" inputmode="numeric">
-                                    </label>
-
-                                    <label>
-                                        <span>Min. Regelprofil</span>
-                                        <select name="min_regulated_profile">
-                                            {{ min_regulated_options(min_profile) }}
-                                        </select>
-                                        <small class="help">Wie weit der Regler diesen Miner automatisch herunterstufen darf.</small>
-                                    </label>
-                                </div>
-                            </section>
-
-                            <section class="card type-subcard top-gap">
-                                <div class="card-head">
-                                    <div>
-                                        <h2>Batterieverhalten</h2>
-                                        <p class="card-subtitle">Optionales Verhalten bei Batterie-Laden und -Entladen.</p>
-                                    </div>
-                                    {{ help_link(wiki_links.battery, 'Hilfe') }}
-                                </div>
-
-                                <div class="grid grid-2 miner-battery-grid">
-                                    <fieldset class="form-section">
-                                        <legend>Batterie-Laden</legend>
-
-                                        <label class="checkbox-row">
-                                            <input type="checkbox" name="use_battery_when_charging" {% if miner.use_battery_when_charging %}checked{% endif %}>
-                                            <span>Batterie beim Laden zum Mining verwenden</span>
-                                        </label>
-
-                                        <div class="form-grid miner-battery-row">
-                                            <label>
-                                                <span>Ab SOC (%)</span>
-                                                <input type="number" name="battery_charge_soc_min" value="{{ miner.battery_charge_soc_min if miner.battery_charge_soc_min is defined else 95 }}" min="0" max="100" step="1" inputmode="numeric">
-                                            </label>
-
-                                            <label>
-                                                <span>Profil</span>
-                                                <select name="battery_charge_profile">
-                                                    {{ battery_profile_options(charge_profile) }}
-                                                </select>
-                                            </label>
-                                        </div>
-                                        <small class="help">Ab diesem Ladezustand darf der Ladebetrieb das Profil freigeben.</small>
-                                    </fieldset>
-
-                                    <fieldset class="form-section">
-                                        <legend>Batterie-Entladen</legend>
-
-                                        <label class="checkbox-row">
-                                            <input type="checkbox" name="use_battery_when_discharging" {% if miner.use_battery_when_discharging %}checked{% endif %}>
-                                            <span>Batterie beim Entladen zum Mining verwenden</span>
-                                        </label>
-
-                                        <div class="form-grid miner-battery-row">
-                                            <label>
-                                                <span>Bis SOC (%)</span>
-                                                <input type="number" name="battery_discharge_soc_min" value="{{ miner.battery_discharge_soc_min if miner.battery_discharge_soc_min is defined else 80 }}" min="0" max="100" step="1" inputmode="numeric">
-                                            </label>
-
-                                            <label>
-                                                <span>Profil</span>
-                                                <select name="battery_discharge_profile">
-                                                    {{ battery_profile_options(discharge_profile) }}
-                                                </select>
-                                            </label>
-                                        </div>
-                                        <small class="help">Fällt der SOC darunter, geht der Regler auf das Min.-Regelprofil zurück.</small>
-                                    </fieldset>
-                                </div>
-                            </section>
-
-                            <section class="card type-subcard top-gap">
-                                <div class="card-head">
-                                    <div>
-                                        <h2>Laufzeitdaten</h2>
-                                        <p class="card-subtitle">Technische Laufzeitinformationen des Miners.</p>
-                                    </div>
-                                </div>
-
-                                <div class="kv compact-kv top-gap">
-                                    <div class="kv-row"><span>Host / IP</span><strong>{{ miner.host }}</strong></div>
-                                    <div class="kv-row"><span>API-Version</span><strong data-runtime-field="detail-api">{{ api_version or '—' }}</strong></div>
-                                    <div class="kv-row"><span>Control-Mode</span><strong data-runtime-field="detail-control-mode">{{ control_mode or '—' }}</strong></div>
-                                    <div class="kv-row"><span>Autotuning</span><strong data-runtime-field="detail-autotuning">{% if autotuning_enabled is sameas true %}an{% elif autotuning_enabled is sameas false %}aus{% else %}—{% endif %}</strong></div>
-                                    <div class="kv-row"><span>Power Target</span><strong data-runtime-field="detail-power-target">{% if pt_min is none and pt_def is none and pt_max is none %}noch nicht gelesen{% else %}Min {% if pt_min is not none %}{{ '%.0f'|format(pt_min) }} W{% else %}–{% endif %} · Default {% if pt_def is not none %}{{ '%.0f'|format(pt_def) }} W{% else %}–{% endif %} · Max {% if pt_max is not none %}{{ '%.0f'|format(pt_max) }} W{% else %}–{% endif %}{% endif %}</strong></div>
-                                    <div class="kv-row"><span>Last Seen</span><strong data-runtime-field="detail-last-seen">{{ last_seen or '—' }}</strong></div>
-                                </div>
-                            </section>
-
-                            <div class="actions top-gap split wrap">
-                                <span class="dirty-indicator" data-dirty-indicator hidden>Ungespeicherte Änderungen</span>
-                                <button class="btn" type="submit" data-dirty-submit>Miner speichern</button>
-                            </div>
-                        </form>
-
-                        <form method="post" action="/miners/delete" class="inline-form top-gap" onsubmit="return confirm('Miner wirklich löschen?');">
-                            <input type="hidden" name="miner_id" value="{{ miner.id }}">
-                            <button class="btn btn-danger" type="submit">Miner löschen</button>
-                        </form>
-                    </div>
-                </article>
+                    {% else %}
+                    <div class="legacy-note" style="margin-top:1rem;">Dieser Treiber ist noch nicht auf das neue GUI-Schema migriert und kann in diesem ersten Umbau-Schritt noch nicht über die neue Miner-Seite angelegt werden.</div>
+                    {% endif %}
+                </div>
                 {% endfor %}
 
-                {% if not miners %}
-                <section class="card">
-                    <p>Keine Miner konfiguriert.</p>
-                </section>
-                {% endif %}
-            </section>
-        </main>
-    </div>
+                <div class="actions-row">
+                    <button class="btn btn-primary" type="submit" id="create-submit">Miner anlegen</button>
+                </div>
+            </form>
+        </section>
 
-    <script>
-        const MINER_UI_STORAGE_KEY = 'pv2hash.miners.ui.v1';
+        <section>
+            {% for miner in miners %}
+            <details class="miner-card" {% if open_miner_id == miner.id %}open{% endif %}>
+                <summary>
+                    <div>
+                        <strong>{{ miner.name }}</strong>
+                        <div style="opacity:.8; margin-top:.2rem;">{{ miner.driver|replace('_', ' ') }}</div>
+                        <div class="miner-meta">
+                            <span class="pill {{ 'ok' if miner.summary.active else 'neutral' }}">{{ 'Aktiv' if miner.summary.active else 'Deaktiviert' }}</span>
+                            <span class="pill {% if miner.summary.connection_ok is sameas true %}ok{% elif miner.summary.connection_ok is sameas false %}bad{% else %}neutral{% endif %}">
+                                {% if miner.summary.connection_ok is sameas true %}Verbindung OK{% elif miner.summary.connection_ok is sameas false %}Keine Verbindung{% else %}Verbindung unbekannt{% endif %}
+                            </span>
+                            <span class="pill neutral">Status: {{ miner.summary.runtime_state }}</span>
+                            <span class="pill neutral">Priorität: {{ miner.summary.priority }}</span>
+                            {% if miner.summary.profile %}<span class="pill neutral">Profil: {{ miner.summary.profile }}</span>{% endif %}
+                            {% if miner.summary.power_w is not none %}<span class="pill neutral">{{ '%.0f'|format(miner.summary.power_w) }} W</span>{% endif %}
+                        </div>
+                    </div>
+                </summary>
+                <div class="miner-card-body">
+                    {% if miner.supports_gui_schema %}
+                    <form method="post" action="/miners/update" class="details-form">
+                        <input type="hidden" name="miner_id" value="{{ miner.id }}">
+                        <h3 class="section-title">PV2Hash-Konfiguration</h3>
+                        <div class="miner-field-grid">
+                            <div class="field">
+                                <label for="miner-{{ miner.id }}-name">Name</label>
+                                <input id="miner-{{ miner.id }}-name" type="text" name="name" value="{{ miner.name }}" required>
+                            </div>
+                            {% for field in miner.core_fields %}
+                            <div class="field {% if field.type == 'checkbox' %}checkbox-field{% endif %}">
+                                {% if field.type == 'checkbox' %}
+                                <label><input type="checkbox" name="{{ field.name }}" {% if field.value %}checked{% endif %}> {{ field.label }}</label>
+                                {% elif field.type == 'select' %}
+                                <label for="miner-{{ miner.id }}-{{ field.id }}">{{ field.label }}</label>
+                                <select id="miner-{{ miner.id }}-{{ field.id }}" name="{{ field.name }}">
+                                    {% for choice in field.choices %}
+                                    <option value="{{ choice.value }}" {% if choice.value == field.value %}selected{% endif %}>{{ choice.label }}</option>
+                                    {% endfor %}
+                                </select>
+                                {% else %}
+                                <label for="miner-{{ miner.id }}-{{ field.id }}">{{ field.label }}</label>
+                                <input id="miner-{{ miner.id }}-{{ field.id }}" type="{{ 'number' if field.type == 'number' else 'text' }}" name="{{ field.name }}" value="{{ field.value if field.value is not none else '' }}">
+                                {% endif %}
+                                {% if field.help %}<small class="field-help">{{ field.help }}</small>{% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
 
-        function loadMinerUiState() {
-            try {
-                const raw = window.localStorage.getItem(MINER_UI_STORAGE_KEY);
-                if (!raw) {
-                    return { addOpen: false, openMinerIds: [] };
-                }
-                const parsed = JSON.parse(raw);
-                return {
-                    addOpen: Boolean(parsed.addOpen),
-                    openMinerIds: Array.isArray(parsed.openMinerIds) ? parsed.openMinerIds : [],
-                };
-            } catch {
-                return { addOpen: false, openMinerIds: [] };
-            }
-        }
-
-        function saveMinerUiState(state) {
-            try {
-                window.localStorage.setItem(MINER_UI_STORAGE_KEY, JSON.stringify({
-                    addOpen: Boolean(state.addOpen),
-                    openMinerIds: Array.isArray(state.openMinerIds) ? state.openMinerIds : [],
-                }));
-            } catch {
-                // ignore storage issues
-            }
-        }
-
-        function setButtonLabel(button, isOpen) {
-            const cardId = button.getAttribute('data-editing-card');
-            const targetId = button.getAttribute('data-toggle-target');
-            if (cardId) {
-                button.textContent = isOpen ? 'Konfiguration verbergen' : 'Konfigurieren';
-                return;
-            }
-            if (targetId === 'add-miner-panel') {
-                button.textContent = isOpen ? 'Eingabe verbergen' : 'Neuen Miner hinzufügen';
-            }
-        }
-
-        function bindPanelToggles() {
-            const uiState = loadMinerUiState();
-            const validMinerIds = new Set(Array.from(document.querySelectorAll('[data-miner-card]')).map((card) => card.dataset.minerId));
-            uiState.openMinerIds = uiState.openMinerIds.filter((id) => validMinerIds.has(id));
-            saveMinerUiState(uiState);
-
-            document.querySelectorAll('[data-toggle-target]').forEach((button) => {
-                const targetId = button.getAttribute('data-toggle-target');
-                const target = document.getElementById(targetId);
-                if (!target) {
-                    return;
-                }
-
-                const cardId = button.getAttribute('data-editing-card');
-                let shouldOpen = false;
-                if (cardId) {
-                    shouldOpen = uiState.openMinerIds.includes(cardId);
-                } else if (targetId === 'add-miner-panel') {
-                    shouldOpen = uiState.addOpen;
-                }
-
-                target.hidden = !shouldOpen;
-                setButtonLabel(button, shouldOpen);
-                if (cardId) {
-                    const card = document.querySelector(`[data-miner-card][data-miner-id="${cardId}"]`);
-                    if (card) {
-                        card.dataset.editing = shouldOpen ? 'true' : 'false';
-                    }
-                }
-
-                button.addEventListener('click', () => {
-                    const willShow = target.hidden;
-                    target.hidden = !willShow;
-                    setButtonLabel(button, willShow);
-
-                    if (cardId) {
-                        const card = document.querySelector(`[data-miner-card][data-miner-id="${cardId}"]`);
-                        if (card) {
-                            card.dataset.editing = willShow ? 'true' : 'false';
-                        }
-                        const nextOpen = new Set(loadMinerUiState().openMinerIds.filter((id) => validMinerIds.has(id)));
-                        if (willShow) {
-                            nextOpen.add(cardId);
-                        } else {
-                            nextOpen.delete(cardId);
-                        }
-                        saveMinerUiState({ ...loadMinerUiState(), openMinerIds: Array.from(nextOpen) });
-                    } else if (targetId === 'add-miner-panel') {
-                        saveMinerUiState({ ...loadMinerUiState(), addOpen: willShow });
-                    }
-                });
-            });
-        }
-
-        function syncDriverSectionsForForm(form) {
-            const select = form.querySelector('[data-driver-select]');
-            if (!select) {
-                return;
-            }
-
-            const update = () => {
-                const current = select.value;
-                form.querySelectorAll('[data-driver-types]').forEach((element) => {
-                    const visibleFor = (element.getAttribute('data-driver-types') || '')
-                        .split(',')
-                        .map((item) => item.trim())
-                        .filter(Boolean);
-                    element.hidden = !visibleFor.includes(current);
-                });
-
-                const defaultPortTargetId = select.getAttribute('data-default-port-target');
-                if (defaultPortTargetId) {
-                    const portInput = document.getElementById(defaultPortTargetId);
-                    if (portInput) {
-                        const defaultPorts = { braiins: '50051', whatsminer_api2: '4028', simulator: '4028' };
-                        portInput.value = defaultPorts[current] || '4028';
-                    }
-                }
-
-                const p1 = form.querySelector('input[name="profile_p1_power_w"]');
-                const p2 = form.querySelector('input[name="profile_p2_power_w"]');
-                const p3 = form.querySelector('input[name="profile_p3_power_w"]');
-                const p4 = form.querySelector('input[name="profile_p4_power_w"]');
-                if (form.dataset.applyDriverDefaults === 'true' && p1 && p2 && p3 && p4) {
-                    const defaultsByDriver = {
-                        braiins: ['1200', '2200', '3200', '4200'],
-                        whatsminer_api2: ['1200', '2200', '3200', '4200'],
-                        simulator: ['900', '1800', '3000', '4200'],
-                    };
-                    const defaults = defaultsByDriver[current] || defaultsByDriver.simulator;
-                    if (form.dataset.profileDefaultsApplied !== current) {
-                        [p1, p2, p3, p4].forEach((field, index) => field.value = defaults[index]);
-                        form.dataset.profileDefaultsApplied = current;
-                    }
-                }
-            };
-
-            select.addEventListener('change', update);
-            update();
-        }
-
-        function bindDriverSections() {
-            document.querySelectorAll('[data-driver-form]').forEach((form) => syncDriverSectionsForForm(form));
-        }
-
-        function serializeDirtyFields(container) {
-            const fields = Array.from(container.querySelectorAll('input, select, textarea'))
-                .filter((field) => field.name && !field.disabled && !['submit', 'button', 'reset', 'file'].includes(field.type));
-            return JSON.stringify(fields.map((field) => {
-                if (field.type === 'checkbox' || field.type === 'radio') {
-                    return [field.name, field.checked];
-                }
-                return [field.name, field.value];
-            }));
-        }
-
-        function bindDirtyForms() {
-            document.querySelectorAll('[data-dirty-form]').forEach((form) => {
-                const hint = form.querySelector('[data-dirty-indicator]');
-                const submitButtons = form.querySelectorAll('[data-dirty-submit]');
-                let baseline = serializeDirtyFields(form);
-                let touched = false;
-
-                const applyDirtyState = (dirty) => {
-                    const visibleDirty = touched && dirty;
-                    if (hint) {
-                        hint.hidden = !visibleDirty;
-                    }
-                    submitButtons.forEach((button) => button.classList.toggle('is-dirty', visibleDirty));
-                    form.dataset.dirty = visibleDirty ? 'true' : 'false';
-                };
-
-                const refresh = () => {
-                    const dirty = serializeDirtyFields(form) !== baseline;
-                    applyDirtyState(dirty);
-                };
-
-                form.querySelectorAll('input, select, textarea').forEach((field) => {
-                    if (!field.name || ['submit', 'button', 'reset', 'file'].includes(field.type)) {
-                        return;
-                    }
-                    const onUserChange = () => {
-                        touched = true;
-                        refresh();
-                    };
-                    field.addEventListener('input', onUserChange);
-                    field.addEventListener('change', onUserChange);
-                });
-
-                submitButtons.forEach((button) => {
-                    button.addEventListener('click', () => {
-                        baseline = serializeDirtyFields(form);
-                        touched = false;
-                        applyDirtyState(false);
-                    });
-                });
-
-                const finalizeBaseline = () => {
-                    baseline = serializeDirtyFields(form);
-                    touched = false;
-                    applyDirtyState(false);
-                };
-
-                window.requestAnimationFrame(finalizeBaseline);
-                window.setTimeout(finalizeBaseline, 120);
-            });
-        }
-
-        function formatPower(value) {
-            if (value === null || value === undefined || value === '') {
-                return '–';
-            }
-            const numeric = Number(value);
-            if (Number.isNaN(numeric)) {
-                return '–';
-            }
-            return `${Math.round(numeric)} W`;
-        }
-
-        function formatSummaryState(miner) {
-            const reachability = miner.reachable ? 'erreichbar' : 'nicht erreichbar';
-            const state = miner.runtime_state || 'unknown';
-            return `${reachability} · ${state}`;
-        }
-
-        function formatAutotuning(value) {
-            if (value === true) {
-                return 'an';
-            }
-            if (value === false) {
-                return 'aus';
-            }
-            return '—';
-        }
-
-        function formatPowerTarget(miner) {
-            const min = miner.power_target_min_w;
-            const def = miner.power_target_default_w;
-            const max = miner.power_target_max_w;
-            if (min === null && def === null && max === null) {
-                return 'noch nicht gelesen';
-            }
-            const fmt = (value) => value === null || value === undefined ? '–' : `${Math.round(Number(value))} W`;
-            return `Min ${fmt(min)} · Default ${fmt(def)} · Max ${fmt(max)}`;
-        }
-
-        function isErrorState(miner) {
-            const state = String(miner.runtime_state || '').toLowerCase();
-            return ['error', 'fault', 'failed'].includes(state);
-        }
-
-        function isRunningState(miner) {
-            const state = String(miner.runtime_state || '').toLowerCase();
-            return !['paused', 'stopped', 'off', 'idle', 'unknown'].includes(state);
-        }
-
-        function updateHeaderSubtitle(card, miner) {
-            const subtitle = card.querySelector('.card-subtitle');
-            if (!subtitle) {
-                return;
-            }
-            const driverLabel = subtitle.dataset.driverLabel || subtitle.textContent || '';
-            const parts = [driverLabel];
-            if (miner.model) {
-                parts.push(miner.model);
-            }
-            if (miner.serial_number) {
-                parts.push(`SN ${miner.serial_number}`);
-            }
-            subtitle.textContent = parts.filter(Boolean).join(' · ');
-        }
-
-        function updateMinerCard(card, miner) {
-            const errorState = isErrorState(miner);
-            const runningState = isRunningState(miner);
-
-            card.querySelectorAll('[data-runtime-field="summary-state"]').forEach((el) => el.textContent = formatSummaryState(miner));
-            card.querySelectorAll('[data-runtime-field="summary-profile"]').forEach((el) => el.textContent = miner.profile || 'off');
-            card.querySelectorAll('[data-runtime-field="summary-power"]').forEach((el) => el.textContent = formatPower(miner.power_w));
-            card.querySelectorAll('[data-runtime-field="summary-error"]').forEach((el) => el.textContent = miner.last_error || '—');
-            card.querySelectorAll('[data-runtime-field="detail-api"]').forEach((el) => el.textContent = miner.api_version || '—');
-            card.querySelectorAll('[data-runtime-field="detail-control-mode"]').forEach((el) => el.textContent = miner.control_mode || '—');
-            card.querySelectorAll('[data-runtime-field="detail-autotuning"]').forEach((el) => el.textContent = formatAutotuning(miner.autotuning_enabled));
-            card.querySelectorAll('[data-runtime-field="detail-power-target"]').forEach((el) => el.textContent = formatPowerTarget(miner));
-            card.querySelectorAll('[data-runtime-field="detail-last-seen"]').forEach((el) => el.textContent = miner.last_seen || '—');
-
-            card.querySelectorAll('[data-runtime-field="icon-enabled"]').forEach((el) => {
-                el.classList.toggle('is-enabled', Boolean(miner.enabled));
-                el.classList.toggle('is-disabled', !miner.enabled);
-            });
-            card.querySelectorAll('[data-runtime-field="icon-reachable"]').forEach((el) => {
-                el.classList.toggle('is-active', Boolean(miner.reachable));
-                el.classList.toggle('is-inactive', !miner.reachable);
-            });
-            card.querySelectorAll('[data-runtime-field="icon-run"]').forEach((el) => {
-                el.classList.toggle('is-active', runningState);
-                el.classList.toggle('is-paused', !runningState);
-            });
-            card.querySelectorAll('[data-runtime-field="icon-run-glyph"]').forEach((el) => {
-                el.innerHTML = runningState
-                    ? '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 6.5v11l9-5.5l-9-5.5Z"></path></svg>'
-                    : '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 6h3.5v12H8zm4.5 0H16v12h-3.5z"></path></svg>';
-            });
-            card.querySelectorAll('[data-runtime-field="error-row"]').forEach((el) => {
-                el.hidden = !(errorState && miner.last_error);
-            });
-
-            updateHeaderSubtitle(card, miner);
-        }
-
-        async function pollMinerStatus() {
-            try {
-                const response = await fetch('/api/status', { cache: 'no-store' });
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                const payload = await response.json();
-                const byId = new Map((payload.miners || []).map((miner) => [miner.id, miner]));
-                document.querySelectorAll('[data-miner-card]').forEach((card) => {
-                    if (card.dataset.editing === 'true') {
-                        return;
-                    }
-                    const miner = byId.get(card.dataset.minerId);
-                    if (!miner) {
-                        return;
-                    }
-                    updateMinerCard(card, miner);
-                });
-            } catch (error) {
-                console.debug('Miner-Status konnte nicht aktualisiert werden.', error);
-            }
-        }
-
-        bindPanelToggles();
-        bindDriverSections();
-        bindDirtyForms();
-        pollMinerStatus();
-        window.setInterval(pollMinerStatus, 5000);
-    </script>
+                        <h3 class="section-title">Treiber-Konfiguration</h3>
+                        <div class="miner-field-grid">
+                            {% for field in miner.driver_fields %}
+                            <div class="field {% if field.type == 'checkbox' %}checkbox-field{% endif %}">
+                                {% if field.type == 'checkbox' %}
+                                <label><input type="checkbox" name="{{ field.name }}" {% if field.value %}checked{% endif %}> {{ field.label }}</label>
+                                {% elif field.type == 'select' %}
+                                <label for="miner-{{ miner.id }}-{{ field.id }}">{{ field.label }}</label>
+                                <select id="miner-{{ miner.id }}-{{ field.id }}" name="{{ field.name }}">
+                                    {% for choice in field.choices %}
+                                    <option value="{{ choice.value }}" {% if choice.value == field.value %}selected{% endif %}>{{ choice.label }}</option>
+                                    {% endfor %}
+                                </select>
+                                {% else %}
+                                <label for="miner-{{ miner.id }}-{{ field.id }}">{{ field.label }}</label>
+                                <input id="miner-{{ miner.id }}-{{ field.id }}" type="{{ 'password' if field.type == 'password' else ('number' if field.type == 'number' else 'text') }}" name="{{ field.name }}" value="{{ field.value if field.value is not none else '' }}">
+                                {% endif %}
+                                {% if field.help %}<small class="field-help">{{ field.help }}</small>{% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="actions-row">
+                            <button class="btn btn-primary" type="submit">Speichern</button>
+                        </div>
+                    </form>
+                    {% else %}
+                    <div class="legacy-note">
+                        Dieser Miner verwendet noch einen Treiber ohne neues GUI-Schema. Für diesen ersten Umbau-Schritt wird hier nur die kompakte Statuskarte angezeigt. Die Migration des Treibers folgt in einem späteren Schritt.
+                    </div>
+                    {% endif %}
+                    <form method="post" action="/miners/delete" class="actions-row" onsubmit="return confirm('Miner wirklich löschen?');">
+                        <input type="hidden" name="miner_id" value="{{ miner.id }}">
+                        <button class="btn btn-danger" type="submit">Miner löschen</button>
+                    </form>
+                </div>
+            </details>
+            {% else %}
+            <section class="card"><p>Noch keine Miner angelegt.</p></section>
+            {% endfor %}
+        </section>
+    </main>
+</div>
+<script>
+const driverCatalog = {{ driver_catalog | tojson }};
+const driverSelect = document.getElementById('create-driver');
+const createSubmit = document.getElementById('create-submit');
+function syncCreateDriverFields() {
+  const selected = driverSelect.value;
+  for (const section of document.querySelectorAll('.driver-basic-fields')) {
+    const isSelected = section.dataset.driver === selected;
+    section.hidden = !isSelected;
+    for (const input of section.querySelectorAll('input, select, textarea')) {
+      input.disabled = !isSelected;
+    }
+  }
+  const meta = driverCatalog.find(item => item.key === selected);
+  createSubmit.disabled = !(meta && meta.supports_gui_schema);
+}
+driverSelect.addEventListener('change', syncCreateDriverFields);
+syncCreateDriverFields();
+</script>
 </body>
 </html>

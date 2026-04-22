@@ -1,10 +1,60 @@
 from datetime import UTC, datetime
 
-from pv2hash.miners.base import MinerAdapter
+from pv2hash.miners.base import DriverField, DriverFieldChoice, MinerAdapter
 from pv2hash.models.miner import MinerInfo, MinerProfile, MinerProfiles
 
 
 class SimulatorMiner(MinerAdapter):
+    DRIVER_LABEL = "Simulator"
+
+    @classmethod
+    def get_config_schema(cls) -> list[DriverField]:
+        return [
+            DriverField(
+                name="host",
+                label="Host / IP",
+                type="text",
+                required=True,
+                preset="simulator.local",
+                placeholder="simulator.local",
+                help="Simulierter Hostname für den Referenztreiber.",
+                create_phase="basic",
+            ),
+            DriverField(
+                name="settings.port",
+                label="API-Port",
+                type="number",
+                required=True,
+                preset=4028,
+                default=4028,
+                placeholder="4028",
+                help="Simulierter API-Port für die generische GUI.",
+                create_phase="basic",
+            ),
+            DriverField(
+                name="settings.username",
+                label="Benutzer",
+                type="text",
+                required=True,
+                preset="sim",
+                default="sim",
+                placeholder="sim",
+                help="Simulierter Benutzername für den Referenztreiber.",
+                create_phase="basic",
+            ),
+            DriverField(
+                name="settings.password",
+                label="Passwort",
+                type="password",
+                required=True,
+                preset="sim",
+                default="sim",
+                placeholder="sim",
+                help="Simuliertes Passwort für den Referenztreiber.",
+                create_phase="basic",
+            ),
+        ]
+
     def __init__(
         self,
         miner_id: str,
