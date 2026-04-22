@@ -790,6 +790,23 @@ async def _shutdown_retired_miners(miners: list) -> None:
             )
 
 
+def _normalize_profiles(driver: str | None, profiles: dict | None) -> dict:
+    _, p1_default, p2_default, p3_default, p4_default = _driver_profile_defaults(driver or "simulator")
+    source = profiles if isinstance(profiles, dict) else {}
+
+    def _profile_power(name: str, default_value: int) -> int:
+        entry = source.get(name, {}) if isinstance(source.get(name, {}), dict) else {}
+        raw = entry.get("power_w", default_value)
+        return _safe_int(raw, default_value)
+
+    return {
+        "p1": {"power_w": _profile_power("p1", p1_default)},
+        "p2": {"power_w": _profile_power("p2", p2_default)},
+        "p3": {"power_w": _profile_power("p3", p3_default)},
+        "p4": {"power_w": _profile_power("p4", p4_default)},
+    }
+
+
 def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
     normalized = _normalize_miner_driver(driver)
     if normalized == "braiins":
