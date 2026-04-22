@@ -97,3 +97,178 @@ Avoid these patterns unless a miner API absolutely forces them:
 - using config as truth when a live miner value exists
 - coupling stop/start logic to a power-target write path
 - broad write-variant brute force in the normal control loop
+
+## Driver metadata for GUI and details
+
+To reduce hard-coded per-driver UI changes, miner drivers should expose metadata that describes how PV2Hash can render configuration, device options, actions, and diagnostic details. The web UI should render these metadata structures generically instead of branching on driver names wherever possible.
+
+### Conceptual separation
+
+Keep the following categories strictly separated:
+
+1. **Config fields**
+   - Stored in the PV2Hash miner configuration
+   - Used to create and validate a miner instance
+   - Examples: host, port, username, password, API variant
+
+2. **Device settings**
+   - Persisted on the miner itself
+   - Not part of the normal PV2Hash control loop
+   - Examples: fan poweroff cool, fast boot, power limit, autotuning defaults
+
+3. **Actions**
+   - Immediate one-shot operations
+   - Triggered explicitly by the user
+   - Examples: reboot miner, apply device setting, restart service, toggle maintenance mode
+
+4. **Details**
+   - Read-only information for informational/diagnostic views
+   - Examples: firmware version, PSU values, board temperatures, fan speeds, tuner state, error codes
+
+### Recommended optional driver metadata hooks
+
+Drivers may extend the base control interface with metadata methods. These methods should be optional so simple drivers such as the simulator can keep implementations minimal.
+
+```python
+@classmethod
+def get_config_schema(cls) -> dict:
+    ...
+
+@classmethod
+def get_device_settings_schema(cls) -> dict:
+    ...
+
+@classmethod
+def get_actions_schema(cls) -> dict:
+    ...
+
+def get_details(self) -> dict:
+    ...
+
+@classmethod
+def get_capabilities(cls) -> dict:
+    ...
+```
+
+The exact Python types can evolve later. For now, the important point is that the returned structures are deterministic, serialisable, and stable enough that the UI can render them without driver-specific template logic.
+
+### Config schema guidance
+
+A config field description should usually contain:
+
+- `name`: stable config key
+- `label`: user-facing label
+- `type`: e.g. `text`, `password`, `number`, `select`, `checkbox`
+- `required`: whether the field is mandatory
+- `default`: default value if omitted
+- `help`: optional help text
+- `section`: logical UI section
+- `advanced`: whether to hide under advanced options by default
+- `choices`: valid options for select-like fields
+- `min` / `max` / `step`: for numeric input when useful
+- `placeholder`: optional UI hint
+
+The UI should be able to render a usable miner configuration form solely from this schema.
+
+### Device settings guidance
+
+Device settings are miner-side persistent options. They should not be mixed with normal PV2Hash runtime configuration. A setting description should make clear:
+
+- display name and help text
+- value type and choices
+- whether it is readable, writable, or both
+- whether changing it causes restart/re-tune/reload on the miner
+- whether PV2Hash should only display it or also allow modifying it
+
+For example, a WhatsMiner API 3 driver may expose `fan_poweroff_cool` as a device setting, while a Braiins driver may expose autotuning-related options.
+
+### Actions guidance
+
+Actions are explicit user-triggered commands and must be clearly separated from passive settings. Actions should include enough metadata for the UI to label and confirm them safely. Typical metadata may include:
+
+- `name`
+- `label`
+- `description`
+- `confirm_text`
+- `dangerous`
+- `params_schema` for actions that require user input
+
+Examples:
+
+- restart mining service
+- reboot miner
+- apply a pending device setting now
+- set current miner power limit
+
+### Details guidance
+
+Drivers that can expose detailed information should return read-only structured sections instead of free-form blobs wherever possible. Example shape:
+
+```python
+{
+    "sections": [
+        {
+            "id": "overview",
+            "title": "Overview",
+            "items": [
+                {"label": "Firmware", "value": "..."},
+                {"label": "Power", "value": "1120 W"},
+            ],
+        },
+        {
+            "id": "boards",
+            "title": "Hash boards",
+            "items": [
+                {"label": "Board 1 Temp", "value": "69.2 °C"},
+                {"label": "Board 2 Temp", "value": "67.8 °C"},
+            ],
+        },
+    ]
+}
+```
+
+This should support a future miner details page without tying the web layer to specific driver internals.
+
+### Capabilities guidance
+
+Drivers may optionally publish a capability map so the UI and future services can decide what to show or enable. Example:
+
+```python
+{
+    "supports_start_stop": True,
+    "supports_power_target_watts": False,
+    "supports_power_percent": True,
+    "supports_device_settings": True,
+    "supports_actions": True,
+    "supports_details": True,
+}
+```
+
+Capabilities should describe behaviour, not implementation.
+
+### Driver-specific expectations
+
+#### Simulator
+
+The simulator should still implement the same metadata model, but with a minimal schema. It is useful as a reference implementation because it has very few fields and little special behaviour.
+
+#### Braiins
+
+The Braiins driver is expected to expose richer read-only details and possibly Braiins-specific device settings over time.
+
+#### WhatsMiner API 3
+
+WhatsMiner API 3 is expected to benefit strongly from this model because it has driver-specific device settings and actions that should not leak into unrelated drivers.
+
+#### WhatsMiner API 2
+
+WhatsMiner API 2 should be treated as legacy/deprecated where appropriate. New architecture work should prefer the API 3 path whenever practical.
+
+### Implementation rules
+
+- Keep control logic and metadata separate.
+- Drivers should describe UI data; they should not render UI directly.
+- Device settings and actions must not silently run as part of the normal PV2Hash control loop unless explicitly documented.
+- Detail views must remain read-only.
+- Metadata should be stable and predictable so future UI work can stay generic.
+
