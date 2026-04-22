@@ -86,7 +86,22 @@ def _choice(value: str, label: str) -> DriverFieldChoice:
     return DriverFieldChoice(value=value, label=label)
 
 
-def _core_config_schema() -> list[DriverField]:
+def _core_identity_schema() -> list[DriverField]:
+    return [
+        DriverField(
+            name="name",
+            label="Name",
+            type="text",
+            required=True,
+            preset="Miner",
+            default="Miner",
+            create_phase="basic",
+            placeholder="Miner",
+        ),
+    ]
+
+
+def _core_control_schema() -> list[DriverField]:
     battery_choices = (
         _choice("p1", "p1"),
         _choice("p2", "p2"),
@@ -108,11 +123,11 @@ def _core_config_schema() -> list[DriverField]:
         DriverField(name="profiles.p2.power_w", label="Profil p2 (W)", type="number", default=1800),
         DriverField(name="profiles.p3.power_w", label="Profil p3 (W)", type="number", default=3000),
         DriverField(name="profiles.p4.power_w", label="Profil p4 (W)", type="number", default=4200),
-        DriverField(name="use_battery_when_charging", label="Beim Laden Batterie-Regelung nutzen", type="checkbox", default=False),
-        DriverField(name="battery_charge_soc_min", label="SOC min. Laden (%)", type="number", default=95),
+        DriverField(name="use_battery_when_charging", label="Beim Laden Batterie nutzen", type="checkbox", default=False),
+        DriverField(name="battery_charge_soc_min", label="Mindest-SOC Laden (%)", type="number", default=95),
         DriverField(name="battery_charge_profile", label="Profil bei Laden", type="select", default="p1", choices=battery_choices),
-        DriverField(name="use_battery_when_discharging", label="Beim Entladen Batterie-Regelung nutzen", type="checkbox", default=False),
-        DriverField(name="battery_discharge_soc_min", label="SOC min. Entladen (%)", type="number", default=80),
+        DriverField(name="use_battery_when_discharging", label="Beim Entladen Batterie nutzen", type="checkbox", default=False),
+        DriverField(name="battery_discharge_soc_min", label="Mindest-SOC Entladen (%)", type="number", default=80),
         DriverField(name="battery_discharge_profile", label="Profil bei Entladen", type="select", default="p1", choices=battery_choices),
     ]
 
@@ -194,8 +209,21 @@ def _driver_full_fields(driver: str | None, miner_cfg: dict) -> list[dict]:
     return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _driver_schema(driver)]
 
 
-def _core_full_fields(miner_cfg: dict) -> list[dict]:
-    return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _core_config_schema()]
+def _core_identity_basic_fields() -> list[dict]:
+    fields = []
+    for field in _core_identity_schema():
+        if field.create_phase == "basic":
+            initial = field.preset if field.preset is not None else field.default
+            fields.append(_render_field(field, initial))
+    return fields
+
+
+def _core_identity_full_fields(miner_cfg: dict) -> list[dict]:
+    return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _core_identity_schema()]
+
+
+def _core_control_full_fields(miner_cfg: dict) -> list[dict]:
+    return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _core_control_schema()]
 
 
 def _build_driver_catalog() -> list[dict]:
@@ -855,7 +883,8 @@ def _build_miners_view() -> list[dict]:
         merged["runtime"] = runtime
         merged["summary"] = _miner_card_summary(merged, runtime)
         merged["supports_gui_schema"] = _driver_supports_gui_schema(merged.get("driver"))
-        merged["core_fields"] = _core_full_fields(merged)
+        merged["identity_fields"] = _core_identity_full_fields(merged)
+        merged["control_fields"] = _core_control_full_fields(merged)
         merged["driver_fields"] = _driver_full_fields(merged.get("driver"), merged)
         miner_views.append(merged)
 
@@ -870,6 +899,7 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
         "open_miner_id": request.query_params.get("open"),
         "error_message": error_message,
         "driver_catalog": _build_driver_catalog(),
+        "core_identity_basic_fields": _core_identity_basic_fields(),
         "wiki_links": {
             "overview": "https://github.com/phlupp/pv2hash/wiki/Miner",
             "profiles": "https://github.com/phlupp/pv2hash/wiki/Leistungsprofile",
@@ -1400,10 +1430,9 @@ async def add_miner(request: Request):
             status_code=400,
         )
 
-    name = str(form.get("name", "")).strip() or "Miner"
     miner_cfg = {
         "id": miner_id,
-        "name": name,
+        "name": "Miner",
         "driver": driver,
         "enabled": True,
         "priority": 100,
@@ -1420,7 +1449,7 @@ async def add_miner(request: Request):
     }
 
     validation_error = None
-    for field in _driver_schema(driver):
+    for field in _core_identity_schema() + _driver_schema(driver):
         if field.create_phase != "basic":
             continue
         raw = form.get(field.name)
@@ -1441,7 +1470,7 @@ async def add_miner(request: Request):
 
     state.config.setdefault("miners", []).append(miner_cfg)
     save_config(state.config)
-    logger.info("Miner added via metadata UI: id=%s name=%s driver=%s host=%s", miner_id, name, driver, miner_cfg.get("host"))
+    logger.info("Miner added via metadata UI: id=%s name=%s driver=%s host=%s", miner_id, miner_cfg.get("name"), driver, miner_cfg.get("host"))
     reload_runtime()
     return RedirectResponse(url=f"/miners?saved=1&open={miner_id}", status_code=303)
 
@@ -1466,7 +1495,7 @@ async def update_miner(request: Request):
             )
 
         updated = deepcopy(miner)
-        for field in _core_config_schema() + _driver_schema(driver):
+        for field in _core_identity_schema() + _core_control_schema() + _driver_schema(driver):
             if field.type == "checkbox":
                 raw = form.get(field.name) == "on"
             else:
