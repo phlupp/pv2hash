@@ -124,26 +124,81 @@ class SimulatorMiner(MinerAdapter):
             power_target_max_w=float(profile_cfg["p4"]["power_w"]),
         )
 
-    async def set_profile(self, profile: str) -> None:
-        self.info.profile = profile
 
+    def _refresh_simulated_runtime(self) -> None:
+        profile = self.info.profile
+        if not self.info.enabled:
+            self.info.runtime_state = "disabled"
+            self.info.power_w = 0.0
+            self.info.is_active = False
+            return
+
+        self.info.is_active = True
         if profile == "off":
             self.info.power_w = 0.0
             self.info.runtime_state = "paused"
-        else:
-            desired_w = self.get_profile_power_w(profile)
-            if desired_w <= 0:
-                self.info.power_w = 0.0
-                self.info.runtime_state = "paused"
-            else:
-                self.info.power_w = desired_w
-                self.info.runtime_state = "running"
+            return
 
+        desired_w = self.get_profile_power_w(profile)
+        if desired_w <= 0:
+            self.info.power_w = 0.0
+            self.info.runtime_state = "paused"
+            return
+
+        self.info.power_w = desired_w
+        self.info.runtime_state = "running"
+
+    def get_details(self) -> dict:
+        power = float(self.info.power_w or 0.0)
+        if self.info.runtime_state == "running":
+            hashrate = round(power * 0.04, 3)
+            board_temps = [
+                round(42.0 + power / 180.0, 1),
+                round(43.5 + power / 190.0, 1),
+                round(44.5 + power / 200.0, 1),
+            ]
+            fan_in = int(900 + power / 3.2)
+            fan_out = int(1200 + power / 2.4)
+        else:
+            hashrate = 0.0
+            board_temps = [31.5, 31.0, 32.0]
+            fan_in = 450
+            fan_out = 900
+
+        return {
+            "sections": [
+                {
+                    "id": "overview",
+                    "title": "Übersicht",
+                    "items": [
+                        {"label": "Runtime", "value": str(self.info.runtime_state)},
+                        {"label": "Aktuelle Leistung", "value": f"{power:.0f} W"},
+                        {"label": "Hashrate", "value": f"{hashrate:.3f} TH/s"},
+                        {"label": "Min. Regelprofil", "value": str(self.info.min_regulated_profile)},
+                    ],
+                },
+                {
+                    "id": "thermals",
+                    "title": "Thermik",
+                    "items": [
+                        {"label": "Board 1", "value": f"{board_temps[0]:.1f} °C"},
+                        {"label": "Board 2", "value": f"{board_temps[1]:.1f} °C"},
+                        {"label": "Board 3", "value": f"{board_temps[2]:.1f} °C"},
+                        {"label": "Lüfter In", "value": f"{fan_in} rpm"},
+                        {"label": "Lüfter Out", "value": f"{fan_out} rpm"},
+                    ],
+                },
+            ]
+        }
+
+    async def set_profile(self, profile: str) -> None:
+        self.info.profile = profile
+        self._refresh_simulated_runtime()
         self.info.last_error = None
         self.info.last_seen = datetime.now(UTC)
 
     async def get_status(self) -> MinerInfo:
-        self.info.is_active = True
         self.info.reachable = True
+        self._refresh_simulated_runtime()
         self.info.last_seen = datetime.now(UTC)
         return self.info

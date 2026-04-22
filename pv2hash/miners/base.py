@@ -45,6 +45,9 @@ class MinerAdapter(ABC):
     def supports_gui_schema(cls) -> bool:
         return len(cls.get_config_schema()) > 0
 
+    def get_details(self) -> dict:
+        return {}
+
     @abstractmethod
     async def set_profile(self, profile: str) -> None:
         raise NotImplementedError

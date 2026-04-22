@@ -869,8 +869,20 @@ def _get_runtime_miner_map() -> dict[str, dict]:
     return {miner.id: asdict(miner) for miner in state.miners}
 
 
+def _get_runtime_details_map() -> dict[str, dict]:
+    details: dict[str, dict] = {}
+    for adapter in getattr(state, "miner_adapters", []) or []:
+        try:
+            payload = adapter.get_details()
+        except Exception:
+            payload = {}
+        details[adapter.info.id] = payload or {}
+    return details
+
+
 def _build_miners_view() -> list[dict]:
     runtime_map = _get_runtime_miner_map()
+    details_map = _get_runtime_details_map()
     miner_views: list[dict] = []
 
     for miner_cfg in state.config.get("miners", []):
@@ -886,6 +898,7 @@ def _build_miners_view() -> list[dict]:
         merged["identity_fields"] = _core_identity_full_fields(merged)
         merged["control_fields"] = _core_control_full_fields(merged)
         merged["driver_fields"] = _driver_full_fields(merged.get("driver"), merged)
+        merged["details"] = details_map.get(miner_cfg.get("id"), {})
         miner_views.append(merged)
 
     return miner_views

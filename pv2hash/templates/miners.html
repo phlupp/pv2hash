@@ -19,6 +19,10 @@
         .checkbox-field{display:flex;align-items:center;gap:.55rem;padding-top:1.6rem}
         .actions-row{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1rem}
         .details-form{margin-top:1rem}
+        .details-section{margin-top:1.25rem;padding:1rem;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.03)}
+        .details-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.75rem}
+        .details-item{display:flex;flex-direction:column;gap:.15rem}
+        .details-item-label{font-size:.8rem;opacity:.75}
     </style>
 </head>
 <body>
@@ -209,6 +213,24 @@
                             </div>
                             {% endfor %}
                         </div>
+
+                        {% if miner.details and miner.details.sections %}
+                        <h3 class="section-title">Details</h3>
+                        {% for section in miner.details.sections %}
+                        <section class="details-section">
+                            <strong>{{ section.title }}</strong>
+                            <div class="details-grid" style="margin-top:.75rem;">
+                                {% for item in section.items %}
+                                <div class="details-item">
+                                    <span class="details-item-label">{{ item.label }}</span>
+                                    <span>{{ item.value }}</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </section>
+                        {% endfor %}
+                        {% endif %}
+
                         <div class="actions-row">
                             <button class="btn btn-primary" type="submit">Speichern</button>
                         </div>
