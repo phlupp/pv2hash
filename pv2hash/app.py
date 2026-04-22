@@ -34,6 +34,7 @@ from pv2hash.miners.base import DriverField, DriverFieldChoice, MinerAdapter
 from pv2hash.miners.braiins import BraiinsMiner
 from pv2hash.miners.simulator import SimulatorMiner
 from pv2hash.miners.whatsminer import WhatsminerMiner
+from pv2hash.miners.whatsminer_api3 import WhatsminerApi3Miner
 from pv2hash.self_update import SelfUpdateManager
 from pv2hash.services import RuntimeServices
 from pv2hash.update_check import UpdateChecker
@@ -70,6 +71,7 @@ DRIVER_CLASSES: dict[str, type[MinerAdapter]] = {
     "simulator": SimulatorMiner,
     "braiins": BraiinsMiner,
     "whatsminer_api2": WhatsminerMiner,
+    "whatsminer_api3": WhatsminerApi3Miner,
 }
 
 
@@ -228,7 +230,7 @@ def _core_control_full_fields(miner_cfg: dict) -> list[dict]:
 
 def _build_driver_catalog() -> list[dict]:
     catalog = []
-    for driver_key in ("simulator", "braiins", "whatsminer_api2"):
+    for driver_key in ("simulator", "braiins", "whatsminer_api3", "whatsminer_api2"):
         catalog.append({
             "key": driver_key,
             "label": _resolve_miner_driver_label(driver_key),
@@ -713,6 +715,8 @@ def _normalize_miner_driver(driver: str | None) -> str:
     normalized = str(driver or "simulator").strip().lower()
     if normalized == "whatsminer":
         return "whatsminer_api2"
+    if normalized in {"whatsminer3", "whatsminer_api3"}:
+        return "whatsminer_api3"
     return normalized or "simulator"
 
 
@@ -722,6 +726,7 @@ def _resolve_miner_driver_label(driver: str | None) -> str:
         "simulator": "Simulator",
         "braiins": "Braiins OS+",
         "whatsminer_api2": "WhatsMiner (API 2.x)",
+        "whatsminer_api3": "WhatsMiner (API 3.x)",
     }
     return labels.get(normalized, normalized or "Unbekannt")
 
@@ -841,6 +846,8 @@ def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
         return 50051, 1200, 2200, 3200, 4200
     if normalized == "whatsminer_api2":
         return 4028, 1200, 2200, 3200, 4200
+    if normalized == "whatsminer_api3":
+        return 4433, 1000, 1400, 1800, 2200
     return 4028, 900, 1800, 3000, 4200
 
 
@@ -919,6 +926,7 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
             "battery": "https://github.com/phlupp/pv2hash/wiki/Batterieverhalten",
             "simulator": "https://github.com/phlupp/pv2hash/wiki/Simulator-Miner",
             "braiins": "https://github.com/phlupp/pv2hash/wiki/Braiins-OS%2B",
+            "whatsminer_api3": "https://github.com/phlupp/pv2hash/wiki/WhatsMiner-API3",
             "whatsminer_api2": "https://github.com/phlupp/pv2hash/wiki/WhatsMiner",
         },
     }
