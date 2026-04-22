@@ -42,8 +42,19 @@ class MinerAdapter(ABC):
         return []
 
     @classmethod
+    def get_device_settings_schema(cls) -> list[DriverField]:
+        return []
+
+    @classmethod
     def supports_gui_schema(cls) -> bool:
         return len(cls.get_config_schema()) > 0
+
+    @classmethod
+    def supports_device_settings(cls) -> bool:
+        return len(cls.get_device_settings_schema()) > 0
+
+    def apply_device_settings(self, values: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": False, "message": "not supported"}
 
     def get_details(self) -> dict:
         return {}

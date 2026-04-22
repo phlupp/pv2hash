@@ -214,6 +214,35 @@
                             {% endfor %}
                         </div>
 
+                        {% if miner.device_settings_fields %}
+                        <h3 class="section-title">Geräte-Einstellungen</h3>
+                        <form method="post" action="/miners/device-settings" class="details-form">
+                            <input type="hidden" name="miner_id" value="{{ miner.id }}">
+                            <div class="miner-field-grid">
+                                {% for field in miner.device_settings_fields %}
+                                <div class="field {% if field.type == 'checkbox' %}checkbox-field{% endif %}">
+                                    {% if field.type == 'checkbox' %}
+                                    <label><input type="checkbox" name="{{ field.name }}" {% if field.value %}checked{% endif %}> {{ field.label }}</label>
+                                    {% elif field.type == 'select' %}
+                                    <label for="device-{{ miner.id }}-{{ field.id }}">{{ field.label }}</label>
+                                    <select id="device-{{ miner.id }}-{{ field.id }}" name="{{ field.name }}">
+                                        {% for choice in field.choices %}
+                                        <option value="{{ choice.value }}" {% if field.value == choice.value %}selected{% endif %}>{{ choice.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    {% else %}
+                                    <label for="device-{{ miner.id }}-{{ field.id }}">{{ field.label }}</label>
+                                    <input id="device-{{ miner.id }}-{{ field.id }}" type="{{ 'password' if field.type == 'password' else 'number' if field.type == 'number' else 'text' }}" name="{{ field.name }}" value="{{ field.value if field.value is not none else '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>
+                                    {% endif %}
+                                    {% if field.help %}<div class="help">{{ field.help }}</div>{% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                            <div class="actions-row">
+                                <button class="btn btn-secondary" type="submit">Auf Gerät anwenden</button>
+                            </div>
+                        </form>
+
                         {% if miner.details and miner.details.sections %}
                         <h3 class="section-title">Details</h3>
                         {% for section in miner.details.sections %}

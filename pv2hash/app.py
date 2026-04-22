@@ -198,6 +198,13 @@ def _driver_schema(driver: str | None) -> list[DriverField]:
     return list(driver_cls.get_config_schema())
 
 
+def _driver_device_settings_schema(driver: str | None) -> list[DriverField]:
+    driver_cls = _driver_class_for(driver)
+    if driver_cls is None:
+        return []
+    return list(driver_cls.get_device_settings_schema())
+
+
 def _driver_basic_fields(driver: str | None) -> list[dict]:
     fields = []
     for field in _driver_schema(driver):
@@ -209,6 +216,10 @@ def _driver_basic_fields(driver: str | None) -> list[dict]:
 
 def _driver_full_fields(driver: str | None, miner_cfg: dict) -> list[dict]:
     return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _driver_schema(driver)]
+
+
+def _driver_device_settings_fields(driver: str | None, miner_cfg: dict) -> list[dict]:
+    return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _driver_device_settings_schema(driver)]
 
 
 def _core_identity_basic_fields() -> list[dict]:
@@ -887,6 +898,13 @@ def _get_runtime_details_map() -> dict[str, dict]:
     return details
 
 
+def _get_runtime_adapter_by_id(miner_id: str):
+    for adapter in getattr(state, "miner_adapters", []) or []:
+        if getattr(adapter.info, "id", None) == miner_id:
+            return adapter
+    return None
+
+
 def _build_miners_view() -> list[dict]:
     runtime_map = _get_runtime_miner_map()
     details_map = _get_runtime_details_map()
@@ -905,6 +923,7 @@ def _build_miners_view() -> list[dict]:
         merged["identity_fields"] = _core_identity_full_fields(merged)
         merged["control_fields"] = _core_control_full_fields(merged)
         merged["driver_fields"] = _driver_full_fields(merged.get("driver"), merged)
+        merged["device_settings_fields"] = _driver_device_settings_fields(merged.get("driver"), merged)
         merged["details"] = details_map.get(miner_cfg.get("id"), {})
         miner_views.append(merged)
 
@@ -1582,6 +1601,74 @@ async def set_miner_enabled_from_dashboard(
         target_url = f"{target_url}{separator}miner_action={action_name}"
 
     return RedirectResponse(url=target_url, status_code=303)
+
+
+
+@app.post("/miners/device-settings")
+async def apply_miner_device_settings(request: Request):
+    form = await request.form()
+    miner_id = str(form.get("miner_id", "")).strip()
+
+    for miner in state.config.get("miners", []):
+        if miner.get("id") != miner_id:
+            continue
+
+        driver = _normalize_miner_driver(miner.get("driver", "simulator"))
+        schema = _driver_device_settings_schema(driver)
+        if not schema:
+            return templates.TemplateResponse(
+                request=request,
+                name="miners.html",
+                context=_miners_context(request, error_message="Dieser Treiber unterstützt keine Geräte-Einstellungen."),
+                status_code=400,
+            )
+
+        updated = deepcopy(miner)
+        values: dict[str, Any] = {}
+        for field in schema:
+            if field.type == "checkbox":
+                raw = form.get(field.name) == "on"
+            else:
+                raw = form.get(field.name)
+            fallback = _field_value_from_config(field, miner)
+            value = _coerce_field_value(field, raw, fallback=fallback)
+            _set_nested_value(updated, field.name, value)
+            values[field.name] = value
+
+        adapter = _get_runtime_adapter_by_id(miner_id)
+        if adapter is None:
+            return templates.TemplateResponse(
+                request=request,
+                name="miners.html",
+                context=_miners_context(request, error_message="Miner-Laufzeitadapter nicht verfügbar."),
+                status_code=400,
+            )
+
+        try:
+            result = await asyncio.to_thread(adapter.apply_device_settings, values)
+        except Exception as exc:
+            return templates.TemplateResponse(
+                request=request,
+                name="miners.html",
+                context=_miners_context(request, error_message=f"Geräte-Einstellung fehlgeschlagen: {exc}"),
+                status_code=400,
+            )
+
+        if not result or not result.get("ok"):
+            return templates.TemplateResponse(
+                request=request,
+                name="miners.html",
+                context=_miners_context(request, error_message=result.get("message", "Geräte-Einstellung fehlgeschlagen.")),
+                status_code=400,
+            )
+
+        miner.clear()
+        miner.update(updated)
+        save_config(state.config)
+        reload_runtime()
+        return RedirectResponse(url=f"/miners?saved=1&open={miner_id}", status_code=303)
+
+    return RedirectResponse(url="/miners", status_code=303)
 
 
 @app.post("/miners/delete")

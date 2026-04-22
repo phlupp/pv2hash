@@ -77,6 +77,19 @@ class WhatsminerApi3Miner(MinerAdapter):
             ),
         ]
 
+
+    @classmethod
+    def get_device_settings_schema(cls) -> list[DriverField]:
+        return [
+            DriverField(
+                name="device_settings.fan_poweroff_cool",
+                label="Lüfternachlauf bei Stop",
+                type="checkbox",
+                default=False,
+                help="Wenn aktiviert, kühlt der Miner nach dem Stoppen aktiv nach. Für PV2Hash meist deaktiviert.",
+            ),
+        ]
+
     def __init__(
         self,
         miner_id: str,
@@ -378,6 +391,33 @@ class WhatsminerApi3Miner(MinerAdapter):
             logger.warning("WhatsMiner API3 status failed for %s (%s:%s): %s", self.info.name, self.host, self.port, exc)
         return self.info
 
+
+    def apply_device_settings(self, values: dict[str, Any]) -> dict[str, Any]:
+        enabled = bool(values.get("device_settings.fan_poweroff_cool", False))
+        try:
+            resp = self._write_command("set.fan.poweroff_cool", 1 if enabled else 0)
+        except Exception as exc:
+            self._set_unreachable(exc)
+            logger.warning(
+                "WhatsMiner API3 apply fan_poweroff_cool failed for %s (%s:%s): %s",
+                self.info.name, self.host, self.port, exc,
+            )
+            return {"ok": False, "message": str(exc)}
+
+        code = resp.get("code")
+        if code != 0:
+            logger.warning(
+                "WhatsMiner API3 apply fan_poweroff_cool returned non-zero for %s (%s:%s): %s",
+                self.info.name, self.host, self.port, resp,
+            )
+            return {"ok": False, "message": f"API-Fehler: {resp}"}
+
+        logger.info(
+            "WhatsMiner API3 fan_poweroff_cool set for %s (%s:%s): %s",
+            self.info.name, self.host, self.port, 1 if enabled else 0,
+        )
+        return {"ok": True, "message": "ok"}
+
     def get_details(self) -> dict:
         miner = self._device_info_cache.get("miner", {}) if isinstance(self._device_info_cache.get("miner"), dict) else {}
         power = self._device_info_cache.get("power", {}) if isinstance(self._device_info_cache.get("power"), dict) else {}
@@ -395,6 +435,8 @@ class WhatsminerApi3Miner(MinerAdapter):
                     {"label": "Firmware", "value": str(system.get("fwversion", "—"))},
                     {"label": "Power realtime", "value": f"{self.info.power_w:.0f} W"},
                     {"label": "Power limit", "value": f"{(self._cached_power_limit_w or 0):.0f} W"},
+                    {"label": "Working", "value": str(miner.get("working", "—"))},
+                    {"label": "Fast Boot", "value": str(miner.get("fast-boot", "—"))},
                     {"label": "up-freq-finish", "value": str(summary.get("up-freq-finish", "—"))},
                 ],
             },
