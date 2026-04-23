@@ -24,9 +24,21 @@ class DriverField:
     default: Any = None
     placeholder: str = ""
     help: str = ""
+    min: Any = None
+    max: Any = None
+    step: Any = None
     create_phase: str = "full"
     advanced: bool = False
     choices: tuple[DriverFieldChoice, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class DriverAction:
+    name: str
+    label: str
+    description: str = ""
+    confirm_text: str = ""
+    dangerous: bool = False
 
 
 class MinerAdapter(ABC):
@@ -52,6 +64,17 @@ class MinerAdapter(ABC):
     @classmethod
     def supports_device_settings(cls) -> bool:
         return len(cls.get_device_settings_schema()) > 0
+
+    @classmethod
+    def get_actions_schema(cls) -> list[DriverAction]:
+        return []
+
+    @classmethod
+    def supports_actions(cls) -> bool:
+        return len(cls.get_actions_schema()) > 0
+
+    def apply_action(self, action_name: str) -> dict[str, Any]:
+        return {"ok": False, "message": "not supported"}
 
     def apply_device_settings(self, values: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "not supported"}

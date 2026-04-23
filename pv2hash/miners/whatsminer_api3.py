@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pv2hash.logging_ext.setup import get_logger
-from pv2hash.miners.base import DriverField, DriverFieldChoice, MinerAdapter
+from pv2hash.miners.base import DriverAction, DriverField, DriverFieldChoice, MinerAdapter
 from pv2hash.models.miner import MinerInfo, MinerProfile, MinerProfiles
 
 logger = get_logger("pv2hash.miners.whatsminer_api3")
@@ -94,6 +94,28 @@ class WhatsminerApi3Miner(MinerAdapter):
                 type="checkbox",
                 default=False,
                 help="Erlaubt bei luftgekühlten Geräten, dass die Lüfter bei niedriger Temperatur vollständig stoppen.",
+            ),
+            DriverField(
+                name="device_settings.power_limit_w",
+                label="Power Limit (W)",
+                type="number",
+                default=None,
+                min=0,
+                max=99999,
+                step=1,
+                help="Maximale Leistungsaufnahme in Watt. Leer lassen, wenn kein Power-Limit gesetzt werden soll. Der Miner startet zur Übernahme neu.",
+            ),
+        ]
+
+    @classmethod
+    def get_actions_schema(cls) -> list[DriverAction]:
+        return [
+            DriverAction(
+                name="system_reboot",
+                label="Miner neu starten",
+                description="Startet das WhatsMiner-Gerät sofort per set.system.reboot neu.",
+                confirm_text="Miner jetzt wirklich neu starten?",
+                dangerous=True,
             ),
         ]
 
@@ -402,11 +424,23 @@ class WhatsminerApi3Miner(MinerAdapter):
     def apply_device_settings(self, values: dict[str, Any]) -> dict[str, Any]:
         fan_poweroff_cool = bool(values.get("device_settings.fan_poweroff_cool", False))
         fan_zero_speed = bool(values.get("device_settings.fan_zero_speed", False))
+        power_limit_w = values.get("device_settings.power_limit_w", None)
 
-        commands = [
+        commands: list[tuple[str, str, Any]] = [
             ("fan_poweroff_cool", "set.fan.poweroff_cool", 1 if fan_poweroff_cool else 0),
-            ("fan_zero_speed", "set.fan.zero_speed", "1" if fan_zero_speed else "0"),
+            ("fan_zero_speed", "set.fan.zero_speed", 1 if fan_zero_speed else 0),
         ]
+
+        if power_limit_w is not None:
+            try:
+                power_limit_int = int(float(power_limit_w))
+            except Exception:
+                return {"ok": False, "message": "Power Limit muss eine Zahl zwischen 0 und 99999 W sein."}
+
+            if power_limit_int < 0 or power_limit_int > 99999:
+                return {"ok": False, "message": "Power Limit muss zwischen 0 und 99999 W liegen."}
+
+            commands.append(("power_limit_w", "set.miner.power_limit", power_limit_int))
 
         for setting_name, cmd, param in commands:
             try:
@@ -415,24 +449,45 @@ class WhatsminerApi3Miner(MinerAdapter):
                 self._set_unreachable(exc)
                 logger.warning(
                     "WhatsMiner API3 apply %s failed for %s (%s:%s): %s",
-                    setting_name, self.info.name, self.host, self.port, exc,
+                    setting_name, self.info.name, self.host, self.port, exc
                 )
-                return {"ok": False, "message": str(exc)}
+                return {"ok": False, "message": f"API-Verbindungsfehler bei {setting_name}: {exc}"}
 
-            code = resp.get("code")
-            if code != 0:
+            if int(resp.get("code", -1)) != 0:
                 logger.warning(
-                    "WhatsMiner API3 apply %s returned non-zero for %s (%s:%s): %s",
-                    setting_name, self.info.name, self.host, self.port, resp,
+                    "WhatsMiner API3 apply %s API error for %s (%s:%s): %s",
+                    setting_name, self.info.name, self.host, self.port, resp
                 )
-                return {"ok": False, "message": f"API-Fehler: {resp}"}
+                return {"ok": False, "message": f"API-Fehler bei {setting_name}: {resp}"}
 
-            logger.info(
-                "WhatsMiner API3 %s set for %s (%s:%s): %s",
-                setting_name, self.info.name, self.host, self.port, param,
+        if power_limit_w is not None:
+            self._cached_power_limit_w = float(int(float(power_limit_w)))
+
+        return {"ok": True, "message": "Geräte-Einstellungen übernommen"}
+
+    def apply_action(self, action_name: str) -> dict[str, Any]:
+        if action_name != "system_reboot":
+            return {"ok": False, "message": f"Unbekannte Aktion: {action_name}"}
+
+        try:
+            resp = self._write_command("set.system.reboot", include_param=False)
+        except Exception as exc:
+            self._set_unreachable(exc)
+            logger.warning(
+                "WhatsMiner API3 action %s failed for %s (%s:%s): %s",
+                action_name, self.info.name, self.host, self.port, exc
             )
+            return {"ok": False, "message": f"API-Verbindungsfehler bei {action_name}: {exc}"}
 
-        return {"ok": True, "message": "ok"}
+        if int(resp.get("code", -1)) != 0:
+            logger.warning(
+                "WhatsMiner API3 action %s API error for %s (%s:%s): %s",
+                action_name, self.info.name, self.host, self.port, resp
+            )
+            return {"ok": False, "message": f"API-Fehler bei {action_name}: {resp}"}
+
+        self.info.runtime_state = "rebooting"
+        return {"ok": True, "message": "Miner-Neustart ausgelöst"}
 
     def get_details(self) -> dict:
         miner = self._device_info_cache.get("miner", {}) if isinstance(self._device_info_cache.get("miner"), dict) else {}

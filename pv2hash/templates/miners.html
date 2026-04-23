@@ -253,6 +253,26 @@
                         </div>
                         {% endif %}
 
+                        {% if miner.action_fields %}
+                        <h3 class="section-title">Aktionen</h3>
+                        <div class="actions-row">
+                            {% for action in miner.action_fields %}
+                            <button class="btn {% if action.dangerous %}btn-danger{% endif %}"
+                                    type="submit"
+                                    formaction="/miners/{{ miner.id }}/action"
+                                    name="action_name"
+                                    value="{{ action.name }}"
+                                    {% if action.confirm_text %}onclick="return confirm('{{ action.confirm_text }}');"{% endif %}>
+                                {{ action.label }}
+                            </button>
+                            {% endfor %}
+                        </div>
+                        {% for action in miner.action_fields %}
+                        {% if action.description %}<small class="field-help">{{ action.label }}: {{ action.description }}</small><br>{% endif %}
+                        {% endfor %}
+                        {% endif %}
+
+
                         {% if miner.details and miner.details.sections %}
                         <h3 class="section-title">Details</h3>
                         {% for section in miner.details.sections %}

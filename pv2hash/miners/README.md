@@ -367,3 +367,21 @@ The UI must be fully metadata-driven:
 
 The simulator driver should act as the minimal reference implementation
 for the metadata model.
+
+### Current WhatsMiner API 3 device extensions
+
+The WhatsMiner API 3 driver currently exposes miner-side device settings through the generic driver metadata model.
+
+Supported writable device settings:
+
+- `device_settings.fan_poweroff_cool` -> `set.fan.poweroff_cool`
+- `device_settings.fan_zero_speed` -> `set.fan.zero_speed`
+- `device_settings.power_limit_w` -> `set.miner.power_limit`
+
+`device_settings.power_limit_w` is intentionally optional in the GUI. An empty value is not sent to the miner. This avoids accidentally sending `0` and triggering a restart when the user only wants to apply unrelated fan settings. If a numeric value is entered, it is validated in the range `0..99999` and sent as a JSON number. The miner may reboot to apply this setting.
+
+Supported explicit actions:
+
+- `system_reboot` -> `set.system.reboot`
+
+Actions are not device settings. They are rendered separately and require an explicit user click, with confirmation for dangerous actions such as reboot.

@@ -30,7 +30,7 @@ from pv2hash.logging_ext.setup import (
     setup_logging,
 )
 from pv2hash.runtime import AppState
-from pv2hash.miners.base import DriverField, DriverFieldChoice, MinerAdapter
+from pv2hash.miners.base import DriverAction, DriverField, DriverFieldChoice, MinerAdapter
 from pv2hash.miners.braiins import BraiinsMiner
 from pv2hash.miners.simulator import SimulatorMiner
 from pv2hash.miners.whatsminer import WhatsminerMiner
@@ -169,6 +169,8 @@ def _coerce_field_value(field: DriverField, raw: Any, fallback: Any = None) -> A
     if field.type == "checkbox":
         return bool(raw)
     if raw in (None, ""):
+        if field.type == "number" and fallback is None and field.default is None and field.preset is None:
+            return None
         if fallback is not None:
             return fallback
         if field.default is not None:
@@ -180,6 +182,8 @@ def _coerce_field_value(field: DriverField, raw: Any, fallback: Any = None) -> A
             default_value = field.default if field.default is not None else field.preset
         if isinstance(default_value, float):
             return _safe_float(raw, float(default_value))
+        if default_value is None:
+            return _safe_int(raw, 0)
         return _safe_int(raw, int(float(default_value or 0)))
     return str(raw).strip()
 
@@ -206,6 +210,13 @@ def _driver_device_settings_schema(driver: str | None) -> list[DriverField]:
     return list(driver_cls.get_device_settings_schema())
 
 
+def _driver_actions_schema(driver: str | None) -> list[DriverAction]:
+    driver_cls = _driver_class_for(driver)
+    if driver_cls is None:
+        return []
+    return list(driver_cls.get_actions_schema())
+
+
 def _driver_basic_fields(driver: str | None) -> list[dict]:
     fields = []
     for field in _driver_schema(driver):
@@ -221,6 +232,14 @@ def _driver_full_fields(driver: str | None, miner_cfg: dict) -> list[dict]:
 
 def _driver_device_settings_fields(driver: str | None, miner_cfg: dict) -> list[dict]:
     return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _driver_device_settings_schema(driver)]
+
+
+def _render_action(action: DriverAction) -> dict:
+    return asdict(action)
+
+
+def _driver_action_fields(driver: str | None) -> list[dict]:
+    return [_render_action(action) for action in _driver_actions_schema(driver)]
 
 
 def _core_identity_basic_fields() -> list[dict]:
@@ -928,6 +947,7 @@ def _build_miners_view() -> list[dict]:
         merged["control_fields"] = _core_control_full_fields(merged)
         merged["driver_fields"] = _driver_full_fields(merged.get("driver"), merged)
         merged["device_settings_fields"] = _driver_device_settings_fields(merged.get("driver"), merged)
+        merged["action_fields"] = _driver_action_fields(merged.get("driver"))
         merged["details"] = details_map.get(miner_cfg.get("id"), {})
         miner_views.append(merged)
 
@@ -1687,6 +1707,56 @@ async def _apply_miner_device_settings_impl(request: Request, miner_id: str):
 @app.post("/miners/{miner_id}/device-settings")
 async def apply_miner_device_settings_for_miner(miner_id: str, request: Request):
     return await _apply_miner_device_settings_impl(request, miner_id)
+
+
+@app.post("/miners/{miner_id}/action")
+async def run_miner_action(miner_id: str, request: Request):
+    form = await request.form()
+    action_name = str(form.get("action_name", "")).strip()
+    miner_id = str(miner_id).strip()
+
+    miner_cfg = next((miner for miner in state.config.get("miners", []) if miner.get("id") == miner_id), None)
+    if miner_cfg is None:
+        return RedirectResponse(url="/miners", status_code=303)
+
+    driver = _normalize_miner_driver(miner_cfg.get("driver", "simulator"))
+    allowed_actions = {action.name for action in _driver_actions_schema(driver)}
+    if action_name not in allowed_actions:
+        return templates.TemplateResponse(
+            request=request,
+            name="miners.html",
+            context=_miners_context(request, error_message="Diese Aktion wird vom Treiber nicht unterstützt."),
+            status_code=400,
+        )
+
+    adapter = _get_runtime_adapter_by_id(miner_id)
+    if adapter is None:
+        return templates.TemplateResponse(
+            request=request,
+            name="miners.html",
+            context=_miners_context(request, error_message="Miner-Laufzeitadapter nicht verfügbar."),
+            status_code=400,
+        )
+
+    try:
+        result = await asyncio.to_thread(adapter.apply_action, action_name)
+    except Exception as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="miners.html",
+            context=_miners_context(request, error_message=f"Miner-Aktion fehlgeschlagen: {exc}"),
+            status_code=400,
+        )
+
+    if not result or not result.get("ok"):
+        return templates.TemplateResponse(
+            request=request,
+            name="miners.html",
+            context=_miners_context(request, error_message=result.get("message", "Miner-Aktion fehlgeschlagen.")),
+            status_code=400,
+        )
+
+    return RedirectResponse(url=f"/miners?saved=1&open={miner_id}", status_code=303)
 
 
 @app.post("/miners/delete")
