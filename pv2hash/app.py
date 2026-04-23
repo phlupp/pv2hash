@@ -1604,10 +1604,9 @@ async def set_miner_enabled_from_dashboard(
 
 
 
-@app.post("/miners/device-settings")
-async def apply_miner_device_settings(request: Request):
+async def _apply_miner_device_settings_impl(request: Request, miner_id: str):
     form = await request.form()
-    miner_id = str(form.get("miner_id", "")).strip()
+    miner_id = str(miner_id).strip()
 
     for miner in state.config.get("miners", []):
         if miner.get("id") != miner_id:
@@ -1626,10 +1625,11 @@ async def apply_miner_device_settings(request: Request):
         updated = deepcopy(miner)
         values: dict[str, Any] = {}
         for field in schema:
+            form_key = f"device__{field.name}"
             if field.type == "checkbox":
-                raw = form.get(field.name) == "on"
+                raw = form.get(form_key) is not None
             else:
-                raw = form.get(field.name)
+                raw = form.get(form_key)
             fallback = _field_value_from_config(field, miner)
             value = _coerce_field_value(field, raw, fallback=fallback)
             _set_nested_value(updated, field.name, value)
@@ -1669,6 +1669,11 @@ async def apply_miner_device_settings(request: Request):
         return RedirectResponse(url=f"/miners?saved=1&open={miner_id}", status_code=303)
 
     return RedirectResponse(url="/miners", status_code=303)
+
+
+@app.post("/miners/{miner_id}/device-settings")
+async def apply_miner_device_settings_for_miner(miner_id: str, request: Request):
+    return await _apply_miner_device_settings_impl(request, miner_id)
 
 
 @app.post("/miners/delete")
