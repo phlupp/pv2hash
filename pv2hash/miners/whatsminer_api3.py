@@ -228,20 +228,21 @@ class WhatsminerApi3Miner(MinerAdapter):
     def _get_summary_status(self) -> dict[str, Any]:
         return self._send_request({"cmd": "get.miner.status", "param": "summary"})
 
-    def _write_command(self, cmd: str, param: Any) -> dict[str, Any]:
+    def _write_command(self, cmd: str, param: Any | None = None, *, include_param: bool = True) -> dict[str, Any]:
         info = self._get_device_info()
         salt = str(info.get("msg", {}).get("salt", ""))
         if not salt:
             raise RuntimeError("WhatsMiner API 3 salt fehlt in get.device.info")
         ts = int(time.time())
         token = self._make_token(cmd, salt, ts)
-        req = {
+        req: dict[str, Any] = {
             "cmd": cmd,
             "ts": ts,
             "token": token,
             "account": self.account,
-            "param": param,
         }
+        if include_param:
+            req["param"] = param
         return self._send_request(req)
 
     @staticmethod
