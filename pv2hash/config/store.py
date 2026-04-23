@@ -46,6 +46,19 @@ def _normalize_miner_profiles(config: dict[str, Any]) -> None:
     default_miner = DEFAULT_CONFIG["miners"][0]
 
     for miner in config.get("miners", []):
+        # TRANSITION 0.6.x: migrate the old single enabled flag into
+        # the new explicit flags. This block should be removed once
+        # all installations have saved configs with monitor_enabled/control_enabled.
+        if "monitor_enabled" not in miner or "control_enabled" not in miner:
+            legacy_enabled = bool(miner.get("enabled", True))
+            miner["monitor_enabled"] = legacy_enabled
+            miner["control_enabled"] = legacy_enabled
+        miner.pop("enabled", None)
+        if bool(miner.get("control_enabled", True)):
+            miner["monitor_enabled"] = True
+
+
+    for miner in config.get("miners", []):
         profiles = miner.setdefault("profiles", {})
         normalized_profiles: dict[str, dict[str, float]] = {}
 

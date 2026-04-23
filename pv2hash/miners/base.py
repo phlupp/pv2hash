@@ -120,4 +120,8 @@ class MinerAdapter(ABC):
         return self.get_min_regulated_profile() == "off"
 
     def is_active_for_distribution(self) -> bool:
-        return bool(self.info.enabled and self.info.is_active)
+        return bool(
+            self.info.monitor_enabled
+            and self.info.control_enabled
+            and self.info.is_active
+        )

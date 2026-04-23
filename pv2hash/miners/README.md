@@ -5,7 +5,7 @@ This folder contains miner adapters used by PV2Hash runtime.
 ## Contract to runtime/controller
 
 The controller decides a target profile (`off`, `p1`, `p2`, `p3`, `p4`).
-The runtime then calls `set_profile(profile)` for each active miner **on every loop iteration**.
+The runtime reads status from every miner with `monitor_enabled = true`. The controller only calls `set_profile(profile)` for miners with `control_enabled = true`.
 
 That means a miner driver must be:
 
@@ -335,9 +335,18 @@ Example:
 
 ### Core fields (PV2Hash)
 
+Core control flags are intentionally split:
+
+- `monitor_enabled`: PV2Hash creates the runtime adapter and keeps reading status/details. Device settings require this.
+- `control_enabled`: the PV controller may include the miner in distribution and call `set_profile()`. If this is true, `monitor_enabled` must also be true.
+
+The UI enforces this dependency immediately, and the server normalizes it before saving. A miner may be monitored without being controlled.
+
+
 These are injected centrally and must NOT be defined by drivers:
 
-- enabled / active
+- monitor_enabled (`Verbindung`): build adapter, read status/details, allow device settings
+- control_enabled (`In Regelung einbeziehen`): controller may apply profiles; requires monitor_enabled
 - priority
 - profiles (floor, p1..p4)
 - battery_behavior

@@ -15,7 +15,8 @@ class MinerConfig:
     name: str
     host: str
     driver: str
-    enabled: bool = True
+    monitor_enabled: bool = True
+    control_enabled: bool = True
     priority: int = 100
     serial_number: str | None = None
     model: str | None = None

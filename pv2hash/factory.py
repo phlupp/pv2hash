@@ -84,6 +84,13 @@ def _normalize_battery_override_profile(value: str | None) -> str:
     return "p1"
 
 
+def _apply_runtime_flags(adapter: MinerAdapter, monitor_enabled: bool, control_enabled: bool) -> MinerAdapter:
+    adapter.info.monitor_enabled = bool(monitor_enabled)
+    adapter.info.control_enabled = bool(control_enabled)
+    adapter.info.enabled = bool(monitor_enabled)
+    return adapter
+
+
 def _build_modbus_value_config(name: str, cfg: dict | None) -> ModbusValueConfig:
     cfg = dict(cfg or {})
     register_type = str(cfg.get("register_type", "holding")).strip().lower()
@@ -191,7 +198,12 @@ def build_miners(config: dict) -> list[MinerAdapter]:
     )
 
     for miner_cfg in miner_items:
-        if not miner_cfg.get("enabled", True):
+        monitor_enabled = bool(miner_cfg.get("monitor_enabled", True))
+        control_enabled = bool(miner_cfg.get("control_enabled", True))
+        if control_enabled:
+            monitor_enabled = True
+
+        if not monitor_enabled:
             continue
 
         driver = _normalize_miner_driver(miner_cfg.get("driver", "simulator"))
@@ -216,7 +228,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     name=miner_cfg["name"],
                     host=miner_cfg["host"],
                     priority=miner_cfg.get("priority", 100),
-                    enabled=miner_cfg.get("enabled", True),
+                    enabled=monitor_enabled,
                     serial_number=miner_cfg.get("serial_number"),
                     model=miner_cfg.get("model"),
                     firmware_version=miner_cfg.get("firmware_version"),
@@ -253,7 +265,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     port=int(settings.get("port", 4028)),
                     password=settings.get("password", ""),
                     priority=miner_cfg.get("priority", 100),
-                    enabled=miner_cfg.get("enabled", True),
+                    enabled=monitor_enabled,
                     serial_number=miner_cfg.get("serial_number"),
                     model=miner_cfg.get("model"),
                     firmware_version=miner_cfg.get("firmware_version"),
@@ -293,7 +305,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     account=settings.get("account", "super"),
                     password=settings.get("password", ""),
                     priority=miner_cfg.get("priority", 100),
-                    enabled=miner_cfg.get("enabled", True),
+                    enabled=monitor_enabled,
                     serial_number=miner_cfg.get("serial_number"),
                     model=miner_cfg.get("model"),
                     firmware_version=miner_cfg.get("firmware_version"),
@@ -332,7 +344,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     username=settings.get("username", "root"),
                     password=settings.get("password", ""),
                     priority=miner_cfg.get("priority", 100),
-                    enabled=miner_cfg.get("enabled", True),
+                    enabled=monitor_enabled,
                     serial_number=miner_cfg.get("serial_number"),
                     model=miner_cfg.get("model"),
                     firmware_version=miner_cfg.get("firmware_version"),
@@ -363,5 +375,15 @@ def build_miners(config: dict) -> list[MinerAdapter]:
             continue
 
         raise ValueError(f"Unsupported miner driver: {driver}")
+
+    flags_by_id = {
+        str(m.get("id")): (bool(m.get("monitor_enabled", True)), bool(m.get("control_enabled", True)))
+        for m in config.get("miners", [])
+    }
+    for adapter in miner_adapters:
+        monitor_enabled, control_enabled = flags_by_id.get(str(adapter.info.id), (True, True))
+        if control_enabled:
+            monitor_enabled = True
+        _apply_runtime_flags(adapter, monitor_enabled, control_enabled)
 
     return miner_adapters

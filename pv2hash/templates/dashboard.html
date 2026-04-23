@@ -195,7 +195,7 @@
                             <tr>
                                 <td>
                                     <span class="miner-state-icons miner-state-icons-table" aria-label="Minerstatus">
-                                        <span class="status-dot {% if miner.enabled %}is-enabled{% else %}is-disabled{% endif %}" title="Freigabe"></span>
+                                        <span class="status-dot {% if miner.control_enabled %}is-enabled{% else %}is-disabled{% endif %}" title="Freigabe"></span>
                                         <span class="status-icon status-icon-network {% if miner.reachable %}is-active{% else %}is-inactive{% endif %}" title="Erreichbarkeit">{{ inline_icon('network') }}</span>
                                         <span class="status-icon status-icon-run {% if miner.is_running %}is-active{% else %}is-paused{% endif %}" title="Laufstatus">{{ inline_icon('play') if miner.is_running else inline_icon('pause') }}</span>
                                     </span>
@@ -213,9 +213,9 @@
                                 <td>{{ miner.power_text }}</td>
                                 <td>{{ miner.hashrate_text }}</td>
                                 <td>
-                                    <form method="post" action="/miners/set-enabled" class="inline-form">
+                                    <form method="post" action="/miners/set-control-enabled" class="inline-form">
                                         <input type="hidden" name="miner_id" value="{{ miner.id }}">
-                                        <input type="hidden" name="enabled" value="{{ '0' if miner.enabled else '1' }}">
+                                        <input type="hidden" name="control_enabled" value="{{ '0' if miner.control_enabled else '1' }}">
                                         <input type="hidden" name="next_url" value="/">
                                         <button class="btn btn-secondary btn-small" type="submit">{{ miner.action_label }}</button>
                                     </form>

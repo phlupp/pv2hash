@@ -133,9 +133,9 @@
                         <strong>{{ miner.name }}</strong>
                         <div style="opacity:.8; margin-top:.2rem;">{{ miner.driver|replace('_', ' ') }}</div>
                         <div class="miner-meta">
-                            <span class="pill {{ 'ok' if miner.summary.active else 'neutral' }}">{{ 'Aktiv' if miner.summary.active else 'Deaktiviert' }}</span>
-                            <span class="pill {% if miner.summary.connection_ok is sameas true %}ok{% elif miner.summary.connection_ok is sameas false %}bad{% else %}neutral{% endif %}">
-                                {% if miner.summary.connection_ok is sameas true %}Verbindung OK{% elif miner.summary.connection_ok is sameas false %}Keine Verbindung{% else %}Verbindung unbekannt{% endif %}
+                            <span class="pill {{ 'ok' if miner.summary.control_enabled else 'neutral' }}">{{ 'Regelung' if miner.summary.control_enabled else 'Nicht geregelt' }}</span>
+                            <span class="pill {% if not miner.summary.monitor_enabled %}neutral{% elif miner.summary.connection_ok is sameas true %}ok{% elif miner.summary.connection_ok is sameas false %}bad{% else %}neutral{% endif %}">
+                                {% if not miner.summary.monitor_enabled %}Verbindung aus{% elif miner.summary.connection_ok is sameas true %}Verbindung OK{% elif miner.summary.connection_ok is sameas false %}Keine Verbindung{% else %}Verbindung unbekannt{% endif %}
                             </span>
                             <span class="pill neutral">Status: {{ miner.summary.runtime_state }}</span>
                             <span class="pill neutral">Priorität: {{ miner.summary.priority }}</span>
@@ -309,6 +309,23 @@ function syncCreateDriverFields() {
 }
 driverSelect.addEventListener('change', syncCreateDriverFields);
 syncCreateDriverFields();
+
+function syncMonitorControlDependency(form) {
+  const monitor = form.querySelector('input[name="monitor_enabled"]');
+  const control = form.querySelector('input[name="control_enabled"]');
+  if (!monitor || !control) return;
+  function apply() {
+    if (control.checked) monitor.checked = true;
+  }
+  control.addEventListener('change', apply);
+  monitor.addEventListener('change', () => {
+    if (!monitor.checked) control.checked = false;
+  });
+  apply();
+}
+for (const form of document.querySelectorAll('form.details-form')) {
+  syncMonitorControlDependency(form);
+}
 </script>
 </body>
 </html>

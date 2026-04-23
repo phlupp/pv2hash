@@ -22,6 +22,11 @@ class MinerInfo:
     host: str
     driver: str
 
+    # monitor_enabled: PV2Hash builds the adapter and reads status/details.
+    # control_enabled: the controller may include this miner in PV regulation.
+    # enabled remains runtime-internal for existing adapter code and mirrors monitor_enabled.
+    monitor_enabled: bool = True
+    control_enabled: bool = True
     enabled: bool = True
     is_active: bool = True
     priority: int = 100

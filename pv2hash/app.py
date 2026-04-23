@@ -118,7 +118,8 @@ def _core_control_schema() -> list[DriverField]:
         _choice("p4", "p4"),
     )
     return [
-        DriverField(name="enabled", label="Miner aktiv", type="checkbox", default=True),
+        DriverField(name="monitor_enabled", label="Verbindung", type="checkbox", default=True, help="PV2Hash baut den Miner-Adapter auf, liest Status und erlaubt Geräte-Einstellungen."),
+        DriverField(name="control_enabled", label="In Regelung einbeziehen", type="checkbox", default=True, help="Der PV-Regler darf diesen Miner steuern. Erfordert Verbindung."),
         DriverField(name="priority", label="Priorität", type="number", default=100, placeholder="100"),
         DriverField(name="min_regulated_profile", label="Min. Regelprofil", type="select", default="off", choices=min_profile_choices),
         DriverField(name="profiles.p1.power_w", label="Profil p1 (W)", type="number", default=900),
@@ -255,7 +256,8 @@ def _miner_card_summary(miner_cfg: dict, runtime: dict) -> dict:
     reachable = runtime.get("reachable") if runtime else None
     runtime_state = runtime.get("runtime_state") if runtime else None
     return {
-        "active": bool(miner_cfg.get("enabled", True)),
+        "monitor_enabled": bool(miner_cfg.get("monitor_enabled", True)),
+        "control_enabled": bool(miner_cfg.get("control_enabled", True)),
         "connection_ok": True if reachable is True else False if reachable is False else None,
         "runtime_state": runtime_state or "unknown",
         "priority": miner_cfg.get("priority", 100),
@@ -332,14 +334,15 @@ def _build_dashboard_miner_rows() -> list[dict]:
 
     def _sort_key(miner_cfg: dict) -> tuple[int, int, str]:
         return (
-            0 if bool(miner_cfg.get("enabled", True)) else 1,
+            0 if bool(miner_cfg.get("control_enabled", True)) else 1,
             int(miner_cfg.get("priority", 100)),
             str(miner_cfg.get("name", "")).lower(),
         )
 
     for miner_cfg in sorted(config_miners, key=_sort_key):
         runtime_miner = runtime_map.get(miner_cfg.get("id"))
-        enabled = bool(miner_cfg.get("enabled", True))
+        monitor_enabled = bool(miner_cfg.get("monitor_enabled", True))
+        control_enabled = bool(miner_cfg.get("control_enabled", True))
         runtime_state_normalized = str(
             getattr(runtime_miner, "runtime_state", "unknown") or "unknown"
         ).lower()
@@ -370,10 +373,11 @@ def _build_dashboard_miner_rows() -> list[dict]:
                 "profile": profile,
                 "power_text": power_text,
                 "hashrate_text": hashrate_text,
-                "enabled": enabled,
+                "monitor_enabled": monitor_enabled,
+                "control_enabled": control_enabled,
                 "reachable": reachable,
                 "is_running": is_running,
-                "action_label": "Pause" if enabled else "Aktivieren",
+                "action_label": "Aus Regelung nehmen" if control_enabled else "In Regelung aufnehmen",
             }
         )
     return rows
@@ -1119,7 +1123,8 @@ async def control_loop() -> None:
                 continue
 
             profile_switch_requested = len(miners) == len(decision.profiles) and any(
-                getattr(miner.info, "profile", None) != profile
+                miner.is_active_for_distribution()
+                and getattr(miner.info, "profile", None) != profile
                 for miner, profile in zip(miners, decision.profiles)
             )
 
@@ -1128,6 +1133,8 @@ async def control_loop() -> None:
                     logger.info("Stopping stale profile apply after runtime reload")
                     aborted = True
                     break
+                if not miner.is_active_for_distribution():
+                    continue
                 await miner.set_profile(profile)
 
             if aborted:
@@ -1474,7 +1481,8 @@ async def add_miner(request: Request):
         "id": miner_id,
         "name": "Miner",
         "driver": driver,
-        "enabled": True,
+        "monitor_enabled": True,
+        "control_enabled": True,
         "priority": 100,
         "host": "",
         "settings": {},
@@ -1544,6 +1552,9 @@ async def update_miner(request: Request):
             value = _coerce_field_value(field, raw, fallback=fallback)
             _set_nested_value(updated, field.name, value)
 
+        if bool(updated.get("control_enabled", True)):
+            updated["monitor_enabled"] = True
+
         validation_error = _validate_profile_values(
             profile_values=updated.get("profiles", {}),
             runtime_constraints=runtime_map.get(miner_id),
@@ -1559,8 +1570,8 @@ async def update_miner(request: Request):
         miner.clear()
         miner.update(updated)
         logger.info(
-            "Miner updated via metadata UI: id=%s name=%s driver=%s host=%s enabled=%s",
-            miner.get("id"), miner.get("name"), driver, miner.get("host"), miner.get("enabled")
+            "Miner updated via metadata UI: id=%s name=%s driver=%s host=%s control_enabled=%s",
+            miner.get("id"), miner.get("name"), driver, miner.get("host"), miner.get("control_enabled")
         )
         break
 
@@ -1569,24 +1580,26 @@ async def update_miner(request: Request):
     return RedirectResponse(url=f"/miners?saved=1&open={miner_id}", status_code=303)
 
 
-@app.post("/miners/set-enabled")
-async def set_miner_enabled_from_dashboard(
+@app.post("/miners/set-control-enabled")
+async def set_miner_control_enabled_from_dashboard(
     miner_id: str = Form(...),
-    enabled: str = Form(...),
+    control_enabled: str = Form(...),
     next_url: str = Form("/"),
 ):
     target_url = str(next_url or "/").strip() or "/"
-    desired_enabled = str(enabled).strip().lower() in {"1", "true", "on", "yes"}
+    desired_control_enabled = str(control_enabled).strip().lower() in {"1", "true", "on", "yes"}
     found = False
 
     for miner in state.config.get("miners", []):
         if miner.get("id") != miner_id:
             continue
-        miner["enabled"] = desired_enabled
+        miner["control_enabled"] = desired_control_enabled
+        if desired_control_enabled:
+            miner["monitor_enabled"] = True
         found = True
         logger.info(
-            "Miner %s from dashboard: id=%s name=%s host=%s",
-            "activated" if desired_enabled else "paused",
+            "Miner control %s from dashboard: id=%s name=%s host=%s",
+            "enabled" if desired_control_enabled else "disabled",
             miner_id,
             miner.get("name"),
             miner.get("host"),
@@ -1597,7 +1610,7 @@ async def set_miner_enabled_from_dashboard(
         save_config(state.config)
         reload_runtime()
         separator = "&" if "?" in target_url else "?"
-        action_name = "enabled" if desired_enabled else "paused"
+        action_name = "control_enabled" if desired_control_enabled else "control_disabled"
         target_url = f"{target_url}{separator}miner_action={action_name}"
 
     return RedirectResponse(url=target_url, status_code=303)
