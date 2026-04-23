@@ -257,9 +257,9 @@
                         <h3 class="section-title">Details</h3>
                         {% for section in miner.details.sections %}
                         <section class="details-section">
-                            <strong>{{ section.title }}</strong>
+                            <strong>{{ section["title"] }}</strong>
                             <div class="details-grid" style="margin-top:.75rem;">
-                                {% for item in section.items %}
+                                {% for item in section["items"] %}
                                 <div class="details-item">
                                     <span class="details-item-label">{{ item.label }}</span>
                                     <span>{{ item.value }}</span>
