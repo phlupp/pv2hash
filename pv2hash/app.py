@@ -230,8 +230,20 @@ def _driver_full_fields(driver: str | None, miner_cfg: dict) -> list[dict]:
     return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _driver_schema(driver)]
 
 
-def _driver_device_settings_fields(driver: str | None, miner_cfg: dict) -> list[dict]:
-    return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _driver_device_settings_schema(driver)]
+def _driver_device_settings_fields(driver: str | None, live_values: dict | None = None) -> list[dict]:
+    live_values = live_values or {}
+    fields: list[dict] = []
+    for field in _driver_device_settings_schema(driver):
+        if field.name in live_values:
+            rendered = _render_field(field, live_values.get(field.name))
+            rendered["value_source"] = "device"
+            rendered["value_known"] = True
+        else:
+            rendered = _render_field(field, None)
+            rendered["value_source"] = "unknown"
+            rendered["value_known"] = False
+        fields.append(rendered)
+    return fields
 
 
 def _render_action(action: DriverAction) -> dict:
@@ -921,6 +933,17 @@ def _get_runtime_details_map() -> dict[str, dict]:
     return details
 
 
+def _get_runtime_device_settings_values_map() -> dict[str, dict]:
+    values: dict[str, dict] = {}
+    for adapter in services.miners:
+        try:
+            payload = adapter.get_device_settings_values()
+        except Exception:
+            payload = {}
+        values[adapter.info.id] = payload or {}
+    return values
+
+
 def _get_runtime_adapter_by_id(miner_id: str):
     for adapter in services.miners:
         if getattr(adapter.info, "id", None) == miner_id:
@@ -931,6 +954,7 @@ def _get_runtime_adapter_by_id(miner_id: str):
 def _build_miners_view() -> list[dict]:
     runtime_map = _get_runtime_miner_map()
     details_map = _get_runtime_details_map()
+    device_settings_values_map = _get_runtime_device_settings_values_map()
     miner_views: list[dict] = []
 
     for miner_cfg in state.config.get("miners", []):
@@ -946,7 +970,10 @@ def _build_miners_view() -> list[dict]:
         merged["identity_fields"] = _core_identity_full_fields(merged)
         merged["control_fields"] = _core_control_full_fields(merged)
         merged["driver_fields"] = _driver_full_fields(merged.get("driver"), merged)
-        merged["device_settings_fields"] = _driver_device_settings_fields(merged.get("driver"), merged)
+        merged["device_settings_fields"] = _driver_device_settings_fields(
+            merged.get("driver"),
+            device_settings_values_map.get(miner_cfg.get("id"), {}),
+        )
         merged["action_fields"] = _driver_action_fields(merged.get("driver"))
         merged["details"] = details_map.get(miner_cfg.get("id"), {})
         miner_views.append(merged)
@@ -1655,18 +1682,26 @@ async def _apply_miner_device_settings_impl(request: Request, miner_id: str):
                 status_code=400,
             )
 
-        updated = deepcopy(miner)
         values: dict[str, Any] = {}
         for field in schema:
+            known_key = f"device__known__{field.name}"
+            if form.get(known_key) is None:
+                continue
             form_key = f"device__{field.name}"
             if field.type == "checkbox":
                 raw = form.get(form_key) is not None
             else:
                 raw = form.get(form_key)
-            fallback = _field_value_from_config(field, miner)
-            value = _coerce_field_value(field, raw, fallback=fallback)
-            _set_nested_value(updated, field.name, value)
+            value = _coerce_field_value(field, raw, fallback=None)
             values[field.name] = value
+
+        if not values:
+            return templates.TemplateResponse(
+                request=request,
+                name="miners.html",
+                context=_miners_context(request, error_message="Keine lesbaren Geräte-Einstellungen verfügbar."),
+                status_code=400,
+            )
 
         adapter = _get_runtime_adapter_by_id(miner_id)
         if adapter is None:
@@ -1695,10 +1730,6 @@ async def _apply_miner_device_settings_impl(request: Request, miner_id: str):
                 status_code=400,
             )
 
-        miner.clear()
-        miner.update(updated)
-        save_config(state.config)
-        reload_runtime()
         return RedirectResponse(url=f"/miners?saved=1&open={miner_id}", status_code=303)
 
     return RedirectResponse(url="/miners", status_code=303)

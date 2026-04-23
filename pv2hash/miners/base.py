@@ -76,6 +76,15 @@ class MinerAdapter(ABC):
     def apply_action(self, action_name: str) -> dict[str, Any]:
         return {"ok": False, "message": "not supported"}
 
+    def get_device_settings_values(self) -> dict[str, Any]:
+        """Return live device-side values for the driver device settings schema.
+
+        Device settings are miner state, not PV2Hash configuration. Drivers should
+        return values read from the device when the API supports readback. Missing
+        keys mean the current value is unknown.
+        """
+        return {}
+
     def apply_device_settings(self, values: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "message": "not supported"}
 

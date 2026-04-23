@@ -226,24 +226,28 @@
                             {% for field in miner.device_settings_fields %}
                             <label class="field-card">
                                 <span class="field-label">{{ field.label }}</span>
+                                {% if field.value_known is sameas true %}<input type="hidden" name="device__known__{{ field.name }}" value="1">{% endif %}
                                 {% if field.type == "checkbox" %}
-                                <input type="checkbox" name="device__{{ field.name }}" value="1" {% if field.value %}checked{% endif %}>
+                                <input type="checkbox" name="device__{{ field.name }}" value="1" {% if field.value %}checked{% endif %} {% if field.value_known is sameas false %}disabled{% endif %}>
                                 {% elif field.type == "password" %}
-                                <input type="password" name="device__{{ field.name }}" value="{{ field.value }}">
+                                <input type="password" name="device__{{ field.name }}" value="{{ field.value if field.value is not none else '' }}" {% if field.value_known is sameas false %}disabled{% endif %}>
                                 {% elif field.type == "number" %}
-                                <input type="number" name="device__{{ field.name }}" value="{{ field.value }}"
+                                <input type="number" name="device__{{ field.name }}" value="{{ field.value if field.value is not none else '' }}"
                                        {% if field.min is not none %}min="{{ field.min }}"{% endif %}
                                        {% if field.max is not none %}max="{{ field.max }}"{% endif %}
-                                       {% if field.step is not none %}step="{{ field.step }}"{% endif %}>
+                                       {% if field.step is not none %}step="{{ field.step }}"{% endif %}
+                                       {% if field.value_known is sameas false %}disabled{% endif %}>
                                 {% elif field.type == "select" %}
-                                <select name="device__{{ field.name }}">
+                                <select name="device__{{ field.name }}" {% if field.value_known is sameas false %}disabled{% endif %}>
                                     {% for choice in field.choices or [] %}
                                     <option value="{{ choice.value }}" {% if choice.value == field.value %}selected{% endif %}>{{ choice.label }}</option>
                                     {% endfor %}
                                 </select>
                                 {% else %}
-                                <input type="text" name="device__{{ field.name }}" value="{{ field.value }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>
+                                <input type="text" name="device__{{ field.name }}" value="{{ field.value if field.value is not none else '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %} {% if field.value_known is sameas false %}disabled{% endif %}>
                                 {% endif %}
+                                {% if field.value_known is sameas true %}<small class="field-help">Live-Wert aus dem Gerät.</small>{% endif %}
+                                {% if field.value_known is sameas false %}<small class="field-help">Aktueller Gerätewert unbekannt; Feld ist deshalb nicht aktiv.</small>{% endif %}
                                 {% if field.help %}<small class="field-help">{{ field.help }}</small>{% endif %}
                             </label>
                             {% endfor %}

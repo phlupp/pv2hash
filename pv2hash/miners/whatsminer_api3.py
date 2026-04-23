@@ -201,6 +201,7 @@ class WhatsminerApi3Miner(MinerAdapter):
         self._desired_profile_after_start: str | None = None
         self._device_info_cache: dict[str, Any] = {}
         self._summary_cache: dict[str, Any] = {}
+        self._fan_setting_cache: dict[str, Any] = {}
 
     def _send_request(self, obj: dict[str, Any]) -> dict[str, Any]:
         payload = json.dumps(obj, separators=(",", ":")).encode("ascii")
@@ -227,6 +228,9 @@ class WhatsminerApi3Miner(MinerAdapter):
 
     def _get_summary_status(self) -> dict[str, Any]:
         return self._send_request({"cmd": "get.miner.status", "param": "summary"})
+
+    def _get_fan_setting(self) -> dict[str, Any]:
+        return self._send_request({"cmd": "get.fan.setting"})
 
     def _write_command(self, cmd: str, param: Any | None = None, *, include_param: bool = True) -> dict[str, Any]:
         info = self._get_device_info()
@@ -258,6 +262,17 @@ class WhatsminerApi3Miner(MinerAdapter):
             return int(float(value))
         except Exception:
             return default
+
+    @staticmethod
+    def _format_bool_flag(value: Any) -> str:
+        if isinstance(value, bool):
+            return "Ja" if value else "Nein"
+        text = str(value).strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return "Ja"
+        if text in {"0", "false", "no", "off"}:
+            return "Nein"
+        return str(value) if value not in (None, "") else "—"
 
 
     def _set_unreachable(self, exc: Exception) -> None:
@@ -362,8 +377,17 @@ class WhatsminerApi3Miner(MinerAdapter):
     def _refresh_status(self) -> dict[str, Any]:
         device = self._get_device_info()
         status = self._get_summary_status()
+        try:
+            fan_setting = self._get_fan_setting()
+        except Exception as exc:
+            fan_setting = {}
+            logger.debug(
+                "WhatsMiner API3 get.fan.setting failed for %s (%s:%s): %s",
+                self.info.name, self.host, self.port, exc,
+            )
         self._device_info_cache = device.get("msg", {}) if isinstance(device.get("msg"), dict) else {}
         self._summary_cache = status.get("msg", {}).get("summary", {}) if isinstance(status.get("msg"), dict) else {}
+        self._fan_setting_cache = fan_setting.get("msg", {}) if isinstance(fan_setting.get("msg"), dict) else {}
 
         miner = self._device_info_cache.get("miner", {}) if isinstance(self._device_info_cache.get("miner"), dict) else {}
         system = self._device_info_cache.get("system", {}) if isinstance(self._device_info_cache.get("system"), dict) else {}
@@ -422,16 +446,58 @@ class WhatsminerApi3Miner(MinerAdapter):
         return self.info
 
 
+    def get_device_settings_values(self) -> dict[str, Any]:
+        values: dict[str, Any] = {}
+
+        try:
+            fan_setting = self._get_fan_setting()
+            fan_msg = fan_setting.get("msg", {}) if isinstance(fan_setting.get("msg"), dict) else {}
+            if "fan-poweroff-cool" in fan_msg:
+                values["device_settings.fan_poweroff_cool"] = bool(self._safe_int(fan_msg.get("fan-poweroff-cool"), 0))
+            if "fan-zero-speed" in fan_msg:
+                values["device_settings.fan_zero_speed"] = bool(self._safe_int(fan_msg.get("fan-zero-speed"), 0))
+            self._fan_setting_cache = fan_msg
+        except Exception as exc:
+            logger.debug(
+                "WhatsMiner API3 device fan setting readback failed for %s (%s:%s): %s",
+                self.info.name, self.host, self.port, exc,
+            )
+
+        power_limit_w = self._cached_power_limit_w
+        if power_limit_w is None:
+            try:
+                status = self._get_summary_status()
+                summary = status.get("msg", {}).get("summary", {}) if isinstance(status.get("msg"), dict) else {}
+                power_limit_w = self._safe_float(summary.get("power-limit"), None)
+                if power_limit_w is not None and power_limit_w > 0:
+                    self._cached_power_limit_w = power_limit_w
+            except Exception as exc:
+                logger.debug(
+                    "WhatsMiner API3 device power-limit readback failed for %s (%s:%s): %s",
+                    self.info.name, self.host, self.port, exc,
+                )
+
+        if power_limit_w is not None:
+            values["device_settings.power_limit_w"] = int(round(float(power_limit_w)))
+
+        return values
+
     def apply_device_settings(self, values: dict[str, Any]) -> dict[str, Any]:
-        fan_poweroff_cool = bool(values.get("device_settings.fan_poweroff_cool", False))
-        fan_zero_speed = bool(values.get("device_settings.fan_zero_speed", False))
+        current_values = self.get_device_settings_values()
+        commands: list[tuple[str, str, Any]] = []
+
+        if "device_settings.fan_poweroff_cool" in values:
+            fan_poweroff_cool = bool(values.get("device_settings.fan_poweroff_cool", False))
+            if current_values.get("device_settings.fan_poweroff_cool") != fan_poweroff_cool:
+                commands.append(("fan_poweroff_cool", "set.fan.poweroff_cool", 1 if fan_poweroff_cool else 0))
+
+        if "device_settings.fan_zero_speed" in values:
+            fan_zero_speed = bool(values.get("device_settings.fan_zero_speed", False))
+            if current_values.get("device_settings.fan_zero_speed") != fan_zero_speed:
+                commands.append(("fan_zero_speed", "set.fan.zero_speed", 1 if fan_zero_speed else 0))
+
         power_limit_w = values.get("device_settings.power_limit_w", None)
-
-        commands: list[tuple[str, str, Any]] = [
-            ("fan_poweroff_cool", "set.fan.poweroff_cool", 1 if fan_poweroff_cool else 0),
-            ("fan_zero_speed", "set.fan.zero_speed", 1 if fan_zero_speed else 0),
-        ]
-
+        power_limit_int: int | None = None
         if power_limit_w is not None:
             try:
                 power_limit_int = int(float(power_limit_w))
@@ -441,7 +507,12 @@ class WhatsminerApi3Miner(MinerAdapter):
             if power_limit_int < 0 or power_limit_int > 99999:
                 return {"ok": False, "message": "Power Limit muss zwischen 0 und 99999 W liegen."}
 
-            commands.append(("power_limit_w", "set.miner.power_limit", power_limit_int))
+            current_power_limit = current_values.get("device_settings.power_limit_w")
+            if current_power_limit is None or int(float(current_power_limit)) != power_limit_int:
+                commands.append(("power_limit_w", "set.miner.power_limit", power_limit_int))
+
+        if not commands:
+            return {"ok": True, "message": "Keine Geräte-Einstellung geändert"}
 
         for setting_name, cmd, param in commands:
             try:
@@ -461,8 +532,8 @@ class WhatsminerApi3Miner(MinerAdapter):
                 )
                 return {"ok": False, "message": f"API-Fehler bei {setting_name}: {resp}"}
 
-        if power_limit_w is not None:
-            self._cached_power_limit_w = float(int(float(power_limit_w)))
+        if power_limit_int is not None:
+            self._cached_power_limit_w = float(power_limit_int)
 
         return {"ok": True, "message": "Geräte-Einstellungen übernommen"}
 
@@ -522,6 +593,9 @@ class WhatsminerApi3Miner(MinerAdapter):
                     {"label": "Chip Max", "value": f"{summary.get('chip-temp-max', '—')} °C"},
                     {"label": "Lüfter In", "value": f"{summary.get('fan-speed-in', '—')} rpm"},
                     {"label": "Lüfter Out", "value": f"{summary.get('fan-speed-out', '—')} rpm"},
+                    {"label": "Lüfternachlauf", "value": self._format_bool_flag(self._fan_setting_cache.get("fan-poweroff-cool"))},
+                    {"label": "Zero Fan Speed", "value": self._format_bool_flag(self._fan_setting_cache.get("fan-zero-speed"))},
+                    {"label": "Fan Temp Offset", "value": f"{self._fan_setting_cache.get('fan-temp-offset', '—')} °C"},
                 ] + [
                     {"label": f"Board {idx+1}", "value": f"{temp} °C"} for idx, temp in enumerate(boards)
                 ],
