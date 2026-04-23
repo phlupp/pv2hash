@@ -889,7 +889,7 @@ def _get_runtime_miner_map() -> dict[str, dict]:
 
 def _get_runtime_details_map() -> dict[str, dict]:
     details: dict[str, dict] = {}
-    for adapter in getattr(state, "miner_adapters", []) or []:
+    for adapter in services.miners:
         try:
             payload = adapter.get_details()
         except Exception:
@@ -899,7 +899,7 @@ def _get_runtime_details_map() -> dict[str, dict]:
 
 
 def _get_runtime_adapter_by_id(miner_id: str):
-    for adapter in getattr(state, "miner_adapters", []) or []:
+    for adapter in services.miners:
         if getattr(adapter.info, "id", None) == miner_id:
             return adapter
     return None
