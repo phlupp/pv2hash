@@ -88,6 +88,13 @@ class WhatsminerApi3Miner(MinerAdapter):
                 default=False,
                 help="Wenn aktiviert, kühlt der Miner nach dem Stoppen aktiv nach. Für PV2Hash meist deaktiviert.",
             ),
+            DriverField(
+                name="device_settings.fan_zero_speed",
+                label="Zero Fan Speed",
+                type="checkbox",
+                default=False,
+                help="Erlaubt bei luftgekühlten Geräten, dass die Lüfter bei niedriger Temperatur vollständig stoppen.",
+            ),
         ]
 
     def __init__(
@@ -393,29 +400,38 @@ class WhatsminerApi3Miner(MinerAdapter):
 
 
     def apply_device_settings(self, values: dict[str, Any]) -> dict[str, Any]:
-        enabled = bool(values.get("device_settings.fan_poweroff_cool", False))
-        try:
-            resp = self._write_command("set.fan.poweroff_cool", 1 if enabled else 0)
-        except Exception as exc:
-            self._set_unreachable(exc)
-            logger.warning(
-                "WhatsMiner API3 apply fan_poweroff_cool failed for %s (%s:%s): %s",
-                self.info.name, self.host, self.port, exc,
-            )
-            return {"ok": False, "message": str(exc)}
+        fan_poweroff_cool = bool(values.get("device_settings.fan_poweroff_cool", False))
+        fan_zero_speed = bool(values.get("device_settings.fan_zero_speed", False))
 
-        code = resp.get("code")
-        if code != 0:
-            logger.warning(
-                "WhatsMiner API3 apply fan_poweroff_cool returned non-zero for %s (%s:%s): %s",
-                self.info.name, self.host, self.port, resp,
-            )
-            return {"ok": False, "message": f"API-Fehler: {resp}"}
+        commands = [
+            ("fan_poweroff_cool", "set.fan.poweroff_cool", 1 if fan_poweroff_cool else 0),
+            ("fan_zero_speed", "set.fan.zero_speed", "1" if fan_zero_speed else "0"),
+        ]
 
-        logger.info(
-            "WhatsMiner API3 fan_poweroff_cool set for %s (%s:%s): %s",
-            self.info.name, self.host, self.port, 1 if enabled else 0,
-        )
+        for setting_name, cmd, param in commands:
+            try:
+                resp = self._write_command(cmd, param)
+            except Exception as exc:
+                self._set_unreachable(exc)
+                logger.warning(
+                    "WhatsMiner API3 apply %s failed for %s (%s:%s): %s",
+                    setting_name, self.info.name, self.host, self.port, exc,
+                )
+                return {"ok": False, "message": str(exc)}
+
+            code = resp.get("code")
+            if code != 0:
+                logger.warning(
+                    "WhatsMiner API3 apply %s returned non-zero for %s (%s:%s): %s",
+                    setting_name, self.info.name, self.host, self.port, resp,
+                )
+                return {"ok": False, "message": f"API-Fehler: {resp}"}
+
+            logger.info(
+                "WhatsMiner API3 %s set for %s (%s:%s): %s",
+                setting_name, self.info.name, self.host, self.port, param,
+            )
+
         return {"ok": True, "message": "ok"}
 
     def get_details(self) -> dict:
