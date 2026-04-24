@@ -89,13 +89,6 @@ class WhatsminerApi3Miner(MinerAdapter):
                 help="Wenn aktiviert, kühlt der Miner nach dem Stoppen aktiv nach. Für PV2Hash meist deaktiviert.",
             ),
             DriverField(
-                name="device_settings.fan_zero_speed",
-                label="Zero Fan Speed",
-                type="checkbox",
-                default=False,
-                help="Erlaubt bei luftgekühlten Geräten, dass die Lüfter bei niedriger Temperatur vollständig stoppen.",
-            ),
-            DriverField(
                 name="device_settings.power_limit_w",
                 label="Power Limit (W)",
                 type="number",
@@ -457,6 +450,10 @@ class WhatsminerApi3Miner(MinerAdapter):
             if "fan-poweroff-cool" in fan_msg:
                 values["device_settings.fan_poweroff_cool"] = bool(self._safe_int(fan_msg.get("fan-poweroff-cool"), 0))
             if "fan-zero-speed" in fan_msg:
+                # Firmware note: on tested M31S+ H6OS 20250214.16.1.AMS,
+                # set.fan.zero_speed returns OK but toggles fan-poweroff-cool
+                # instead of fan-zero-speed. Keep readback/details, but do not
+                # expose it as a writable device setting.
                 values["device_settings.fan_zero_speed"] = bool(self._safe_int(fan_msg.get("fan-zero-speed"), 0))
             self._fan_setting_cache = fan_msg
         except Exception as exc:
@@ -493,10 +490,6 @@ class WhatsminerApi3Miner(MinerAdapter):
             if current_values.get("device_settings.fan_poweroff_cool") != fan_poweroff_cool:
                 commands.append(("fan_poweroff_cool", "set.fan.poweroff_cool", 1 if fan_poweroff_cool else 0))
 
-        if "device_settings.fan_zero_speed" in values:
-            fan_zero_speed = bool(values.get("device_settings.fan_zero_speed", False))
-            if current_values.get("device_settings.fan_zero_speed") != fan_zero_speed:
-                commands.append(("fan_zero_speed", "set.fan.zero_speed", 1 if fan_zero_speed else 0))
 
         power_limit_w = values.get("device_settings.power_limit_w", None)
         power_limit_int: int | None = None
@@ -557,8 +550,6 @@ class WhatsminerApi3Miner(MinerAdapter):
         fan_expected: dict[str, bool] = {}
         if "device_settings.fan_poweroff_cool" in values:
             fan_expected["device_settings.fan_poweroff_cool"] = bool(values.get("device_settings.fan_poweroff_cool", False))
-        if "device_settings.fan_zero_speed" in values:
-            fan_expected["device_settings.fan_zero_speed"] = bool(values.get("device_settings.fan_zero_speed", False))
 
         if fan_expected:
             readback_values = self.get_device_settings_values()

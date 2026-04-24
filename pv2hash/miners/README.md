@@ -378,13 +378,12 @@ The WhatsMiner API 3 driver currently exposes miner-side device settings through
 Supported writable device settings:
 
 - `device_settings.fan_poweroff_cool` -> `set.fan.poweroff_cool`
-- `device_settings.fan_zero_speed` -> `set.fan.zero_speed`
 - `device_settings.power_limit_w` -> `set.miner.power_limit`
 
 Readback sources:
 
 - `device_settings.fan_poweroff_cool` is read from `get.fan.setting` field `fan-poweroff-cool`
-- `device_settings.fan_zero_speed` is read from `get.fan.setting` field `fan-zero-speed`
+- `fan-zero-speed` is read from `get.fan.setting` and may be shown as read-only detail, but is not exposed as a writable setting.
 - `device_settings.power_limit_w` is read from `get.miner.status` summary field `power-limit`
 
 `device_settings.power_limit_w` is intentionally optional in the GUI. An empty value is not sent to the miner. This avoids accidentally sending `0` and triggering a restart when the user only wants to apply unrelated fan settings. If a numeric value is entered, it is validated in the range `0..99999` and sent as a JSON number. The miner may reboot to apply this setting.
@@ -394,3 +393,7 @@ Supported explicit actions:
 - `system_reboot` -> `set.system.reboot`
 
 Actions are not device settings. They are rendered separately and require an explicit user click, with confirmation for dangerous actions such as reboot.
+
+Firmware note for WhatsMiner API 3 fan zero speed:
+
+On the tested M31S+ H6OS firmware `20250214.16.1.AMS`, `set.fan.zero_speed` returns `code=0` / `msg=ok`, but it does not change `fan-zero-speed`. Instead, it toggles `fan-poweroff-cool`. Because the API acknowledges a command while applying the wrong setting, PV2Hash must not expose `fan_zero_speed` as writable for this driver. The value can still be read and displayed as device detail.
