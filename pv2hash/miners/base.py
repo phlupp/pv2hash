@@ -83,7 +83,6 @@ class MinerAdapter(ABC):
         return len(cls.get_device_settings_schema()) > 0
 
     @classmethod
-    @classmethod
     def has_fixed_power_profiles(cls) -> bool:
         return False
 
