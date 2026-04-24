@@ -202,6 +202,7 @@ class WhatsminerApi3Miner(MinerAdapter):
         self._device_info_cache: dict[str, Any] = {}
         self._summary_cache: dict[str, Any] = {}
         self._fan_setting_cache: dict[str, Any] = {}
+        self._last_full_refresh_at: datetime | None = None
 
     def _send_request(self, obj: dict[str, Any]) -> dict[str, Any]:
         payload = json.dumps(obj, separators=(",", ":")).encode("ascii")
@@ -388,6 +389,7 @@ class WhatsminerApi3Miner(MinerAdapter):
         self._device_info_cache = device.get("msg", {}) if isinstance(device.get("msg"), dict) else {}
         self._summary_cache = status.get("msg", {}).get("summary", {}) if isinstance(status.get("msg"), dict) else {}
         self._fan_setting_cache = fan_setting.get("msg", {}) if isinstance(fan_setting.get("msg"), dict) else {}
+        self._last_full_refresh_at = datetime.now(UTC)
 
         miner = self._device_info_cache.get("miner", {}) if isinstance(self._device_info_cache.get("miner"), dict) else {}
         system = self._device_info_cache.get("system", {}) if isinstance(self._device_info_cache.get("system"), dict) else {}
@@ -489,9 +491,7 @@ class WhatsminerApi3Miner(MinerAdapter):
         if "device_settings.fan_poweroff_cool" in values:
             fan_poweroff_cool = bool(values.get("device_settings.fan_poweroff_cool", False))
             if current_values.get("device_settings.fan_poweroff_cool") != fan_poweroff_cool:
-                # WhatsMiner API3 expects fan.poweroff_cool as string "1"/"0".
-                # Sending a numeric value can return code=0 but leave the setting unchanged.
-                commands.append(("fan_poweroff_cool", "set.fan.poweroff_cool", "1" if fan_poweroff_cool else "0"))
+                commands.append(("fan_poweroff_cool", "set.fan.poweroff_cool", 1 if fan_poweroff_cool else 0))
 
         if "device_settings.fan_zero_speed" in values:
             fan_zero_speed = bool(values.get("device_settings.fan_zero_speed", False))
@@ -613,6 +613,15 @@ class WhatsminerApi3Miner(MinerAdapter):
         return {"ok": True, "message": "Miner-Neustart ausgelöst"}
 
     def get_details(self) -> dict:
+        if not self._device_info_cache or not self._summary_cache:
+            try:
+                self._refresh_status()
+            except Exception as exc:
+                logger.debug(
+                    "WhatsMiner API3 details refresh failed for %s (%s:%s): %s",
+                    self.info.name, self.host, self.port, exc,
+                )
+
         miner = self._device_info_cache.get("miner", {}) if isinstance(self._device_info_cache.get("miner"), dict) else {}
         power = self._device_info_cache.get("power", {}) if isinstance(self._device_info_cache.get("power"), dict) else {}
         system = self._device_info_cache.get("system", {}) if isinstance(self._device_info_cache.get("system"), dict) else {}
