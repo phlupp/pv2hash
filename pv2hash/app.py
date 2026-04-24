@@ -1514,10 +1514,11 @@ async def add_miner(request: Request):
     return _redirect_to_miners(miner_id=miner_id, saved=True)
 
 
-@app.post("/miners/update")
-async def update_miner(request: Request):
-    form = await request.form()
+async def _update_miner_config_result(form: Any) -> dict[str, Any]:
     miner_id = str(form.get("miner_id", "")).strip()
+    if not miner_id:
+        return {"status": "error", "message": "Miner-ID fehlt."}
+
     runtime_map = _get_runtime_miner_map()
 
     for miner in state.config.get("miners", []):
@@ -1526,7 +1527,11 @@ async def update_miner(request: Request):
 
         driver = _normalize_miner_driver(miner.get("driver", "simulator"))
         if not _driver_supports_gui_schema(driver):
-            return _redirect_to_miners(miner_id=miner_id, error="Dieser Treiber ist noch nicht auf das neue GUI-Schema migriert.")
+            return {
+                "status": "error",
+                "message": "Dieser Treiber ist noch nicht auf das neue GUI-Schema migriert.",
+                "miner_id": miner_id,
+            }
 
         updated = deepcopy(miner)
         for field in _core_identity_schema() + _core_control_schema(driver) + _driver_schema(driver):
@@ -1546,18 +1551,44 @@ async def update_miner(request: Request):
             runtime_constraints=runtime_map.get(miner_id),
         )
         if validation_error:
-            return _redirect_to_miners(miner_id=miner_id, error=validation_error)
+            return {"status": "error", "message": validation_error, "miner_id": miner_id}
 
         miner.clear()
         miner.update(updated)
+        save_config(state.config)
+        reload_runtime()
         logger.info(
             "Miner updated via metadata UI: id=%s name=%s driver=%s host=%s control_enabled=%s",
             miner.get("id"), miner.get("name"), driver, miner.get("host"), miner.get("control_enabled")
         )
-        break
+        return {
+            "status": "ok",
+            "message": "Miner-Konfiguration gespeichert.",
+            "miner_id": miner_id,
+            "control_enabled": bool(miner.get("control_enabled", True)),
+            "monitor_enabled": bool(miner.get("monitor_enabled", True)),
+        }
 
-    save_config(state.config)
-    reload_runtime()
+    return {"status": "error", "message": "Miner nicht gefunden.", "miner_id": miner_id}
+
+
+@app.post("/api/miner/{miner_id}/config")
+async def api_update_miner_config(miner_id: str, request: Request):
+    form = await request.form()
+    data = dict(form)
+    data["miner_id"] = miner_id
+    result = await _update_miner_config_result(data)
+    status_code = 200 if result.get("status") == "ok" else 400
+    return JSONResponse(result, status_code=status_code)
+
+
+@app.post("/miners/update")
+async def update_miner(request: Request):
+    form = await request.form()
+    result = await _update_miner_config_result(form)
+    miner_id = str(result.get("miner_id") or form.get("miner_id", "")).strip() or None
+    if result.get("status") != "ok":
+        return _redirect_to_miners(miner_id=miner_id, error=str(result.get("message") or "Miner-Konfiguration konnte nicht gespeichert werden."))
     return _redirect_to_miners(miner_id=miner_id, saved=True)
 
 

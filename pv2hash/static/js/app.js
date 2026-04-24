@@ -88,6 +88,36 @@
     return readJsonResponse(response, 'Speichern fehlgeschlagen.');
   }
 
+  function setButtonBusy(button, busyText) {
+    if (!button) return () => {};
+    const oldText = button.textContent;
+    const oldDisabled = button.disabled;
+    button.disabled = true;
+    button.textContent = busyText;
+    return () => {
+      button.disabled = oldDisabled;
+      button.textContent = oldText;
+    };
+  }
+
+  function syncMinerActionGuards(form) {
+    if (!form) return;
+    const card = form.closest('.miner-card');
+    if (!card) return;
+    const control = form.querySelector('input[name="control_enabled"]');
+    const controlEnabled = Boolean(control && control.checked);
+    for (const button of card.querySelectorAll('[data-miner-action][data-disable-when-control="1"]')) {
+      button.disabled = controlEnabled;
+      if (controlEnabled) {
+        button.title = 'Aktion deaktiviert, solange der Miner in der Regelung ist.';
+      } else if (button.dataset.originalTitle !== undefined) {
+        button.title = button.dataset.originalTitle;
+      } else {
+        button.removeAttribute('title');
+      }
+    }
+  }
+
   window.runMinerAction = async function runMinerAction(button) {
     const minerId = button.dataset.minerId;
     const actionName = button.dataset.actionName;
@@ -95,17 +125,14 @@
     if (!minerId || !actionName) return;
     if (confirmText && !window.confirm(confirmText)) return;
 
-    const oldText = button.textContent;
-    button.disabled = true;
-    button.textContent = 'Läuft …';
+    const restore = setButtonBusy(button, 'Läuft …');
     try {
       const data = await postJson(`/api/miner/${encodeURIComponent(minerId)}/action`, { action_name: actionName });
       window.showToast('success', data.message || 'Aktion erfolgreich ausgeführt.');
     } catch (error) {
       window.showToast('error', error.message || 'Aktion fehlgeschlagen.');
     } finally {
-      button.disabled = false;
-      button.textContent = oldText;
+      restore();
     }
   };
 
@@ -114,17 +141,30 @@
     const form = button.closest('form');
     if (!minerId || !form) return;
 
-    const oldText = button.textContent;
-    button.disabled = true;
-    button.textContent = 'Speichert …';
+    const restore = setButtonBusy(button, 'Speichert …');
     try {
       const data = await postForm(`/api/miner/${encodeURIComponent(minerId)}/device-settings`, form);
       window.showToast('success', data.message || 'Geräte-Einstellung erfolgreich angewendet.');
     } catch (error) {
       window.showToast('error', error.message || 'Geräte-Einstellung fehlgeschlagen.');
     } finally {
-      button.disabled = false;
-      button.textContent = oldText;
+      restore();
+    }
+  };
+
+  window.submitMinerConfig = async function submitMinerConfig(form, submitter) {
+    const minerId = form.dataset.minerId || form.querySelector('input[name="miner_id"]')?.value;
+    if (!minerId) return;
+
+    const restore = setButtonBusy(submitter || form.querySelector('[type="submit"]'), 'Speichert …');
+    try {
+      const data = await postForm(`/api/miner/${encodeURIComponent(minerId)}/config`, form);
+      window.showToast('success', data.message || 'Miner-Konfiguration gespeichert.');
+      syncMinerActionGuards(form);
+    } catch (error) {
+      window.showToast('error', error.message || 'Miner-Konfiguration konnte nicht gespeichert werden.');
+    } finally {
+      restore();
     }
   };
 
@@ -140,6 +180,26 @@
     if (deviceSettingsButton && !deviceSettingsButton.disabled) {
       event.preventDefault();
       window.submitMinerDeviceSettings(deviceSettingsButton);
+    }
+  });
+
+  document.addEventListener('submit', (event) => {
+    const form = event.target.closest('[data-miner-config-form]');
+    if (!form) return;
+    event.preventDefault();
+    window.submitMinerConfig(form, event.submitter);
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    for (const button of document.querySelectorAll('[data-miner-action][data-disable-when-control="1"]')) {
+      button.dataset.originalTitle = button.getAttribute('title') || '';
+    }
+    for (const form of document.querySelectorAll('[data-miner-config-form]')) {
+      syncMinerActionGuards(form);
+      const control = form.querySelector('input[name="control_enabled"]');
+      const monitor = form.querySelector('input[name="monitor_enabled"]');
+      if (control) control.addEventListener('change', () => syncMinerActionGuards(form));
+      if (monitor) monitor.addEventListener('change', () => syncMinerActionGuards(form));
     }
   });
 })();
