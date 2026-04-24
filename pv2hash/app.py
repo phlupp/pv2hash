@@ -248,19 +248,12 @@ def _driver_device_settings_fields(driver: str | None, live_values: dict | None 
     return fields
 
 
-def _render_action(action: DriverAction, *, control_enabled: bool = False) -> dict:
-    rendered = asdict(action)
-    rendered["disabled"] = bool(action.disabled_when_control_enabled and control_enabled)
-    if rendered["disabled"]:
-        rendered["disabled_reason"] = "Diese Aktion ist gesperrt, solange der Miner in die Regelung einbezogen ist."
-    else:
-        rendered["disabled_reason"] = ""
-    return rendered
+def _render_action(action: DriverAction) -> dict:
+    return asdict(action)
 
 
-def _driver_action_fields(driver: str | None, miner_cfg: dict | None = None) -> list[dict]:
-    control_enabled = bool((miner_cfg or {}).get("control_enabled", False))
-    return [_render_action(action, control_enabled=control_enabled) for action in _driver_actions_schema(driver)]
+def _driver_action_fields(driver: str | None) -> list[dict]:
+    return [_render_action(action) for action in _driver_actions_schema(driver)]
 
 
 def _core_identity_basic_fields() -> list[dict]:
@@ -767,6 +760,23 @@ def _redirect_with_system_message(*, notice: str | None = None, error: str | Non
     return RedirectResponse(url=f"/system{suffix}", status_code=303)
 
 
+def _redirect_to_miners(
+    *,
+    miner_id: str | None = None,
+    saved: bool = False,
+    error: str | None = None,
+) -> RedirectResponse:
+    params = []
+    if saved:
+        params.append("saved=1")
+    if miner_id:
+        params.append(f"open={quote_plus(str(miner_id))}")
+    if error:
+        params.append(f"error_message={quote_plus(error)}")
+    suffix = f"?{'&'.join(params)}" if params else ''
+    return RedirectResponse(url=f"/miners{suffix}", status_code=303)
+
+
 def _normalize_miner_driver(driver: str | None) -> str:
     normalized = str(driver or "simulator").strip().lower()
     if normalized in {"axeos", "espminer", "esp-miner", "bitaxe"}:
@@ -984,7 +994,7 @@ def _build_miners_view() -> list[dict]:
             merged.get("driver"),
             device_settings_values_map.get(miner_cfg.get("id"), {}),
         )
-        merged["action_fields"] = _driver_action_fields(merged.get("driver"), merged)
+        merged["action_fields"] = _driver_action_fields(merged.get("driver"))
         merged["details"] = details_map.get(miner_cfg.get("id"), {})
         miner_views.append(merged)
 
@@ -997,7 +1007,7 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
         "miners": _build_miners_view(),
         "saved": request.query_params.get("saved") == "1",
         "open_miner_id": request.query_params.get("open"),
-        "error_message": error_message,
+        "error_message": error_message or request.query_params.get("error_message"),
         "driver_catalog": _build_driver_catalog(),
         "core_identity_basic_fields": _core_identity_basic_fields(),
         "wiki_links": {
@@ -1461,12 +1471,7 @@ async def add_miner(request: Request):
     miner_id = f"m-{uuid4().hex[:8]}"
     driver = _normalize_miner_driver(form.get("driver", "simulator"))
     if not _driver_supports_gui_schema(driver):
-        return templates.TemplateResponse(
-            request=request,
-            name="miners.html",
-            context=_miners_context(request, error_message="Dieser Treiber ist noch nicht auf das neue GUI-Schema migriert."),
-            status_code=400,
-        )
+        return _redirect_to_miners(error="Dieser Treiber ist noch nicht auf das neue GUI-Schema migriert.")
 
     miner_cfg = {
         "id": miner_id,
@@ -1500,18 +1505,13 @@ async def add_miner(request: Request):
             _set_nested_value(miner_cfg, field.name, value)
 
     if validation_error:
-        return templates.TemplateResponse(
-            request=request,
-            name="miners.html",
-            context=_miners_context(request, error_message=validation_error),
-            status_code=400,
-        )
+        return _redirect_to_miners(error=validation_error)
 
     state.config.setdefault("miners", []).append(miner_cfg)
     save_config(state.config)
     logger.info("Miner added via metadata UI: id=%s name=%s driver=%s host=%s", miner_id, miner_cfg.get("name"), driver, miner_cfg.get("host"))
     reload_runtime()
-    return RedirectResponse(url=f"/miners?saved=1&open={miner_id}", status_code=303)
+    return _redirect_to_miners(miner_id=miner_id, saved=True)
 
 
 @app.post("/miners/update")
@@ -1526,12 +1526,7 @@ async def update_miner(request: Request):
 
         driver = _normalize_miner_driver(miner.get("driver", "simulator"))
         if not _driver_supports_gui_schema(driver):
-            return templates.TemplateResponse(
-                request=request,
-                name="miners.html",
-                context=_miners_context(request, error_message="Dieser Treiber ist noch nicht auf das neue GUI-Schema migriert."),
-                status_code=400,
-            )
+            return _redirect_to_miners(miner_id=miner_id, error="Dieser Treiber ist noch nicht auf das neue GUI-Schema migriert.")
 
         updated = deepcopy(miner)
         for field in _core_identity_schema() + _core_control_schema(driver) + _driver_schema(driver):
@@ -1551,12 +1546,7 @@ async def update_miner(request: Request):
             runtime_constraints=runtime_map.get(miner_id),
         )
         if validation_error:
-            return templates.TemplateResponse(
-                request=request,
-                name="miners.html",
-                context=_miners_context(request, error_message=validation_error),
-                status_code=400,
-            )
+            return _redirect_to_miners(miner_id=miner_id, error=validation_error)
 
         miner.clear()
         miner.update(updated)
@@ -1568,7 +1558,7 @@ async def update_miner(request: Request):
 
     save_config(state.config)
     reload_runtime()
-    return RedirectResponse(url=f"/miners?saved=1&open={miner_id}", status_code=303)
+    return _redirect_to_miners(miner_id=miner_id, saved=True)
 
 
 @app.post("/miners/set-control-enabled")
@@ -1619,12 +1609,7 @@ async def _apply_miner_device_settings_impl(request: Request, miner_id: str):
         driver = _normalize_miner_driver(miner.get("driver", "simulator"))
         schema = _driver_device_settings_schema(driver)
         if not schema:
-            return templates.TemplateResponse(
-                request=request,
-                name="miners.html",
-                context=_miners_context(request, error_message="Dieser Treiber unterstützt keine Geräte-Einstellungen."),
-                status_code=400,
-            )
+            return _redirect_to_miners(miner_id=miner_id, error="Dieser Treiber unterstützt keine Geräte-Einstellungen.")
 
         values: dict[str, Any] = {}
         for field in schema:
@@ -1640,43 +1625,23 @@ async def _apply_miner_device_settings_impl(request: Request, miner_id: str):
             values[field.name] = value
 
         if not values:
-            return templates.TemplateResponse(
-                request=request,
-                name="miners.html",
-                context=_miners_context(request, error_message="Keine lesbaren Geräte-Einstellungen verfügbar."),
-                status_code=400,
-            )
+            return _redirect_to_miners(miner_id=miner_id, error="Keine lesbaren Geräte-Einstellungen verfügbar.")
 
         adapter = _get_runtime_adapter_by_id(miner_id)
         if adapter is None:
-            return templates.TemplateResponse(
-                request=request,
-                name="miners.html",
-                context=_miners_context(request, error_message="Miner-Laufzeitadapter nicht verfügbar."),
-                status_code=400,
-            )
+            return _redirect_to_miners(miner_id=miner_id, error="Miner-Laufzeitadapter nicht verfügbar.")
 
         try:
             result = await asyncio.to_thread(adapter.apply_device_settings, values)
         except Exception as exc:
-            return templates.TemplateResponse(
-                request=request,
-                name="miners.html",
-                context=_miners_context(request, error_message=f"Geräte-Einstellung fehlgeschlagen: {exc}"),
-                status_code=400,
-            )
+            return _redirect_to_miners(miner_id=miner_id, error=f"Geräte-Einstellung fehlgeschlagen: {exc}")
 
         if not result or not result.get("ok"):
-            return templates.TemplateResponse(
-                request=request,
-                name="miners.html",
-                context=_miners_context(request, error_message=result.get("message", "Geräte-Einstellung fehlgeschlagen.")),
-                status_code=400,
-            )
+            return _redirect_to_miners(miner_id=miner_id, error=result.get("message", "Geräte-Einstellung fehlgeschlagen."))
 
-        return RedirectResponse(url=f"/miners?saved=1&open={miner_id}", status_code=303)
+        return _redirect_to_miners(miner_id=miner_id, saved=True)
 
-    return RedirectResponse(url="/miners", status_code=303)
+    return _redirect_to_miners(error="Miner nicht gefunden.")
 
 
 @app.post("/miners/{miner_id}/device-settings")
@@ -1692,56 +1657,26 @@ async def run_miner_action(miner_id: str, request: Request):
 
     miner_cfg = next((miner for miner in state.config.get("miners", []) if miner.get("id") == miner_id), None)
     if miner_cfg is None:
-        return RedirectResponse(url="/miners", status_code=303)
+        return _redirect_to_miners(error="Miner nicht gefunden.")
 
     driver = _normalize_miner_driver(miner_cfg.get("driver", "simulator"))
-    action_schema = list(_driver_actions_schema(driver))
-    allowed_actions = {action.name for action in action_schema}
-    selected_action = next((action for action in action_schema if action.name == action_name), None)
+    allowed_actions = {action.name for action in _driver_actions_schema(driver)}
     if action_name not in allowed_actions:
-        return templates.TemplateResponse(
-            request=request,
-            name="miners.html",
-            context=_miners_context(request, error_message="Diese Aktion wird vom Treiber nicht unterstützt."),
-            status_code=400,
-        )
-
-    if selected_action and selected_action.disabled_when_control_enabled and bool(miner_cfg.get("control_enabled", False)):
-        return templates.TemplateResponse(
-            request=request,
-            name="miners.html",
-            context=_miners_context(request, error_message="Diese Aktion ist gesperrt, solange der Miner in die Regelung einbezogen ist."),
-            status_code=400,
-        )
+        return _redirect_to_miners(miner_id=miner_id, error="Diese Aktion wird vom Treiber nicht unterstützt.")
 
     adapter = _get_runtime_adapter_by_id(miner_id)
     if adapter is None:
-        return templates.TemplateResponse(
-            request=request,
-            name="miners.html",
-            context=_miners_context(request, error_message="Miner-Laufzeitadapter nicht verfügbar."),
-            status_code=400,
-        )
+        return _redirect_to_miners(miner_id=miner_id, error="Miner-Laufzeitadapter nicht verfügbar.")
 
     try:
         result = await asyncio.to_thread(adapter.apply_action, action_name)
     except Exception as exc:
-        return templates.TemplateResponse(
-            request=request,
-            name="miners.html",
-            context=_miners_context(request, error_message=f"Miner-Aktion fehlgeschlagen: {exc}"),
-            status_code=400,
-        )
+        return _redirect_to_miners(miner_id=miner_id, error=f"Miner-Aktion fehlgeschlagen: {exc}")
 
     if not result or not result.get("ok"):
-        return templates.TemplateResponse(
-            request=request,
-            name="miners.html",
-            context=_miners_context(request, error_message=result.get("message", "Miner-Aktion fehlgeschlagen.")),
-            status_code=400,
-        )
+        return _redirect_to_miners(miner_id=miner_id, error=result.get("message", "Miner-Aktion fehlgeschlagen."))
 
-    return RedirectResponse(url=f"/miners?saved=1&open={miner_id}", status_code=303)
+    return _redirect_to_miners(miner_id=miner_id, saved=True)
 
 
 @app.post("/miners/delete")
@@ -1752,7 +1687,7 @@ async def delete_miner(miner_id: str = Form(...)):
     ]
     save_config(state.config)
     reload_runtime()
-    return RedirectResponse(url="/miners?saved=1", status_code=303)
+    return _redirect_to_miners(saved=True)
 
 
 @app.get("/system")
