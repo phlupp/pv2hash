@@ -318,6 +318,7 @@ class DriverField:
 
     create_phase: Literal["basic", "full"] = "full"
     advanced: bool = False
+    read_only: bool = False
 
     choices: list[Any] | None = None
 ```
@@ -326,8 +327,9 @@ class DriverField:
 
 ### Preset vs Default
 
-- preset: pre-filled UI value (user editable)
+- preset: pre-filled UI value (user editable unless `read_only=True`)
 - default: backend fallback if value is missing
+- read_only: UI renders the field disabled; server keeps the existing/configured value
 
 Example:
 - WhatsMiner API 3 port preset = 4433
@@ -435,3 +437,35 @@ Removal notes:
 - The `whatsminer_api2` driver key is no longer listed in the GUI driver catalog.
 - The API 2.x runtime adapter is no longer imported or built by the runtime factory.
 - Existing legacy API 2.x miner entries should be recreated with the WhatsMiner API 3 driver where possible.
+
+---
+
+## axeOS / ESP-Miner driver notes
+
+Driver key: `axeos`
+
+Supported devices:
+
+- Bitaxe / ESP-Miner class devices running axeOS
+- Small single-board miners with no real power-target API
+
+API behavior:
+
+- HTTP JSON API, normally without authentication
+- Default port: `80`
+- Read status from `GET /api/system/info`
+- Read ASIC metadata from `GET /api/system/asic`
+- Pause mining with `POST /api/system/pause`
+- Resume mining with `POST /api/system/resume`
+- Restart device with `POST /api/system/restart`
+- Identify device with `POST /api/system/identify`
+
+PV2Hash adaptation:
+
+- axeOS does not provide a watt-based regulation API.
+- `off` maps to `POST /api/system/pause`.
+- `p1` to `p4` map to `POST /api/system/resume`.
+- `p1` to `p4` are preset to `200 W` and exposed as read-only profile values.
+- The fixed profile value is used by the PV2Hash controller as an accounting value only. It is not sent to the miner as a power target.
+
+This driver is intentionally `start_stop_only`. It should not pretend to support fine-grained power control.

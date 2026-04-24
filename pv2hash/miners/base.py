@@ -29,6 +29,7 @@ class DriverField:
     step: Any = None
     create_phase: str = "full"
     advanced: bool = False
+    read_only: bool = False
     choices: tuple[DriverFieldChoice, ...] = field(default_factory=tuple)
 
 
@@ -82,6 +83,10 @@ class MinerAdapter(ABC):
         return len(cls.get_device_settings_schema()) > 0
 
     @classmethod
+    @classmethod
+    def has_fixed_power_profiles(cls) -> bool:
+        return False
+
     def get_actions_schema(cls) -> list[DriverAction]:
         return []
 

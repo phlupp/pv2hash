@@ -1,6 +1,7 @@
 from pv2hash.logging_ext.setup import get_logger
 from pv2hash.miners.base import MinerAdapter
 from pv2hash.miners.braiins import BraiinsMiner
+from pv2hash.miners.axeos import AxeOsMiner
 from pv2hash.miners.simulator import SimulatorMiner
 from pv2hash.miners.whatsminer_api3 import WhatsminerApi3Miner
 from pv2hash.sources.base import EnergySource
@@ -18,6 +19,8 @@ MODBUS_ENDIAN_TYPES = ("big_endian", "little_endian")
 
 def _normalize_miner_driver(driver: str | None) -> str:
     normalized = str(driver or "simulator").strip().lower()
+    if normalized in {"axeos", "espminer", "esp-miner", "bitaxe"}:
+        return "axeos"
     if normalized in {"whatsminer3", "whatsminer_api3"}:
         return "whatsminer_api3"
     return normalized or "simulator"
@@ -31,6 +34,13 @@ def _default_profiles_for_driver(driver: str) -> dict:
             "p2": {"power_w": 2200},
             "p3": {"power_w": 3200},
             "p4": {"power_w": 4200},
+        }
+    if driver == "axeos":
+        return {
+            "p1": {"power_w": 200},
+            "p2": {"power_w": 200},
+            "p3": {"power_w": 200},
+            "p4": {"power_w": 200},
         }
     if driver == "whatsminer_api3":
         return {
@@ -288,6 +298,43 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                         miner_cfg.get("battery_discharge_profile", "p1")
                     ),
                     timeout_s=float(settings.get("timeout_s", 5.0)),
+                )
+            )
+            continue
+
+        if driver == "axeos":
+            miner_adapters.append(
+                AxeOsMiner(
+                    miner_id=miner_cfg["id"],
+                    name=miner_cfg["name"],
+                    host=miner_cfg["host"],
+                    port=int(settings.get("port", 80)),
+                    priority=miner_cfg.get("priority", 100),
+                    enabled=monitor_enabled,
+                    serial_number=miner_cfg.get("serial_number"),
+                    model=miner_cfg.get("model"),
+                    firmware_version=miner_cfg.get("firmware_version"),
+                    profiles=profiles,
+                    min_regulated_profile=min_regulated_profile,
+                    use_battery_when_charging=bool(
+                        miner_cfg.get("use_battery_when_charging", False)
+                    ),
+                    battery_charge_soc_min=float(
+                        miner_cfg.get("battery_charge_soc_min", 95.0)
+                    ),
+                    battery_charge_profile=_normalize_battery_override_profile(
+                        miner_cfg.get("battery_charge_profile", "p1")
+                    ),
+                    use_battery_when_discharging=bool(
+                        miner_cfg.get("use_battery_when_discharging", False)
+                    ),
+                    battery_discharge_soc_min=float(
+                        miner_cfg.get("battery_discharge_soc_min", 80.0)
+                    ),
+                    battery_discharge_profile=_normalize_battery_override_profile(
+                        miner_cfg.get("battery_discharge_profile", "p1")
+                    ),
+                    timeout_s=float(settings.get("timeout_s", 3.0)),
                 )
             )
             continue

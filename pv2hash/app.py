@@ -32,6 +32,7 @@ from pv2hash.logging_ext.setup import (
 from pv2hash.runtime import AppState
 from pv2hash.miners.base import DriverAction, DriverField, DriverFieldChoice, MinerAdapter
 from pv2hash.miners.braiins import BraiinsMiner
+from pv2hash.miners.axeos import AxeOsMiner
 from pv2hash.miners.simulator import SimulatorMiner
 from pv2hash.miners.whatsminer_api3 import WhatsminerApi3Miner
 from pv2hash.self_update import SelfUpdateManager
@@ -69,6 +70,7 @@ MODBUS_ENDIAN_TYPES = ("big_endian", "little_endian")
 DRIVER_CLASSES: dict[str, type[MinerAdapter]] = {
     "simulator": SimulatorMiner,
     "braiins": BraiinsMiner,
+    "axeos": AxeOsMiner,
     "whatsminer_api3": WhatsminerApi3Miner,
 }
 
@@ -101,7 +103,9 @@ def _core_identity_schema() -> list[DriverField]:
     ]
 
 
-def _core_control_schema() -> list[DriverField]:
+def _core_control_schema(driver: str | None = None) -> list[DriverField]:
+    driver_cls = _driver_class_for(driver)
+    fixed_power_profiles = bool(driver_cls and driver_cls.has_fixed_power_profiles())
     battery_choices = (
         _choice("p1", "p1"),
         _choice("p2", "p2"),
@@ -120,10 +124,10 @@ def _core_control_schema() -> list[DriverField]:
         DriverField(name="control_enabled", label="In Regelung einbeziehen", type="checkbox", default=True, help="Der PV-Regler darf diesen Miner steuern. Erfordert Verbindung."),
         DriverField(name="priority", label="Priorität", type="number", default=100, placeholder="100"),
         DriverField(name="min_regulated_profile", label="Min. Regelprofil", type="select", default="off", choices=min_profile_choices),
-        DriverField(name="profiles.p1.power_w", label="Profil p1 (W)", type="number", default=900),
-        DriverField(name="profiles.p2.power_w", label="Profil p2 (W)", type="number", default=1800),
-        DriverField(name="profiles.p3.power_w", label="Profil p3 (W)", type="number", default=3000),
-        DriverField(name="profiles.p4.power_w", label="Profil p4 (W)", type="number", default=4200),
+        DriverField(name="profiles.p1.power_w", label="Profil p1 (W)", type="number", default=900, read_only=fixed_power_profiles),
+        DriverField(name="profiles.p2.power_w", label="Profil p2 (W)", type="number", default=1800, read_only=fixed_power_profiles),
+        DriverField(name="profiles.p3.power_w", label="Profil p3 (W)", type="number", default=3000, read_only=fixed_power_profiles),
+        DriverField(name="profiles.p4.power_w", label="Profil p4 (W)", type="number", default=4200, read_only=fixed_power_profiles),
         DriverField(name="use_battery_when_charging", label="Beim Laden Batterie nutzen", type="checkbox", default=False),
         DriverField(name="battery_charge_soc_min", label="Mindest-SOC Laden (%)", type="number", default=95),
         DriverField(name="battery_charge_profile", label="Profil bei Laden", type="select", default="p1", choices=battery_choices),
@@ -266,12 +270,13 @@ def _core_identity_full_fields(miner_cfg: dict) -> list[dict]:
 
 
 def _core_control_full_fields(miner_cfg: dict) -> list[dict]:
-    return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _core_control_schema()]
+    driver = miner_cfg.get("driver")
+    return [_render_field(field, _field_value_from_config(field, miner_cfg)) for field in _core_control_schema(driver)]
 
 
 def _build_driver_catalog() -> list[dict]:
     catalog = []
-    for driver_key in ("simulator", "braiins", "whatsminer_api3"):
+    for driver_key in ("simulator", "braiins", "whatsminer_api3", "axeos"):
         catalog.append({
             "key": driver_key,
             "label": _resolve_miner_driver_label(driver_key),
@@ -757,6 +762,8 @@ def _redirect_with_system_message(*, notice: str | None = None, error: str | Non
 
 def _normalize_miner_driver(driver: str | None) -> str:
     normalized = str(driver or "simulator").strip().lower()
+    if normalized in {"axeos", "espminer", "esp-miner", "bitaxe"}:
+        return "axeos"
     if normalized in {"whatsminer3", "whatsminer_api3"}:
         return "whatsminer_api3"
     return normalized or "simulator"
@@ -768,6 +775,7 @@ def _resolve_miner_driver_label(driver: str | None) -> str:
         "simulator": "Simulator",
         "braiins": "Braiins OS+",
         "whatsminer_api3": "WhatsMiner (API 3.x)",
+        "axeos": "axeOS / ESP-Miner",
     }
     return labels.get(normalized, normalized or "Unbekannt")
 
@@ -885,6 +893,8 @@ def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
     normalized = _normalize_miner_driver(driver)
     if normalized == "braiins":
         return 50051, 1200, 2200, 3200, 4200
+    if normalized == "axeos":
+        return 80, 200, 200, 200, 200
     if normalized == "whatsminer_api3":
         return 4433, 1000, 1400, 1800, 2200
     return 4028, 900, 1800, 3000, 4200
@@ -990,6 +1000,7 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
             "simulator": "https://github.com/phlupp/pv2hash/wiki/Simulator-Miner",
             "braiins": "https://github.com/phlupp/pv2hash/wiki/Braiins-OS%2B",
             "whatsminer_api3": "https://github.com/phlupp/pv2hash/wiki/WhatsMiner-API3",
+            "axeos": "https://github.com/phlupp/pv2hash/wiki/axeOS-ESP-Miner",
         },
     }
 
@@ -1516,7 +1527,7 @@ async def update_miner(request: Request):
             )
 
         updated = deepcopy(miner)
-        for field in _core_identity_schema() + _core_control_schema() + _driver_schema(driver):
+        for field in _core_identity_schema() + _core_control_schema(driver) + _driver_schema(driver):
             if field.type == "checkbox":
                 raw = form.get(field.name) == "on"
             else:
