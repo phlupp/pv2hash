@@ -22,7 +22,7 @@
         .details-section{margin-top:1.25rem;padding:1rem;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.03)}
         .details-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.75rem}
         .details-item{display:flex;flex-direction:column;gap:.15rem}
-        .details-item-label{font-size:.8rem;opacity:.75}.details-table{width:100%;border-collapse:collapse;margin-top:.6rem;font-size:.9rem}.details-table th,.details-table td{padding:.45rem .55rem;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;vertical-align:top}.details-table th{font-size:.8rem;opacity:.75;font-weight:600}.details-table-empty{margin-top:.5rem;opacity:.75}
+        .details-item-label{font-size:.8rem;opacity:.75}.details-table-wrap{grid-column:1/-1}.details-table{width:100%;border-collapse:collapse;margin-top:.6rem;font-size:.9rem}.details-table th,.details-table td{padding:.45rem .55rem;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;vertical-align:top}.details-table th{font-size:.8rem;opacity:.75;font-weight:600}.details-table-empty{margin-top:.5rem;opacity:.75}
     </style>
 </head>
 <body>
@@ -282,42 +282,42 @@
                         {% for section in miner.details.sections %}
                         <section class="details-section">
                             <strong>{{ section["title"] }}</strong>
-                            {% for item in section["items"] %}
-                            {% if item.kind == "table" %}
-                            <div style="margin-top:.75rem;">
-                                <span class="details-item-label">{{ item.label }}</span>
-                                {% if item.rows %}
-                                <table class="details-table">
-                                    <thead>
-                                        <tr>
-                                            {% for column in item.columns %}
-                                            <th>{{ column.label }}</th>
-                                            {% endfor %}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for row in item.rows %}
-                                        <tr>
-                                            {% for column in item.columns %}
-                                            <td>{{ row[column.key] }}</td>
-                                            {% endfor %}
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                                {% else %}
-                                <div class="details-table-empty">{{ item.empty or "—" }}</div>
-                                {% endif %}
-                            </div>
-                            {% else %}
                             <div class="details-grid" style="margin-top:.75rem;">
+                                {% for item in section["items"] %}
+                                {% if item.kind == "table" %}
+                                <div class="details-table-wrap">
+                                    <span class="details-item-label">{{ item.label }}</span>
+                                    {% if item.rows %}
+                                    <table class="details-table">
+                                        <thead>
+                                            <tr>
+                                                {% for column in item.columns %}
+                                                <th>{{ column.label }}</th>
+                                                {% endfor %}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for row in item.rows %}
+                                            <tr>
+                                                {% for column in item.columns %}
+                                                <td>{{ row[column.key] }}</td>
+                                                {% endfor %}
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                    {% else %}
+                                    <div class="details-table-empty">{{ item.empty or "—" }}</div>
+                                    {% endif %}
+                                </div>
+                                {% else %}
                                 <div class="details-item">
                                     <span class="details-item-label">{{ item.label }}</span>
                                     <span>{{ item.value }}</span>
                                 </div>
+                                {% endif %}
+                                {% endfor %}
                             </div>
-                            {% endif %}
-                            {% endfor %}
                         </section>
                         {% endfor %}
                         {% endif %}
