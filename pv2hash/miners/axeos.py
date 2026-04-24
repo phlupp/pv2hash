@@ -33,8 +33,8 @@ class AxeOsMiner(MinerAdapter):
     @classmethod
     def get_actions_schema(cls) -> list[DriverAction]:
         return [
-            DriverAction(name="pause_mining", label="Mining pausieren", description="Sendet POST /api/system/pause.", confirm_text="Mining auf diesem axeOS-Miner wirklich pausieren?"),
-            DriverAction(name="resume_mining", label="Mining fortsetzen", description="Sendet POST /api/system/resume.", confirm_text="Mining auf diesem axeOS-Miner wirklich fortsetzen?"),
+            DriverAction(name="pause_mining", label="Mining pausieren", description="Sendet POST /api/system/pause.", confirm_text="Mining auf diesem axeOS-Miner wirklich pausieren?", disabled_when_control_enabled=True),
+            DriverAction(name="resume_mining", label="Mining fortsetzen", description="Sendet POST /api/system/resume.", confirm_text="Mining auf diesem axeOS-Miner wirklich fortsetzen?", disabled_when_control_enabled=True),
             DriverAction(name="identify", label="Miner identifizieren", description="Sendet POST /api/system/identify."),
             DriverAction(name="restart_system", label="Miner neu starten", description="Sendet POST /api/system/restart.", confirm_text="axeOS-Miner jetzt wirklich neu starten?", dangerous=True),
         ]

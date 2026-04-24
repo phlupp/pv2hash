@@ -104,6 +104,20 @@ class WhatsminerApi3Miner(MinerAdapter):
     def get_actions_schema(cls) -> list[DriverAction]:
         return [
             DriverAction(
+                name="pause_mining",
+                label="Mining pausieren",
+                description="Pausiert das Mining per set.miner.service stop.",
+                confirm_text="Mining auf diesem WhatsMiner wirklich pausieren?",
+                disabled_when_control_enabled=True,
+            ),
+            DriverAction(
+                name="resume_mining",
+                label="Mining fortsetzen",
+                description="Setzt das Mining per set.miner.service start fort.",
+                confirm_text="Mining auf diesem WhatsMiner wirklich fortsetzen?",
+                disabled_when_control_enabled=True,
+            ),
+            DriverAction(
                 name="system_reboot",
                 label="Miner neu starten",
                 description="Startet das WhatsMiner-Gerät sofort per set.system.reboot neu.",
@@ -111,7 +125,6 @@ class WhatsminerApi3Miner(MinerAdapter):
                 dangerous=True,
             ),
         ]
-
     def __init__(
         self,
         miner_id: str,
@@ -580,11 +593,21 @@ class WhatsminerApi3Miner(MinerAdapter):
         return {"ok": True, "message": "Geräte-Einstellungen übernommen"}
 
     def apply_action(self, action_name: str) -> dict[str, Any]:
-        if action_name != "system_reboot":
+        action_map = {
+            "pause_mining": ("set.miner.service", "stop", "Mining pausiert", "paused"),
+            "resume_mining": ("set.miner.service", "start", "Mining fortgesetzt", "starting"),
+            "system_reboot": ("set.system.reboot", None, "Miner-Neustart ausgelöst", "rebooting"),
+        }
+        if action_name not in action_map:
             return {"ok": False, "message": f"Unbekannte Aktion: {action_name}"}
 
+        cmd, param, message, runtime_state = action_map[action_name]
+
         try:
-            resp = self._write_command("set.system.reboot", include_param=False)
+            if param is None:
+                resp = self._write_command(cmd, include_param=False)
+            else:
+                resp = self._write_command(cmd, param)
         except Exception as exc:
             self._set_unreachable(exc)
             logger.warning(
@@ -600,8 +623,12 @@ class WhatsminerApi3Miner(MinerAdapter):
             )
             return {"ok": False, "message": f"API-Fehler bei {action_name}: {resp}"}
 
-        self.info.runtime_state = "rebooting"
-        return {"ok": True, "message": "Miner-Neustart ausgelöst"}
+        self.info.runtime_state = runtime_state
+        if action_name == "pause_mining":
+            self.info.profile = "off"
+        elif action_name == "resume_mining" and self.info.profile == "off":
+            self.info.profile = "p1"
+        return {"ok": True, "message": message}
 
     def get_details(self) -> dict:
         if not self._device_info_cache or not self._summary_cache:

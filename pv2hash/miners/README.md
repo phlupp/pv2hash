@@ -469,3 +469,25 @@ PV2Hash adaptation:
 - The fixed profile value is used by the PV2Hash controller as an accounting value only. It is not sent to the miner as a power target.
 
 This driver is intentionally `start_stop_only`. It should not pretend to support fine-grained power control.
+
+## Manual mining actions and active regulation
+
+Drivers may expose manual one-shot actions such as `pause_mining` and `resume_mining` through `DriverAction`.
+
+If an action would directly fight the PV2Hash controller, the driver must set:
+
+```python
+DriverAction(..., disabled_when_control_enabled=True)
+```
+
+The GUI disables these actions while the miner is included in the PV regulation (`control_enabled=True`). The server-side action endpoint enforces the same rule, so a disabled manual action cannot be submitted directly.
+
+This is intended for manual pause/resume/start operations. Non-control actions such as reboot, identify, or read-only diagnostics should remain available unless the driver has a specific reason to block them.
+
+WhatsMiner API 3 exposes the following manual actions:
+
+- `pause_mining` -> `set.miner.service` with `param="stop"`
+- `resume_mining` -> `set.miner.service` with `param="start"`
+- `system_reboot` -> `set.system.reboot`
+
+`pause_mining` and `resume_mining` are disabled while the miner is included in the PV regulation.

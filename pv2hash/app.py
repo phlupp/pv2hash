@@ -248,12 +248,19 @@ def _driver_device_settings_fields(driver: str | None, live_values: dict | None 
     return fields
 
 
-def _render_action(action: DriverAction) -> dict:
-    return asdict(action)
+def _render_action(action: DriverAction, *, control_enabled: bool = False) -> dict:
+    rendered = asdict(action)
+    rendered["disabled"] = bool(action.disabled_when_control_enabled and control_enabled)
+    if rendered["disabled"]:
+        rendered["disabled_reason"] = "Diese Aktion ist gesperrt, solange der Miner in die Regelung einbezogen ist."
+    else:
+        rendered["disabled_reason"] = ""
+    return rendered
 
 
-def _driver_action_fields(driver: str | None) -> list[dict]:
-    return [_render_action(action) for action in _driver_actions_schema(driver)]
+def _driver_action_fields(driver: str | None, miner_cfg: dict | None = None) -> list[dict]:
+    control_enabled = bool((miner_cfg or {}).get("control_enabled", False))
+    return [_render_action(action, control_enabled=control_enabled) for action in _driver_actions_schema(driver)]
 
 
 def _core_identity_basic_fields() -> list[dict]:
@@ -977,7 +984,7 @@ def _build_miners_view() -> list[dict]:
             merged.get("driver"),
             device_settings_values_map.get(miner_cfg.get("id"), {}),
         )
-        merged["action_fields"] = _driver_action_fields(merged.get("driver"))
+        merged["action_fields"] = _driver_action_fields(merged.get("driver"), merged)
         merged["details"] = details_map.get(miner_cfg.get("id"), {})
         miner_views.append(merged)
 
@@ -1688,12 +1695,22 @@ async def run_miner_action(miner_id: str, request: Request):
         return RedirectResponse(url="/miners", status_code=303)
 
     driver = _normalize_miner_driver(miner_cfg.get("driver", "simulator"))
-    allowed_actions = {action.name for action in _driver_actions_schema(driver)}
+    action_schema = list(_driver_actions_schema(driver))
+    allowed_actions = {action.name for action in action_schema}
+    selected_action = next((action for action in action_schema if action.name == action_name), None)
     if action_name not in allowed_actions:
         return templates.TemplateResponse(
             request=request,
             name="miners.html",
             context=_miners_context(request, error_message="Diese Aktion wird vom Treiber nicht unterstützt."),
+            status_code=400,
+        )
+
+    if selected_action and selected_action.disabled_when_control_enabled and bool(miner_cfg.get("control_enabled", False)):
+        return templates.TemplateResponse(
+            request=request,
+            name="miners.html",
+            context=_miners_context(request, error_message="Diese Aktion ist gesperrt, solange der Miner in die Regelung einbezogen ist."),
             status_code=400,
         )
 

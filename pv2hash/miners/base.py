@@ -56,6 +56,7 @@ class DriverAction:
     description: str = ""
     confirm_text: str = ""
     dangerous: bool = False
+    disabled_when_control_enabled: bool = False
 
 
 class MinerAdapter(ABC):

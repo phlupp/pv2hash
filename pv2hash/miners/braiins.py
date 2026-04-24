@@ -49,8 +49,8 @@ class BraiinsMiner(MinerAdapter):
     @classmethod
     def get_actions_schema(cls) -> list[DriverAction]:
         return [
-            DriverAction(name="pause_mining", label="Mining pausieren", description="Pausiert das Mining per Braiins PauseMining.", confirm_text="Mining auf diesem Miner wirklich pausieren?"),
-            DriverAction(name="resume_mining", label="Mining fortsetzen", description="Setzt das Mining per Braiins ResumeMining fort.", confirm_text="Mining auf diesem Miner wirklich fortsetzen?"),
+            DriverAction(name="pause_mining", label="Mining pausieren", description="Pausiert das Mining per Braiins PauseMining.", confirm_text="Mining auf diesem Miner wirklich pausieren?", disabled_when_control_enabled=True),
+            DriverAction(name="resume_mining", label="Mining fortsetzen", description="Setzt das Mining per Braiins ResumeMining fort.", confirm_text="Mining auf diesem Miner wirklich fortsetzen?", disabled_when_control_enabled=True),
             DriverAction(name="start_miner", label="Miner starten", description="Startet den Miner per Braiins Start.", confirm_text="Miner wirklich starten?"),
             DriverAction(name="reboot_system", label="Miner neu starten", description="Startet das Braiins OS+ Gerät per Reboot neu.", confirm_text="Miner jetzt wirklich neu starten?", dangerous=True),
         ]

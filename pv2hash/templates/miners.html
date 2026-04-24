@@ -269,13 +269,14 @@
                                     formaction="/miners/{{ miner.id }}/action"
                                     name="action_name"
                                     value="{{ action.name }}"
-                                    {% if action.confirm_text %}onclick="return confirm('{{ action.confirm_text }}');"{% endif %}>
+                                    {% if action.disabled %}disabled title="{{ action.disabled_reason }}"{% endif %}
+                                    {% if action.confirm_text and not action.disabled %}onclick="return confirm('{{ action.confirm_text }}');"{% endif %}>
                                 {{ action.label }}
                             </button>
                             {% endfor %}
                         </div>
                         {% for action in miner.action_fields %}
-                        {% if action.description %}<small class="field-help">{{ action.label }}: {{ action.description }}</small><br>{% endif %}
+                        {% if action.description %}<small class="field-help">{{ action.label }}: {{ action.description }}{% if action.disabled_reason %} {{ action.disabled_reason }}{% endif %}</small><br>{% endif %}
                         {% endfor %}
                         {% endif %}
 
