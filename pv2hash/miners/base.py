@@ -86,6 +86,7 @@ class MinerAdapter(ABC):
     def has_fixed_power_profiles(cls) -> bool:
         return False
 
+    @classmethod
     def get_actions_schema(cls) -> list[DriverAction]:
         return []
 
