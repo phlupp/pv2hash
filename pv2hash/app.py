@@ -1648,34 +1648,64 @@ async def _apply_miner_device_settings_impl(request: Request, miner_id: str):
 async def apply_miner_device_settings_for_miner(miner_id: str, request: Request):
     return await _apply_miner_device_settings_impl(request, miner_id)
 
+async def _run_miner_action_impl(miner_id: str, action_name: str) -> dict[str, Any]:
+    miner_id = str(miner_id).strip()
+    action_name = str(action_name or "").strip()
+
+    miner_cfg = next((miner for miner in state.config.get("miners", []) if miner.get("id") == miner_id), None)
+    if miner_cfg is None:
+        return {"ok": False, "message": "Miner nicht gefunden."}
+
+    driver = _normalize_miner_driver(miner_cfg.get("driver", "simulator"))
+    actions = {action.name: action for action in _driver_actions_schema(driver)}
+    action = actions.get(action_name)
+    if action is None:
+        return {"ok": False, "message": "Diese Aktion wird vom Treiber nicht unterstützt."}
+
+    if action.disabled_when_control_enabled and bool(miner_cfg.get("control_enabled", True)):
+        return {"ok": False, "message": "Diese Aktion ist deaktiviert, solange der Miner in der Regelung ist."}
+
+    adapter = _get_runtime_adapter_by_id(miner_id)
+    if adapter is None:
+        return {"ok": False, "message": "Miner-Laufzeitadapter nicht verfügbar."}
+
+    try:
+        result = await asyncio.to_thread(adapter.apply_action, action_name)
+    except Exception as exc:
+        return {"ok": False, "message": f"Miner-Aktion fehlgeschlagen: {exc}"}
+
+    if not result or not result.get("ok"):
+        return {
+            "ok": False,
+            "message": result.get("message", "Miner-Aktion fehlgeschlagen.") if isinstance(result, dict) else "Miner-Aktion fehlgeschlagen.",
+        }
+
+    return {
+        "ok": True,
+        "message": result.get("message", "Miner-Aktion erfolgreich ausgeführt.") if isinstance(result, dict) else "Miner-Aktion erfolgreich ausgeführt.",
+    }
+
+
+@app.post("/api/miner/{miner_id}/action")
+async def api_run_miner_action(miner_id: str, request: Request):
+    payload = await request.json()
+    result = await _run_miner_action_impl(miner_id, str(payload.get("action_name", "")))
+    return JSONResponse(
+        {
+            "status": "ok" if result.get("ok") else "error",
+            "message": result.get("message", ""),
+        },
+        status_code=200 if result.get("ok") else 400,
+    )
+
 
 @app.post("/miners/{miner_id}/action")
 async def run_miner_action(miner_id: str, request: Request):
     form = await request.form()
     action_name = str(form.get("action_name", "")).strip()
-    miner_id = str(miner_id).strip()
-
-    miner_cfg = next((miner for miner in state.config.get("miners", []) if miner.get("id") == miner_id), None)
-    if miner_cfg is None:
-        return _redirect_to_miners(error="Miner nicht gefunden.")
-
-    driver = _normalize_miner_driver(miner_cfg.get("driver", "simulator"))
-    allowed_actions = {action.name for action in _driver_actions_schema(driver)}
-    if action_name not in allowed_actions:
-        return _redirect_to_miners(miner_id=miner_id, error="Diese Aktion wird vom Treiber nicht unterstützt.")
-
-    adapter = _get_runtime_adapter_by_id(miner_id)
-    if adapter is None:
-        return _redirect_to_miners(miner_id=miner_id, error="Miner-Laufzeitadapter nicht verfügbar.")
-
-    try:
-        result = await asyncio.to_thread(adapter.apply_action, action_name)
-    except Exception as exc:
-        return _redirect_to_miners(miner_id=miner_id, error=f"Miner-Aktion fehlgeschlagen: {exc}")
-
-    if not result or not result.get("ok"):
+    result = await _run_miner_action_impl(miner_id, action_name)
+    if not result.get("ok"):
         return _redirect_to_miners(miner_id=miner_id, error=result.get("message", "Miner-Aktion fehlgeschlagen."))
-
     return _redirect_to_miners(miner_id=miner_id, saved=True)
 
 

@@ -246,12 +246,14 @@
                         <h3 class="section-title">Aktionen</h3>
                         <div class="actions-row">
                             {% for action in miner.action_fields %}
+                            {% set action_disabled = action.disabled_when_control_enabled and miner.summary.control_enabled %}
                             <button class="btn {% if action.dangerous %}btn-danger{% endif %}"
-                                    type="submit"
-                                    formaction="/miners/{{ miner.id }}/action"
-                                    name="action_name"
-                                    value="{{ action.name }}"
-                                    {% if action.confirm_text %}onclick="return confirm('{{ action.confirm_text }}');"{% endif %}>
+                                    type="button"
+                                    data-miner-action
+                                    data-miner-id="{{ miner.id }}"
+                                    data-action-name="{{ action.name }}"
+                                    {% if action.confirm_text %}data-confirm-text="{{ action.confirm_text }}"{% endif %}
+                                    {% if action_disabled %}disabled title="Aktion deaktiviert, solange der Miner in der Regelung ist."{% endif %}>
                                 {{ action.label }}
                             </button>
                             {% endfor %}
