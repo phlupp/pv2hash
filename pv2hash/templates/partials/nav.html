@@ -1,0 +1,22 @@
+<aside class="sidebar">
+    <div class="brand">
+        <div class="brand-mark">PV</div>
+        <div>
+            <div class="brand-title">PV2Hash</div>
+            <div class="brand-subtitle">{{ nav_subtitle|default(instance_name|default('PV2Hash')) }}</div>
+        </div>
+    </div>
+
+    <nav class="nav">
+        {% if nav_mode|default('main') == 'update' %}
+        <span class="nav-item disabled">Update läuft …</span>
+        {% else %}
+        <a class="nav-item{% if nav_active|default('dashboard') == 'dashboard' %} active{% endif %}" href="/">Dashboard</a>
+        <a class="nav-item{% if nav_active|default('dashboard') == 'sources' %} active{% endif %}" href="/sources">Messungen</a>
+        <a class="nav-item{% if nav_active|default('dashboard') == 'miners' %} active{% endif %}" href="/miners">Miner</a>
+        <a class="nav-item{% if nav_active|default('dashboard') == 'settings' %} active{% endif %}" href="/settings">Einstellungen</a>
+        <span class="nav-item disabled">Verlauf</span>
+        <a class="nav-item{% if nav_active|default('dashboard') == 'system' %} active{% endif %}" href="/system">System</a>
+        {% endif %}
+    </nav>
+</aside>
