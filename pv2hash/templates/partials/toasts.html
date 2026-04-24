@@ -1,0 +1,95 @@
+<div class="toast-container" aria-live="polite" aria-atomic="true">
+    {% if miner_action|default('') == 'paused' %}
+    <div class="toast toast-success" role="status" data-toast>
+        <div class="toast-title">Erfolg</div>
+        <div class="toast-message">Miner deaktiviert und auf off/pause zurückgesetzt.</div>
+        <button class="toast-close" type="button" aria-label="Meldung schließen" data-toast-close>&times;</button>
+    </div>
+    {% elif miner_action|default('') == 'enabled' %}
+    <div class="toast toast-success" role="status" data-toast>
+        <div class="toast-title">Erfolg</div>
+        <div class="toast-message">Miner wieder aktiviert.</div>
+        <button class="toast-close" type="button" aria-label="Meldung schließen" data-toast-close>&times;</button>
+    </div>
+    {% endif %}
+
+    {% if saved|default(false) %}
+    <div class="toast toast-success" role="status" data-toast>
+        <div class="toast-title">Erfolg</div>
+        <div class="toast-message">
+            {% if nav_active|default('') == 'miners' %}
+                Miner-Konfiguration gespeichert und Runtime neu geladen.
+            {% elif nav_active|default('') == 'settings' %}
+                Einstellungen gespeichert und Runtime neu geladen.
+            {% elif nav_active|default('') == 'sources' %}
+                Messungen gespeichert und Runtime neu geladen. Gerätedaten der Netz-Messung werden automatisch nachgeladen, sobald neue Telegramme vorliegen.
+            {% else %}
+                Änderungen gespeichert.
+            {% endif %}
+        </div>
+        <button class="toast-close" type="button" aria-label="Meldung schließen" data-toast-close>&times;</button>
+    </div>
+    {% endif %}
+
+    {% if error_message|default('') %}
+    <div class="toast toast-danger" role="alert" data-toast>
+        <div class="toast-title">Fehler</div>
+        <div class="toast-message">{{ error_message }}</div>
+        <button class="toast-close" type="button" aria-label="Meldung schließen" data-toast-close>&times;</button>
+    </div>
+    {% endif %}
+
+    {% if serial_required|default(false) %}
+    <div class="toast toast-warning" role="alert" data-toast>
+        <div class="toast-title">Hinweis</div>
+        <div class="toast-message">Für die Netz-Messung mit SMA Energy Meter muss ein konkretes SMA-Gerät per Seriennummer ausgewählt werden. Sobald OBIS-Telegramme empfangen wurden, erscheint die Auswahl automatisch in der Liste.</div>
+        <button class="toast-close" type="button" aria-label="Meldung schließen" data-toast-close>&times;</button>
+    </div>
+    {% endif %}
+
+    {% if config_import_notice|default('') %}
+    <div class="toast toast-success" role="status" data-toast>
+        <div class="toast-title">Erfolg</div>
+        <div class="toast-message">{{ config_import_notice }}</div>
+        <button class="toast-close" type="button" aria-label="Meldung schließen" data-toast-close>&times;</button>
+    </div>
+    {% endif %}
+
+    {% if config_import_error|default('') %}
+    <div class="toast toast-danger" role="alert" data-toast>
+        <div class="toast-title">Fehler</div>
+        <div class="toast-message">{{ config_import_error }}</div>
+        <button class="toast-close" type="button" aria-label="Meldung schließen" data-toast-close>&times;</button>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+(function () {
+    function dismissToast(toast) {
+        if (!toast || toast.dataset.dismissed === '1') return;
+        toast.dataset.dismissed = '1';
+        toast.classList.add('toast-hiding');
+        window.setTimeout(function () { toast.remove(); }, 220);
+    }
+
+    function initToasts() {
+        document.querySelectorAll('[data-toast]').forEach(function (toast) {
+            const close = toast.querySelector('[data-toast-close]');
+            if (close) {
+                close.addEventListener('click', function () { dismissToast(toast); });
+            }
+            const timeout = Number(toast.dataset.timeout || '8000');
+            if (timeout > 0) {
+                window.setTimeout(function () { dismissToast(toast); }, timeout);
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initToasts);
+    } else {
+        initToasts();
+    }
+})();
+</script>

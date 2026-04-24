@@ -19,19 +19,6 @@
                     <p>Betrieb, Host-System, Updates, Logs und Konfigurationssicherung</p>
                 </div>
             </header>
-
-            {% if config_import_notice %}
-            <section class="alert success">
-                {{ config_import_notice }}
-            </section>
-            {% endif %}
-
-            {% if config_import_error %}
-            <section class="alert danger">
-                {{ config_import_error }}
-            </section>
-            {% endif %}
-
             
             <section class="grid grid-2">
                 <article class="card">

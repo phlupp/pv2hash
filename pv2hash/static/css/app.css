@@ -1393,3 +1393,98 @@ select:focus {
         text-align: left;
     }
 }
+
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    display: grid;
+    gap: 12px;
+    width: min(420px, calc(100vw - 40px));
+    pointer-events: none;
+}
+
+.toast {
+    position: relative;
+    overflow: hidden;
+    padding: 14px 44px 14px 16px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: rgba(30, 34, 66, .96);
+    box-shadow: 0 18px 50px rgba(0,0,0,.32);
+    backdrop-filter: blur(12px);
+    pointer-events: auto;
+    animation: toast-in .18s ease-out both;
+}
+
+.toast-success {
+    border-color: rgba(104, 224, 160, .34);
+    background: linear-gradient(135deg, rgba(104, 224, 160, .18), rgba(30, 34, 66, .96));
+}
+
+.toast-danger {
+    border-color: rgba(255, 111, 111, .34);
+    background: linear-gradient(135deg, rgba(255, 111, 111, .18), rgba(30, 34, 66, .96));
+}
+
+.toast-warning {
+    border-color: rgba(255, 177, 92, .38);
+    background: linear-gradient(135deg, rgba(255, 177, 92, .18), rgba(30, 34, 66, .96));
+}
+
+.toast-info {
+    border-color: rgba(141, 99, 255, .34);
+    background: linear-gradient(135deg, rgba(141, 99, 255, .18), rgba(30, 34, 66, .96));
+}
+
+.toast-title {
+    margin-bottom: 3px;
+    font-weight: 800;
+    letter-spacing: .01em;
+}
+
+.toast-message {
+    color: var(--muted);
+}
+
+.toast-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(255,255,255,.08);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
+}
+
+.toast-close:hover {
+    background: rgba(255,255,255,.14);
+}
+
+.toast-hiding {
+    animation: toast-out .2s ease-in both;
+}
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(-8px) translateX(12px); }
+    to { opacity: 1; transform: translateY(0) translateX(0); }
+}
+
+@keyframes toast-out {
+    from { opacity: 1; transform: translateY(0) translateX(0); }
+    to { opacity: 0; transform: translateY(-6px) translateX(12px); }
+}
+
+@media (max-width: 760px) {
+    .toast-container {
+        top: 12px;
+        right: 12px;
+        width: calc(100vw - 24px);
+    }
+}

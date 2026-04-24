@@ -57,17 +57,6 @@
             {% elif battery_soc is none %}
                 {% set battery_state_text = 'Keine Batteriedaten verfügbar' %}
             {% endif %}
-            
-            {% if miner_action == 'paused' %}
-            <section class="alert success">
-                Miner deaktiviert und auf off/pause zurückgesetzt.
-            </section>
-            {% elif miner_action == 'enabled' %}
-            <section class="alert success">
-                Miner wieder aktiviert.
-            </section>
-            {% endif %}
-
             <header class="topbar">
                 <div>
                     <h1>Dashboard</h1>

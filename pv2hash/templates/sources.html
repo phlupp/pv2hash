@@ -88,18 +88,7 @@
                 </div>
             </header>
 
-            {% if saved %}
-            <section class="alert success" id="measurementsSavedNotice">
-                Messungen gespeichert und Runtime neu geladen. Gerätedaten der Netz-Messung werden automatisch nachgeladen, sobald neue Telegramme vorliegen.
-            </section>
-            {% endif %}
-
-            {% if serial_required %}
-            <section class="alert error">
-                Für die Netz-Messung mit SMA Energy Meter muss ein konkretes SMA-Gerät per Seriennummer ausgewählt werden. Sobald OBIS-Telegramme empfangen wurden, erscheint die Auswahl automatisch in der Liste.
-            </section>
-            {% endif %}
-
+            {% if saved %}<div id="measurementsSavedNotice" hidden></div>{% endif %}
             <form method="post" action="/sources">
                 <section class="grid grid-2 measurement-summary-grid">
                     <article class="card measurement-summary-card" id="napMeasurementCard" data-dirty-scope="nap" data-source-type="{{ source_type }}" data-source-device-label="{{ source_device_label or "" }}" data-source-serial="{{ source_device_serial_number or "" }}" data-source-susy="{{ source_device_susy_id or "" }}">
