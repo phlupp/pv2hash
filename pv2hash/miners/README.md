@@ -420,3 +420,22 @@ Actions are not device settings. They are rendered separately and require an exp
 Firmware note for WhatsMiner API 3 fan zero speed:
 
 On the tested M31S+ H6OS firmware `20250214.16.1.AMS`, `set.fan.zero_speed` returns `code=0` / `msg=ok`, but it does not change `fan-zero-speed`. Instead, it toggles `fan-poweroff-cool`. Because the API acknowledges a command while applying the wrong setting, PV2Hash must not expose `fan_zero_speed` as writable for this driver. The value can still be read and displayed as device detail.
+
+## Braiins OS+ driver notes
+
+The Braiins driver follows the same driver-driven GUI model as the WhatsMiner API 3 reference driver:
+
+- configuration fields are exposed through `get_config_schema()`
+- read-only diagnostic sections are exposed through `get_details()`
+- explicit one-shot operations are exposed through `get_actions_schema()` / `apply_action()`
+
+The Braiins driver intentionally does not expose normal PV2Hash power targets as device settings. Power target handling remains part of the runtime control path (`set_profile()` -> `SetPowerTarget`) so the controller behavior stays unchanged.
+
+Current Braiins actions:
+
+- `pause_mining` -> `PauseMining`
+- `resume_mining` -> `ResumeMining`
+- `start_miner` -> `Start`
+- `reboot_system` -> `Reboot`
+
+Braiins diagnostic details include overview information, power target constraints, hashrate values, tuner state, status raw data, and a generic table for recent errors. These details are informational only and do not affect runtime-state evaluation.

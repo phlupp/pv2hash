@@ -9,7 +9,7 @@ import grpc
 from google.protobuf.json_format import MessageToDict
 
 from pv2hash.logging_ext.setup import get_logger
-from pv2hash.miners.base import MinerAdapter
+from pv2hash.miners.base import DriverAction, DriverField, MinerAdapter
 from pv2hash.models.miner import MinerInfo, MinerProfile, MinerProfiles
 from pv2hash.vendor.braiins_api_stubs_path import ensure_braiins_stubs_on_path
 
@@ -34,6 +34,27 @@ logger = get_logger("pv2hash.miners.braiins")
 
 
 class BraiinsMiner(MinerAdapter):
+    DRIVER_LABEL = "Braiins OS+"
+
+    @classmethod
+    def get_config_schema(cls) -> list[DriverField]:
+        return [
+            DriverField(name="host", label="Host / IP", type="text", required=True, placeholder="192.168.x.x", help="IP-Adresse oder Hostname des Braiins OS+ Miners.", create_phase="basic"),
+            DriverField(name="settings.port", label="gRPC-Port", type="number", required=True, preset=50051, default=50051, placeholder="50051", help="gRPC-Port der Braiins OS+ API.", create_phase="basic"),
+            DriverField(name="settings.username", label="Benutzer", type="text", required=True, preset="root", default="root", placeholder="root", help="Braiins OS+ API-Benutzer.", create_phase="basic"),
+            DriverField(name="settings.password", label="Passwort", type="password", required=True, default="", placeholder="Passwort", help="Passwort des Braiins OS+ API-Benutzers.", create_phase="basic"),
+            DriverField(name="settings.timeout_s", label="Timeout (s)", type="number", preset=2, default=2, placeholder="2", help="gRPC-Timeout für Braiins API-Requests.", advanced=True),
+        ]
+
+    @classmethod
+    def get_actions_schema(cls) -> list[DriverAction]:
+        return [
+            DriverAction(name="pause_mining", label="Mining pausieren", description="Pausiert das Mining per Braiins PauseMining.", confirm_text="Mining auf diesem Miner wirklich pausieren?"),
+            DriverAction(name="resume_mining", label="Mining fortsetzen", description="Setzt das Mining per Braiins ResumeMining fort.", confirm_text="Mining auf diesem Miner wirklich fortsetzen?"),
+            DriverAction(name="start_miner", label="Miner starten", description="Startet den Miner per Braiins Start.", confirm_text="Miner wirklich starten?"),
+            DriverAction(name="reboot_system", label="Miner neu starten", description="Startet das Braiins OS+ Gerät per Reboot neu.", confirm_text="Miner jetzt wirklich neu starten?", dangerous=True),
+        ]
+
     """
     Native Braiins implementation via Python gRPC.
 
@@ -76,6 +97,7 @@ class BraiinsMiner(MinerAdapter):
         password: str = "",
         timeout_s: float = 8.0,
         grpcurl_bin: str | None = None,
+        power_limit_w: float = 0.0,
         use_battery_when_charging: bool = False,
         battery_charge_soc_min: float = 95.0,
         battery_charge_profile: str = "p1",
@@ -91,10 +113,13 @@ class BraiinsMiner(MinerAdapter):
 
         # Nur noch für Alt-Kompatibilität vorhanden.
         self.grpcurl_bin = grpcurl_bin
+        self.configured_power_limit_w = float(power_limit_w or 0.0)
 
         self.target_profile = "off"
         self._token: str | None = None
         self._token_expires_monotonic: float = 0.0
+        self._last_bundle: dict[str, Any] = {}
+        self._last_bundle_at: datetime | None = None
 
         profile_cfg = profiles or {
             "p1": {"power_w": 1200},
@@ -189,6 +214,123 @@ class BraiinsMiner(MinerAdapter):
 
         self.info.last_seen = datetime.now(UTC)
         return self.info
+
+    def apply_action(self, action_name: str) -> dict[str, Any]:
+        command_map = {
+            "pause_mining": ("PauseMining", actions_pb2.PauseMiningRequest, "Mining pausiert"),
+            "resume_mining": ("ResumeMining", actions_pb2.ResumeMiningRequest, "Mining fortgesetzt"),
+            "start_miner": ("Start", actions_pb2.StartRequest, "Miner-Start ausgelöst"),
+            "reboot_system": ("Reboot", actions_pb2.RebootRequest, "Miner-Neustart ausgelöst"),
+        }
+        if action_name not in command_map:
+            return {"ok": False, "message": f"Unbekannte Aktion: {action_name}"}
+
+        method_name, request_cls, success_message = command_map[action_name]
+
+        try:
+            self._run_action_sync(method_name, request_cls)
+        except Exception as exc:
+            logger.warning(
+                "Braiins action %s failed for %s (%s:%s): %s",
+                action_name, self.info.name, self.host, self.port, exc,
+            )
+            self.info.last_error = f"gRPC action failed: {exc}"
+            return {"ok": False, "message": f"Braiins-Aktion fehlgeschlagen: {exc}"}
+
+        if action_name == "pause_mining":
+            self.info.runtime_state = "paused"
+            self.info.power_w = 0.0
+        elif action_name in {"resume_mining", "start_miner"}:
+            self.info.runtime_state = "starting"
+        elif action_name == "reboot_system":
+            self.info.runtime_state = "rebooting"
+
+        self.info.last_error = None
+        self.info.last_seen = datetime.now(UTC)
+        return {"ok": True, "message": success_message}
+
+    def _run_action_sync(self, method_name: str, request_cls: Any) -> None:
+        target = f"{self.host}:{self.port}"
+        channel = grpc.insecure_channel(target)
+
+        try:
+            grpc.channel_ready_future(channel).result(timeout=self.timeout_s)
+            auth_stub = authentication_pb2_grpc.AuthenticationServiceStub(channel)
+            actions_stub = actions_pb2_grpc.ActionsServiceStub(channel)
+            token = self._ensure_token_sync(auth_stub)
+            metadata = [("authorization", token)]
+            method = getattr(actions_stub, method_name)
+            logger.info("Braiins action %s: miner=%s", method_name, self.info.name)
+            method(request_cls(), metadata=metadata, timeout=self.timeout_s)
+        finally:
+            channel.close()
+
+    def get_details(self) -> dict:
+        bundle = self._last_bundle or {}
+        if not bundle:
+            try:
+                bundle = self._fetch_bundle_sync()
+                self._apply_bundle(bundle)
+            except Exception as exc:
+                logger.debug("Braiins details refresh failed for %s (%s:%s): %s", self.info.name, self.host, self.port, exc)
+                bundle = {}
+
+        api_version = bundle.get("api_version") or {}
+        constraints = bundle.get("constraints") or {}
+        details = bundle.get("details") or {}
+        status_first = bundle.get("status_first") or {}
+        stats = bundle.get("stats") or {}
+        errors = bundle.get("errors") or {}
+        tuner_state = bundle.get("tuner_state") or {}
+
+        miner_stats = stats.get("miner_stats") if isinstance(stats.get("miner_stats"), dict) else {}
+        real_hashrate = miner_stats.get("real_hashrate") if isinstance(miner_stats.get("real_hashrate"), dict) else {}
+        tuner_constraints = constraints.get("tuner_constraints") if isinstance(constraints.get("tuner_constraints"), dict) else {}
+        power_target = tuner_constraints.get("power_target") if isinstance(tuner_constraints.get("power_target"), dict) else {}
+        current_target_w = self._extract_watt_from_tuner_state(tuner_state)
+
+        return {
+            "sections": [
+                {"id": "overview", "title": "Übersicht", "items": [
+                    {"label": "Runtime", "value": str(self.info.runtime_state)},
+                    {"label": "Modell", "value": str(self.info.model or "—")},
+                    {"label": "Serial / UID", "value": str(self.info.serial_number or details.get("uid") or "—")},
+                    {"label": "Hostname", "value": str(details.get("hostname", "—"))},
+                    {"label": "API", "value": self._format_api_version(api_version) or "—"},
+                    {"label": "Firmware", "value": str(self.info.firmware_version or "—")},
+                ]},
+                {"id": "performance", "title": "Leistung / Hashrate", "items": [
+                    {"label": "Power Target aktuell", "value": self._format_watt(current_target_w)},
+                    {"label": "Power Target min", "value": self._format_watt(self._extract_watt_constraint(power_target, "min"))},
+                    {"label": "Power Target default", "value": self._format_watt(self._extract_watt_constraint(power_target, "default"))},
+                    {"label": "Power Target max", "value": self._format_watt(self._extract_watt_constraint(power_target, "max"))},
+                    {"label": "Nominale Hashrate", "value": self._format_hashrate_node(miner_stats.get("nominal_hashrate"))},
+                    {"label": "Hashrate 5s", "value": self._format_hashrate_node(real_hashrate.get("last_5s"))},
+                    {"label": "Hashrate 1m", "value": self._format_hashrate_node(real_hashrate.get("last_1m"))},
+                    {"label": "Hashrate 5m", "value": self._format_hashrate_node(real_hashrate.get("last_5m"))},
+                ]},
+                {"id": "tuner", "title": "Tuner", "items": [
+                    {"label": "Control Mode", "value": str(self.info.control_mode or "—")},
+                    {"label": "Autotuning", "value": self._format_bool(self.info.autotuning_enabled)},
+                    {"label": "Default Mode", "value": str(tuner_constraints.get("default_mode", "—"))},
+                ]},
+                {"id": "status", "title": "Status-Rohdaten", "items": [
+                    {"label": "Miner Status", "value": str(details.get("status", "—"))},
+                    {"label": "Status Stream", "value": self._short_dict_value(status_first)},
+                ]},
+                {"id": "errors", "title": "Fehler", "items": [{
+                    "label": "Letzte Fehler",
+                    "kind": "table",
+                    "columns": [
+                        {"key": "source", "label": "Quelle"},
+                        {"key": "severity", "label": "Level"},
+                        {"key": "message", "label": "Meldung"},
+                    ],
+                    "rows": self._error_rows(errors, limit=5),
+                    "empty": "Keine Fehler gemeldet",
+                }]},
+            ]
+        }
 
     def _apply_profile_sync(self, profile: str, desired_w: float) -> None:
         target = f"{self.host}:{self.port}"
@@ -373,6 +515,8 @@ class BraiinsMiner(MinerAdapter):
         return self._token
 
     def _apply_bundle(self, bundle: dict[str, Any]) -> None:
+        self._last_bundle = dict(bundle or {})
+        self._last_bundle_at = datetime.now(UTC)
         self._set_runtime_defaults()
 
         self.info.last_seen = datetime.now(UTC)
@@ -529,6 +673,71 @@ class BraiinsMiner(MinerAdapter):
             return best_name
 
         return self.target_profile or self.info.profile
+
+    @staticmethod
+    def _format_watt(value: Any) -> str:
+        try:
+            if value is None:
+                return "—"
+            return f"{float(value):.0f} W"
+        except Exception:
+            return "—"
+
+    @staticmethod
+    def _format_bool(value: Any) -> str:
+        if value is True:
+            return "Ja"
+        if value is False:
+            return "Nein"
+        return "—"
+
+    @staticmethod
+    def _format_hashrate_node(node: Any) -> str:
+        value = BraiinsMiner._extract_hashrate_value_ghs(node)
+        if value is None:
+            return "—"
+        if value >= 1000.0:
+            return f"{value / 1000.0:.3f} TH/s"
+        return f"{value:.0f} GH/s"
+
+    @staticmethod
+    def _short_dict_value(value: Any) -> str:
+        if value in (None, "", {}, []):
+            return "—"
+        text = str(value)
+        return text[:177] + "…" if len(text) > 180 else text
+
+    @staticmethod
+    def _error_rows(errors: Any, limit: int = 5) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+
+        def add_row(source: str, severity: str, message: Any) -> None:
+            if message in (None, "", {}, []):
+                return
+            rows.append({"source": str(source or "—"), "severity": str(severity or "—"), "message": BraiinsMiner._short_dict_value(message)})
+
+        if isinstance(errors, dict):
+            raw_errors = errors.get("errors")
+            if isinstance(raw_errors, list):
+                for entry in raw_errors[-limit:]:
+                    if isinstance(entry, dict):
+                        add_row(entry.get("source") or entry.get("component") or "Braiins", entry.get("severity") or entry.get("level") or entry.get("type") or "—", entry.get("message") or entry.get("reason") or entry.get("description") or entry)
+                    else:
+                        add_row("Braiins", "—", entry)
+            elif raw_errors:
+                add_row("Braiins", "—", raw_errors)
+            for key in ("message", "reason", "description"):
+                if key in errors:
+                    add_row("Braiins", "—", errors.get(key))
+            if not rows and errors:
+                add_row("Braiins", "—", errors)
+        elif isinstance(errors, list):
+            for entry in errors[-limit:]:
+                add_row("Braiins", "—", entry)
+        elif errors:
+            add_row("Braiins", "—", errors)
+
+        return rows[-limit:]
 
     @staticmethod
     def _msg_to_dict(message: Any) -> dict[str, Any]:
