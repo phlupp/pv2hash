@@ -33,6 +33,22 @@ class DriverField:
 
 
 @dataclass(frozen=True)
+class DriverDetailColumn:
+    key: str
+    label: str
+
+
+@dataclass(frozen=True)
+class DriverDetailItem:
+    label: str
+    value: Any = None
+    kind: str = "text"
+    columns: tuple[DriverDetailColumn, ...] = field(default_factory=tuple)
+    rows: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    empty: str = "—"
+
+
+@dataclass(frozen=True)
 class DriverAction:
     name: str
     label: str

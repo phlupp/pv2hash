@@ -232,6 +232,28 @@ Drivers that can expose detailed information should return read-only structured 
 
 This should support a future miner details page without tying the web layer to specific driver internals.
 
+Detail items may also use structured list/table data when a driver has multiple records to show, for example recent miner errors. The driver is responsible for adapting vendor-specific payloads into stable UI rows and columns. The web UI only renders the generic structure.
+
+Example table-shaped detail item:
+
+```python
+{
+    "label": "Recent errors",
+    "kind": "table",
+    "columns": [
+        {"key": "time", "label": "Time"},
+        {"key": "code", "label": "Error code"},
+        {"key": "reason", "label": "Reason"},
+    ],
+    "rows": [
+        {"time": "2025-03-12 14:52:35", "code": "531", "reason": "Slot1 not found."},
+    ],
+    "empty": "No errors reported",
+}
+```
+
+For normal key/value detail entries, drivers can omit `kind`; the UI treats them as simple text values.
+
 ### Capabilities guidance
 
 Drivers may optionally publish a capability map so the UI and future services can decide what to show or enable. Example:
@@ -385,6 +407,7 @@ Readback sources:
 - `device_settings.fan_poweroff_cool` is read from `get.fan.setting` field `fan-poweroff-cool`
 - `fan-zero-speed` is read from `get.fan.setting` and may be shown as read-only detail, but is not exposed as a writable setting.
 - `device_settings.power_limit_w` is read from `get.miner.status` summary field `power-limit`
+- recent device errors are read from `get.device.info` field `error-code` and exposed as a read-only table detail with the columns time, error code, and reason. This is informational only and does not affect driver status evaluation.
 
 `device_settings.power_limit_w` is intentionally optional in the GUI. An empty value is not sent to the miner. This avoids accidentally sending `0` and triggering a restart when the user only wants to apply unrelated fan settings. If a numeric value is entered, it is validated in the range `0..99999` and sent as a JSON number. The miner may reboot to apply this setting.
 

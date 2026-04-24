@@ -618,6 +618,23 @@ class WhatsminerApi3Miner(MinerAdapter):
         system = self._device_info_cache.get("system", {}) if isinstance(self._device_info_cache.get("system"), dict) else {}
         summary = self._summary_cache if isinstance(self._summary_cache, dict) else {}
         boards = summary.get("board-temperature") if isinstance(summary.get("board-temperature"), list) else []
+        raw_errors = self._device_info_cache.get("error-code")
+        error_rows: list[dict[str, str]] = []
+        if isinstance(raw_errors, list):
+            for entry in raw_errors[-3:]:
+                if isinstance(entry, dict):
+                    reason = str(entry.get("reason", "—"))
+                    code = "—"
+                    when = "—"
+                    for key, value in entry.items():
+                        if key == "reason":
+                            continue
+                        code = str(key)
+                        when = str(value)
+                        break
+                    error_rows.append({"time": when, "code": code, "reason": reason})
+                else:
+                    error_rows.append({"time": "—", "code": "—", "reason": str(entry)})
 
         sections = [
             {
@@ -660,6 +677,23 @@ class WhatsminerApi3Miner(MinerAdapter):
                     {"label": "VOUT", "value": f"{power.get('vout', '—')} V"},
                     {"label": "PIN", "value": f"{power.get('pin', '—')} W"},
                     {"label": "PSU Temp", "value": f"{power.get('temp0', '—')} °C"},
+                ],
+            },
+            {
+                "id": "errors",
+                "title": "Fehler",
+                "items": [
+                    {
+                        "label": "Letzte Fehler",
+                        "kind": "table",
+                        "columns": [
+                            {"key": "time", "label": "Zeit"},
+                            {"key": "code", "label": "Error-Code"},
+                            {"key": "reason", "label": "Fehlertext"},
+                        ],
+                        "rows": error_rows,
+                        "empty": "Keine Fehler gemeldet",
+                    },
                 ],
             },
         ]
