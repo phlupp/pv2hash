@@ -1598,8 +1598,7 @@ async def set_miner_control_enabled_from_dashboard(
 
 
 
-async def _apply_miner_device_settings_impl(request: Request, miner_id: str):
-    form = await request.form()
+async def _apply_miner_device_settings_result(miner_id: str, form: Any) -> dict[str, Any]:
     miner_id = str(miner_id).strip()
 
     for miner in state.config.get("miners", []):
@@ -1609,7 +1608,7 @@ async def _apply_miner_device_settings_impl(request: Request, miner_id: str):
         driver = _normalize_miner_driver(miner.get("driver", "simulator"))
         schema = _driver_device_settings_schema(driver)
         if not schema:
-            return _redirect_to_miners(miner_id=miner_id, error="Dieser Treiber unterstützt keine Geräte-Einstellungen.")
+            return {"ok": False, "message": "Dieser Treiber unterstützt keine Geräte-Einstellungen."}
 
         values: dict[str, Any] = {}
         for field in schema:
@@ -1625,23 +1624,48 @@ async def _apply_miner_device_settings_impl(request: Request, miner_id: str):
             values[field.name] = value
 
         if not values:
-            return _redirect_to_miners(miner_id=miner_id, error="Keine lesbaren Geräte-Einstellungen verfügbar.")
+            return {"ok": False, "message": "Keine lesbaren Geräte-Einstellungen verfügbar."}
 
         adapter = _get_runtime_adapter_by_id(miner_id)
         if adapter is None:
-            return _redirect_to_miners(miner_id=miner_id, error="Miner-Laufzeitadapter nicht verfügbar.")
+            return {"ok": False, "message": "Miner-Laufzeitadapter nicht verfügbar."}
 
         try:
             result = await asyncio.to_thread(adapter.apply_device_settings, values)
         except Exception as exc:
-            return _redirect_to_miners(miner_id=miner_id, error=f"Geräte-Einstellung fehlgeschlagen: {exc}")
+            return {"ok": False, "message": f"Geräte-Einstellung fehlgeschlagen: {exc}"}
 
         if not result or not result.get("ok"):
-            return _redirect_to_miners(miner_id=miner_id, error=result.get("message", "Geräte-Einstellung fehlgeschlagen."))
+            return {
+                "ok": False,
+                "message": result.get("message", "Geräte-Einstellung fehlgeschlagen.") if isinstance(result, dict) else "Geräte-Einstellung fehlgeschlagen.",
+            }
 
-        return _redirect_to_miners(miner_id=miner_id, saved=True)
+        return {
+            "ok": True,
+            "message": result.get("message", "Geräte-Einstellung erfolgreich angewendet.") if isinstance(result, dict) else "Geräte-Einstellung erfolgreich angewendet.",
+        }
 
-    return _redirect_to_miners(error="Miner nicht gefunden.")
+    return {"ok": False, "message": "Miner nicht gefunden."}
+
+
+async def _apply_miner_device_settings_impl(request: Request, miner_id: str):
+    result = await _apply_miner_device_settings_result(miner_id, await request.form())
+    if not result.get("ok"):
+        return _redirect_to_miners(miner_id=miner_id, error=result.get("message", "Geräte-Einstellung fehlgeschlagen."))
+    return _redirect_to_miners(miner_id=miner_id, saved=True)
+
+
+@app.post("/api/miner/{miner_id}/device-settings")
+async def api_apply_miner_device_settings(miner_id: str, request: Request):
+    result = await _apply_miner_device_settings_result(miner_id, await request.form())
+    return JSONResponse(
+        {
+            "status": "ok" if result.get("ok") else "error",
+            "message": result.get("message", ""),
+        },
+        status_code=200 if result.get("ok") else 400,
+    )
 
 
 @app.post("/miners/{miner_id}/device-settings")

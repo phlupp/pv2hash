@@ -238,7 +238,7 @@
                             {% endfor %}
                         </div>
                         <div class="actions-row">
-                            <button class="btn" type="submit" formaction="/miners/{{ miner.id }}/device-settings">Geräte-Einstellungen anwenden</button>
+                            <button class="btn" type="button" data-miner-device-settings data-miner-id="{{ miner.id }}">Geräte-Einstellungen anwenden</button>
                         </div>
                         {% endif %}
 

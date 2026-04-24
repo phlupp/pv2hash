@@ -56,24 +56,36 @@
     return toast;
   };
 
+  async function readJsonResponse(response, fallbackMessage) {
+    let data = {};
+    try {
+      data = await response.json();
+    } catch (_) {
+      data = { status: response.ok ? 'ok' : 'error', message: response.statusText || fallbackMessage || 'Unbekannte Antwort.' };
+    }
+
+    if (!response.ok || data.status === 'error') {
+      throw new Error(data.message || fallbackMessage || 'Aktion fehlgeschlagen.');
+    }
+    return data;
+  }
+
   async function postJson(url, payload) {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify(payload || {}),
     });
+    return readJsonResponse(response, 'Aktion fehlgeschlagen.');
+  }
 
-    let data = {};
-    try {
-      data = await response.json();
-    } catch (_) {
-      data = { status: response.ok ? 'ok' : 'error', message: response.statusText || 'Unbekannte Antwort.' };
-    }
-
-    if (!response.ok || data.status === 'error') {
-      throw new Error(data.message || 'Aktion fehlgeschlagen.');
-    }
-    return data;
+  async function postForm(url, form) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' },
+      body: new FormData(form),
+    });
+    return readJsonResponse(response, 'Speichern fehlgeschlagen.');
   }
 
   window.runMinerAction = async function runMinerAction(button) {
@@ -97,10 +109,37 @@
     }
   };
 
+  window.submitMinerDeviceSettings = async function submitMinerDeviceSettings(button) {
+    const minerId = button.dataset.minerId;
+    const form = button.closest('form');
+    if (!minerId || !form) return;
+
+    const oldText = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Speichert …';
+    try {
+      const data = await postForm(`/api/miner/${encodeURIComponent(minerId)}/device-settings`, form);
+      window.showToast('success', data.message || 'Geräte-Einstellung erfolgreich angewendet.');
+    } catch (error) {
+      window.showToast('error', error.message || 'Geräte-Einstellung fehlgeschlagen.');
+    } finally {
+      button.disabled = false;
+      button.textContent = oldText;
+    }
+  };
+
   document.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-miner-action]');
-    if (!button || button.disabled) return;
-    event.preventDefault();
-    window.runMinerAction(button);
+    const actionButton = event.target.closest('[data-miner-action]');
+    if (actionButton && !actionButton.disabled) {
+      event.preventDefault();
+      window.runMinerAction(actionButton);
+      return;
+    }
+
+    const deviceSettingsButton = event.target.closest('[data-miner-device-settings]');
+    if (deviceSettingsButton && !deviceSettingsButton.disabled) {
+      event.preventDefault();
+      window.submitMinerDeviceSettings(deviceSettingsButton);
+    }
   });
 })();
