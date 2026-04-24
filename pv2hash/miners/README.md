@@ -31,15 +31,6 @@ New drivers should follow the same pattern unless the vendor API requires a diff
 - Never rely on a generic loop cooldown as the main safety mechanism
 - Use miner runtime state and live readback as the primary source of truth
 
-## WhatsMiner API 2.x notes
-
-WhatsMiner API 2.x differs from Braiins in transport and semantics, but should still follow the same high-level design:
-
-- start/stop must be based on live miner state (`mineroff`)
-- percentage/power writes must only happen when the desired target really changed
-- live values reported by the miner are the primary truth
-- configuration values are only fallbacks or user-entered desired base values
-
 ## Source of truth rules
 
 Prefer live miner runtime values over config values whenever possible.
@@ -285,10 +276,6 @@ The Braiins driver is expected to expose richer read-only details and possibly B
 
 WhatsMiner API 3 is expected to benefit strongly from this model because it has driver-specific device settings and actions that should not leak into unrelated drivers.
 
-#### WhatsMiner API 2
-
-WhatsMiner API 2 should be treated as legacy/deprecated where appropriate. New architecture work should prefer the API 3 path whenever practical.
-
 ### Implementation rules
 
 - Keep control logic and metadata separate.
@@ -439,3 +426,12 @@ Current Braiins actions:
 - `reboot_system` -> `Reboot`
 
 Braiins diagnostic details include overview information, power target constraints, hashrate values, tuner state, status raw data, and a generic table for recent errors. These details are informational only and do not affect runtime-state evaluation.
+
+## Removed legacy drivers
+
+WhatsMiner API 2.x support has been removed from the active driver model. New WhatsMiner integrations should use the WhatsMiner API 3 driver.
+
+Removal notes:
+- The `whatsminer_api2` driver key is no longer listed in the GUI driver catalog.
+- The API 2.x runtime adapter is no longer imported or built by the runtime factory.
+- Existing legacy API 2.x miner entries should be recreated with the WhatsMiner API 3 driver where possible.

@@ -2,7 +2,6 @@ from pv2hash.logging_ext.setup import get_logger
 from pv2hash.miners.base import MinerAdapter
 from pv2hash.miners.braiins import BraiinsMiner
 from pv2hash.miners.simulator import SimulatorMiner
-from pv2hash.miners.whatsminer import WhatsminerMiner
 from pv2hash.miners.whatsminer_api3 import WhatsminerApi3Miner
 from pv2hash.sources.base import EnergySource
 from pv2hash.sources.battery_modbus import BatteryModbusSource, ModbusValueConfig
@@ -19,8 +18,6 @@ MODBUS_ENDIAN_TYPES = ("big_endian", "little_endian")
 
 def _normalize_miner_driver(driver: str | None) -> str:
     normalized = str(driver or "simulator").strip().lower()
-    if normalized == "whatsminer":
-        return "whatsminer_api2"
     if normalized in {"whatsminer3", "whatsminer_api3"}:
         return "whatsminer_api3"
     return normalized or "simulator"
@@ -28,7 +25,7 @@ def _normalize_miner_driver(driver: str | None) -> str:
 
 def _default_profiles_for_driver(driver: str) -> dict:
     driver = _normalize_miner_driver(driver)
-    if driver in {"braiins", "whatsminer_api2"}:
+    if driver == "braiins":
         return {
             "p1": {"power_w": 1200},
             "p2": {"power_w": 2200},
@@ -252,45 +249,6 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     battery_discharge_profile=_normalize_battery_override_profile(
                         miner_cfg.get("battery_discharge_profile", "p1")
                     ),
-                )
-            )
-            continue
-
-        if driver == "whatsminer_api2":
-            miner_adapters.append(
-                WhatsminerMiner(
-                    miner_id=miner_cfg["id"],
-                    name=miner_cfg["name"],
-                    host=miner_cfg["host"],
-                    port=int(settings.get("port", 4028)),
-                    password=settings.get("password", ""),
-                    priority=miner_cfg.get("priority", 100),
-                    enabled=monitor_enabled,
-                    serial_number=miner_cfg.get("serial_number"),
-                    model=miner_cfg.get("model"),
-                    firmware_version=miner_cfg.get("firmware_version"),
-                    profiles=profiles,
-                    min_regulated_profile=min_regulated_profile,
-                    use_battery_when_charging=bool(
-                        miner_cfg.get("use_battery_when_charging", False)
-                    ),
-                    battery_charge_soc_min=float(
-                        miner_cfg.get("battery_charge_soc_min", 95.0)
-                    ),
-                    battery_charge_profile=_normalize_battery_override_profile(
-                        miner_cfg.get("battery_charge_profile", "p1")
-                    ),
-                    use_battery_when_discharging=bool(
-                        miner_cfg.get("use_battery_when_discharging", False)
-                    ),
-                    battery_discharge_soc_min=float(
-                        miner_cfg.get("battery_discharge_soc_min", 80.0)
-                    ),
-                    battery_discharge_profile=_normalize_battery_override_profile(
-                        miner_cfg.get("battery_discharge_profile", "p1")
-                    ),
-                    timeout_s=float(settings.get("timeout_s", 2.0)),
-                    power_limit_w=float(settings.get("power_limit_w", 0) or 0),
                 )
             )
             continue

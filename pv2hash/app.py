@@ -33,7 +33,6 @@ from pv2hash.runtime import AppState
 from pv2hash.miners.base import DriverAction, DriverField, DriverFieldChoice, MinerAdapter
 from pv2hash.miners.braiins import BraiinsMiner
 from pv2hash.miners.simulator import SimulatorMiner
-from pv2hash.miners.whatsminer import WhatsminerMiner
 from pv2hash.miners.whatsminer_api3 import WhatsminerApi3Miner
 from pv2hash.self_update import SelfUpdateManager
 from pv2hash.services import RuntimeServices
@@ -70,7 +69,6 @@ MODBUS_ENDIAN_TYPES = ("big_endian", "little_endian")
 DRIVER_CLASSES: dict[str, type[MinerAdapter]] = {
     "simulator": SimulatorMiner,
     "braiins": BraiinsMiner,
-    "whatsminer_api2": WhatsminerMiner,
     "whatsminer_api3": WhatsminerApi3Miner,
 }
 
@@ -273,7 +271,7 @@ def _core_control_full_fields(miner_cfg: dict) -> list[dict]:
 
 def _build_driver_catalog() -> list[dict]:
     catalog = []
-    for driver_key in ("simulator", "braiins", "whatsminer_api3", "whatsminer_api2"):
+    for driver_key in ("simulator", "braiins", "whatsminer_api3"):
         catalog.append({
             "key": driver_key,
             "label": _resolve_miner_driver_label(driver_key),
@@ -759,8 +757,6 @@ def _redirect_with_system_message(*, notice: str | None = None, error: str | Non
 
 def _normalize_miner_driver(driver: str | None) -> str:
     normalized = str(driver or "simulator").strip().lower()
-    if normalized == "whatsminer":
-        return "whatsminer_api2"
     if normalized in {"whatsminer3", "whatsminer_api3"}:
         return "whatsminer_api3"
     return normalized or "simulator"
@@ -771,7 +767,6 @@ def _resolve_miner_driver_label(driver: str | None) -> str:
     labels = {
         "simulator": "Simulator",
         "braiins": "Braiins OS+",
-        "whatsminer_api2": "WhatsMiner (API 2.x)",
         "whatsminer_api3": "WhatsMiner (API 3.x)",
     }
     return labels.get(normalized, normalized or "Unbekannt")
@@ -890,8 +885,6 @@ def _driver_profile_defaults(driver: str) -> tuple[int, int, int, int, int]:
     normalized = _normalize_miner_driver(driver)
     if normalized == "braiins":
         return 50051, 1200, 2200, 3200, 4200
-    if normalized == "whatsminer_api2":
-        return 4028, 1200, 2200, 3200, 4200
     if normalized == "whatsminer_api3":
         return 4433, 1000, 1400, 1800, 2200
     return 4028, 900, 1800, 3000, 4200
@@ -997,7 +990,6 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
             "simulator": "https://github.com/phlupp/pv2hash/wiki/Simulator-Miner",
             "braiins": "https://github.com/phlupp/pv2hash/wiki/Braiins-OS%2B",
             "whatsminer_api3": "https://github.com/phlupp/pv2hash/wiki/WhatsMiner-API3",
-            "whatsminer_api2": "https://github.com/phlupp/pv2hash/wiki/WhatsMiner",
         },
     }
 
@@ -1029,39 +1021,8 @@ def _build_miner_settings(
         elif existing.get("password"):
             settings["password"] = existing["password"]
 
-    if driver == "whatsminer_api2":
-        password_raw = str(form.get("whatsminer_password", "")).strip()
-        if password_raw:
-            settings["password"] = password_raw
-        elif existing.get("password"):
-            settings["password"] = existing["password"]
-
-        power_limit_raw = str(form.get("whatsminer_power_limit_w", "")).strip()
-        if power_limit_raw:
-            settings["power_limit_w"] = _safe_int(power_limit_raw, 0)
-        elif existing.get("power_limit_w") not in (None, ""):
-            settings["power_limit_w"] = _safe_int(existing.get("power_limit_w"), 0)
-
     return settings
 
-
-def _validate_whatsminer_api2_settings(
-    *,
-    profile_values: dict[str, dict[str, float]],
-    settings: dict,
-) -> str | None:
-    power_limit_w = _safe_int(settings.get("power_limit_w"), 0)
-    if power_limit_w <= 0:
-        return "WhatsMiner (API 2.x) benötigt ein Basis-Power-Limit in Watt."
-
-    for name in EDITABLE_PROFILE_NAMES:
-        value = float(profile_values[name]["power_w"])
-        if value > float(power_limit_w):
-            return (
-                f"{name} liegt über dem konfigurierten Basis-Power-Limit von {int(power_limit_w)} W."
-            )
-
-    return None
 
 
 def _parse_profile_values(form, driver: str) -> dict[str, dict[str, float]]:
@@ -1246,41 +1207,6 @@ def reload_runtime() -> None:
     state.last_live_packet_at = None
     state.last_reload_at = datetime.now(UTC)
 
-
-async def _apply_whatsminer_power_limit_after_reload(miner_id: str, target_w: int) -> None:
-    try:
-        miner = next((m for m in services.miners if str(getattr(getattr(m, "info", None), "id", "")) == str(miner_id)), None)
-        if miner is None or not hasattr(miner, "apply_base_power_limit"):
-            logger.warning(
-                "WhatsMiner base power limit apply skipped after reload: id=%s reason=adapter-not-found",
-                miner_id,
-            )
-            return
-
-        miner_info = getattr(miner, "info", None)
-        miner_name = getattr(miner_info, "name", getattr(miner, "name", "?"))
-        miner_host = getattr(miner_info, "host", getattr(miner, "host", "?"))
-        resolved_id = getattr(miner_info, "id", miner_id)
-
-        logger.info(
-            "Applying WhatsMiner base power limit after save in background: id=%s name=%s host=%s power_limit_w=%s",
-            resolved_id,
-            miner_name,
-            miner_host,
-            target_w,
-        )
-        await asyncio.to_thread(miner.apply_base_power_limit, int(target_w))
-    except Exception:
-        logger.exception(
-            "Failed to apply WhatsMiner base power limit after update: id=%s",
-            miner_id,
-        )
-    else:
-        logger.info(
-            "WhatsMiner base power limit applied after update: id=%s power_limit_w=%s",
-            miner_id,
-            target_w,
-        )
 
 
 @app.get("/")
