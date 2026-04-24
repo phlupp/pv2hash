@@ -489,7 +489,9 @@ class WhatsminerApi3Miner(MinerAdapter):
         if "device_settings.fan_poweroff_cool" in values:
             fan_poweroff_cool = bool(values.get("device_settings.fan_poweroff_cool", False))
             if current_values.get("device_settings.fan_poweroff_cool") != fan_poweroff_cool:
-                commands.append(("fan_poweroff_cool", "set.fan.poweroff_cool", 1 if fan_poweroff_cool else 0))
+                # WhatsMiner API3 expects fan.poweroff_cool as string "1"/"0".
+                # Sending a numeric value can return code=0 but leave the setting unchanged.
+                commands.append(("fan_poweroff_cool", "set.fan.poweroff_cool", "1" if fan_poweroff_cool else "0"))
 
         if "device_settings.fan_zero_speed" in values:
             fan_zero_speed = bool(values.get("device_settings.fan_zero_speed", False))
@@ -512,7 +514,19 @@ class WhatsminerApi3Miner(MinerAdapter):
                 commands.append(("power_limit_w", "set.miner.power_limit", power_limit_int))
 
         if not commands:
+            logger.info(
+                "WhatsMiner API3 device settings unchanged for %s (%s:%s)",
+                self.info.name, self.host, self.port,
+            )
             return {"ok": True, "message": "Keine Geräte-Einstellung geändert"}
+
+        logger.info(
+            "WhatsMiner API3 apply device settings for %s (%s:%s): %s",
+            self.info.name,
+            self.host,
+            self.port,
+            ", ".join(f"{setting_name}={param!r}" for setting_name, _cmd, param in commands),
+        )
 
         for setting_name, cmd, param in commands:
             try:
@@ -525,6 +539,11 @@ class WhatsminerApi3Miner(MinerAdapter):
                 )
                 return {"ok": False, "message": f"API-Verbindungsfehler bei {setting_name}: {exc}"}
 
+            logger.info(
+                "WhatsMiner API3 apply %s response for %s (%s:%s): %s",
+                setting_name, self.info.name, self.host, self.port, resp,
+            )
+
             if int(resp.get("code", -1)) != 0:
                 logger.warning(
                     "WhatsMiner API3 apply %s API error for %s (%s:%s): %s",
@@ -534,6 +553,38 @@ class WhatsminerApi3Miner(MinerAdapter):
 
         if power_limit_int is not None:
             self._cached_power_limit_w = float(power_limit_int)
+
+        fan_expected: dict[str, bool] = {}
+        if "device_settings.fan_poweroff_cool" in values:
+            fan_expected["device_settings.fan_poweroff_cool"] = bool(values.get("device_settings.fan_poweroff_cool", False))
+        if "device_settings.fan_zero_speed" in values:
+            fan_expected["device_settings.fan_zero_speed"] = bool(values.get("device_settings.fan_zero_speed", False))
+
+        if fan_expected:
+            readback_values = self.get_device_settings_values()
+            mismatches: list[str] = []
+            for key, expected in fan_expected.items():
+                if key not in readback_values:
+                    mismatches.append(f"{key}: Readback fehlt")
+                    continue
+                actual = bool(readback_values.get(key))
+                if actual != expected:
+                    mismatches.append(f"{key}: erwartet={expected} gelesen={actual}")
+
+            if mismatches:
+                logger.warning(
+                    "WhatsMiner API3 device settings readback mismatch for %s (%s:%s): %s",
+                    self.info.name, self.host, self.port, "; ".join(mismatches),
+                )
+                return {
+                    "ok": False,
+                    "message": "Geräte-Einstellung wurde gesendet, aber der Miner meldet danach weiterhin abweichende Werte: " + "; ".join(mismatches),
+                }
+
+            logger.info(
+                "WhatsMiner API3 device settings readback verified for %s (%s:%s)",
+                self.info.name, self.host, self.port,
+            )
 
         return {"ok": True, "message": "Geräte-Einstellungen übernommen"}
 
