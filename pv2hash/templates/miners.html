@@ -124,22 +124,22 @@
             </div>
         </section>
 
-        <section class="miner-list">
+        <section class="miner-list" data-miners-live-root data-refresh-seconds="{{ refresh_seconds }}">
             {% for miner in miners %}
             <details class="miner-card" data-miner-card data-miner-id="{{ miner.id }}" {% if open_miner_id == miner.id %}open{% endif %}>
                 <summary>
                     <div>
                         <strong>{{ miner.name }}</strong>
                         <div style="opacity:.8; margin-top:.2rem;">{{ miner.driver|replace('_', ' ') }}</div>
-                        <div class="miner-meta">
-                            <span class="pill {{ 'ok' if miner.summary.control_enabled else 'neutral' }}">{{ 'Regelung' if miner.summary.control_enabled else 'Nicht geregelt' }}</span>
-                            <span class="pill {% if not miner.summary.monitor_enabled %}neutral{% elif miner.summary.connection_ok is sameas true %}ok{% elif miner.summary.connection_ok is sameas false %}bad{% else %}neutral{% endif %}">
+                        <div class="miner-meta" data-miner-summary>
+                            <span class="pill {{ 'ok' if miner.summary.control_enabled else 'neutral' }}" data-summary-field="control">{{ 'Regelung' if miner.summary.control_enabled else 'Nicht geregelt' }}</span>
+                            <span class="pill {% if not miner.summary.monitor_enabled %}neutral{% elif miner.summary.connection_ok is sameas true %}ok{% elif miner.summary.connection_ok is sameas false %}bad{% else %}neutral{% endif %}" data-summary-field="connection">
                                 {% if not miner.summary.monitor_enabled %}Verbindung aus{% elif miner.summary.connection_ok is sameas true %}Verbindung OK{% elif miner.summary.connection_ok is sameas false %}Keine Verbindung{% else %}Verbindung unbekannt{% endif %}
                             </span>
-                            <span class="pill neutral">Status: {{ miner.summary.runtime_state }}</span>
-                            <span class="pill neutral">Priorität: {{ miner.summary.priority }}</span>
-                            {% if miner.summary.profile %}<span class="pill neutral">Profil: {{ miner.summary.profile }}</span>{% endif %}
-                            {% if miner.summary.power_w is not none %}<span class="pill neutral">{{ '%.0f'|format(miner.summary.power_w) }} W</span>{% endif %}
+                            <span class="pill neutral" data-summary-field="runtime_state">Status: {{ miner.summary.runtime_state }}</span>
+                            <span class="pill neutral" data-summary-field="priority">Priorität: {{ miner.summary.priority }}</span>
+                            <span class="pill neutral" data-summary-field="profile" {% if not miner.summary.profile %}hidden{% endif %}>Profil: {{ miner.summary.profile or '' }}</span>
+                            <span class="pill neutral" data-summary-field="power" {% if miner.summary.power_w is none %}hidden{% endif %}>{% if miner.summary.power_w is not none %}{{ '%.0f'|format(miner.summary.power_w) }} W{% endif %}</span>
                         </div>
                     </div>
                 </summary>
@@ -280,50 +280,9 @@
                         {% endif %}
 
 
-                        {% if miner.details and miner.details.sections %}
-                        <h3 class="section-title">Details</h3>
-                        {% for section in miner.details.sections %}
-                        <section class="details-section">
-                            <strong>{{ section["title"] }}</strong>
-                            <div class="details-grid" style="margin-top:.75rem;">
-                                {% for item in section["items"] %}
-                                {% if item.kind == "table" %}
-                                <div class="details-table-wrap">
-                                    <span class="details-item-label">{{ item.label }}</span>
-                                    {% if item.rows %}
-                                    <table class="details-table">
-                                        <thead>
-                                            <tr>
-                                                {% for column in item.columns %}
-                                                <th>{{ column.label }}</th>
-                                                {% endfor %}
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {% for row in item.rows %}
-                                            <tr>
-                                                {% for column in item.columns %}
-                                                <td>{{ row[column.key] }}</td>
-                                                {% endfor %}
-                                            </tr>
-                                            {% endfor %}
-                                        </tbody>
-                                    </table>
-                                    {% else %}
-                                    <div class="details-table-empty">{{ item.empty or "—" }}</div>
-                                    {% endif %}
-                                </div>
-                                {% else %}
-                                <div class="details-item">
-                                    <span class="details-item-label">{{ item.label }}</span>
-                                    <span>{{ item.value }}</span>
-                                </div>
-                                {% endif %}
-                                {% endfor %}
-                            </div>
-                        </section>
-                        {% endfor %}
-                        {% endif %}
+                        <div data-miner-details-container>
+                            {% include "partials/miner_details.html" %}
+                        </div>
 
                         <div class="actions-row">
                             <button class="btn btn-primary" type="submit">Speichern</button>

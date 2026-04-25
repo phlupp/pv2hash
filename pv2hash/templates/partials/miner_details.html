@@ -1,0 +1,44 @@
+{% if miner.details and miner.details.sections %}
+<h3 class="section-title">Details</h3>
+{% for section in miner.details.sections %}
+<section class="details-section">
+    <strong>{{ section["title"] }}</strong>
+    <div class="details-grid" style="margin-top:.75rem;">
+        {% for item in section["items"] %}
+        {% if item.kind == "table" %}
+        <div class="details-table-wrap">
+            <span class="details-item-label">{{ item.label }}</span>
+            {% if item.rows %}
+            <table class="details-table">
+                <thead>
+                    <tr>
+                        {% for column in item.columns %}
+                        <th>{{ column.label }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in item.rows %}
+                    <tr>
+                        {% for column in item.columns %}
+                        <td>{{ row[column.key] }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="details-table-empty">{{ item.empty or "—" }}</div>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="details-item">
+            <span class="details-item-label">{{ item.label }}</span>
+            <span>{{ item.value }}</span>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+</section>
+{% endfor %}
+{% endif %}

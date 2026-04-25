@@ -971,6 +971,80 @@ def _get_runtime_adapter_by_id(miner_id: str):
     return None
 
 
+def _format_miner_summary_for_api(summary: dict) -> dict:
+    monitor_enabled = bool(summary.get("monitor_enabled"))
+    control_enabled = bool(summary.get("control_enabled"))
+    connection_ok = summary.get("connection_ok")
+    power_w = summary.get("power_w")
+    profile = summary.get("profile")
+
+    if not monitor_enabled:
+        connection_text = "Verbindung aus"
+        connection_class = "neutral"
+    elif connection_ok is True:
+        connection_text = "Verbindung OK"
+        connection_class = "ok"
+    elif connection_ok is False:
+        connection_text = "Keine Verbindung"
+        connection_class = "bad"
+    else:
+        connection_text = "Verbindung unbekannt"
+        connection_class = "neutral"
+
+    return {
+        "control_text": "Regelung" if control_enabled else "Nicht geregelt",
+        "control_class": "ok" if control_enabled else "neutral",
+        "connection_text": connection_text,
+        "connection_class": connection_class,
+        "runtime_state_text": f"Status: {summary.get('runtime_state') or 'unknown'}",
+        "priority_text": f"Priorität: {summary.get('priority', 100)}",
+        "profile_text": f"Profil: {profile}" if profile else "",
+        "profile_visible": bool(profile),
+        "power_text": f"{float(power_w):.0f} W" if power_w is not None else "",
+        "power_visible": power_w is not None,
+    }
+
+
+def _render_miner_details_html(miner_view: dict) -> str:
+    template = templates.get_template("partials/miner_details.html")
+    return template.render({"miner": miner_view})
+
+
+def _build_miners_live_payload(open_ids: set[str] | None = None) -> dict:
+    open_ids = open_ids or set()
+    runtime_map = _get_runtime_miner_map()
+    miners_payload: list[dict] = []
+
+    for miner_cfg in state.config.get("miners", []):
+        miner_id = str(miner_cfg.get("id") or "")
+        merged = deepcopy(miner_cfg)
+        runtime = runtime_map.get(miner_id, {})
+        merged.setdefault("settings", {})
+        merged.setdefault("profiles", {})
+        merged.setdefault("min_regulated_profile", "off")
+        merged["driver"] = _normalize_miner_driver(merged.get("driver"))
+        merged["runtime"] = runtime
+        merged["summary"] = _miner_card_summary(merged, runtime)
+
+        item = {
+            "id": miner_id,
+            "summary": _format_miner_summary_for_api(merged["summary"]),
+        }
+
+        if miner_id in open_ids:
+            try:
+                adapter = _get_runtime_adapter_by_id(miner_id)
+                merged["details"] = adapter.get_details() if adapter else {}
+            except Exception:
+                logger.exception("Failed to refresh miner details for live payload: %s", miner_id)
+                merged["details"] = {}
+            item["details_html"] = _render_miner_details_html(merged)
+
+        miners_payload.append(item)
+
+    return {"status": "ok", "miners": miners_payload}
+
+
 def _build_miners_view() -> list[dict]:
     runtime_map = _get_runtime_miner_map()
     details_map = _get_runtime_details_map()
@@ -1010,6 +1084,7 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
         "error_message": error_message or request.query_params.get("error_message"),
         "driver_catalog": _build_driver_catalog(),
         "core_identity_basic_fields": _core_identity_basic_fields(),
+        "refresh_seconds": _safe_int(state.config.get("app", {}).get("refresh_seconds", 5), 5),
         "wiki_links": {
             "overview": "https://github.com/phlupp/pv2hash/wiki/Miner",
             "profiles": "https://github.com/phlupp/pv2hash/wiki/Leistungsprofile",
@@ -1364,6 +1439,7 @@ async def sources_page(request: Request):
         "modbus_register_types": MODBUS_REGISTER_TYPES,
         "modbus_value_types": MODBUS_VALUE_TYPES,
         "modbus_endian_types": MODBUS_ENDIAN_TYPES,
+        "refresh_seconds": _safe_int(state.config.get("app", {}).get("refresh_seconds", 5), 5),
         "wiki_links": {
             "overview": "https://github.com/phlupp/pv2hash/wiki/Messungen",
             "nap": "https://github.com/phlupp/pv2hash/wiki/Netz-Messung",
@@ -1832,6 +1908,13 @@ async def system_logging(request: Request):
     setup_logging(log_level)
     logger.info("Log level changed to %s", log_level)
     return RedirectResponse(url="/system", status_code=303)
+
+
+
+@app.get("/api/miners/status")
+async def api_miners_status(open_ids: str = ""):
+    selected_open_ids = {item.strip() for item in str(open_ids or "").split(",") if item.strip()}
+    return JSONResponse(_build_miners_live_payload(selected_open_ids))
 
 
 @app.get("/api/system/host-status")

@@ -308,6 +308,118 @@
     window.submitMinerConfig(form, event.submitter);
   });
 
+
+  function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(String(value));
+    return String(value).replace(/"/g, '\\"');
+  }
+
+  function setPillState(element, text, stateClass) {
+    if (!element) return;
+    element.textContent = text || '';
+    element.classList.remove('ok', 'bad', 'neutral');
+    element.classList.add(stateClass || 'neutral');
+  }
+
+  function updateMinerSummary(card, summary) {
+    if (!card || !summary) return;
+    setPillState(card.querySelector('[data-summary-field="control"]'), summary.control_text, summary.control_class);
+    setPillState(card.querySelector('[data-summary-field="connection"]'), summary.connection_text, summary.connection_class);
+    setPillState(card.querySelector('[data-summary-field="runtime_state"]'), summary.runtime_state_text, 'neutral');
+    setPillState(card.querySelector('[data-summary-field="priority"]'), summary.priority_text, 'neutral');
+
+    const profile = card.querySelector('[data-summary-field="profile"]');
+    if (profile) {
+      profile.textContent = summary.profile_text || '';
+      profile.hidden = !summary.profile_visible;
+      profile.classList.remove('ok', 'bad');
+      profile.classList.add('neutral');
+    }
+
+    const power = card.querySelector('[data-summary-field="power"]');
+    if (power) {
+      power.textContent = summary.power_text || '';
+      power.hidden = !summary.power_visible;
+      power.classList.remove('ok', 'bad');
+      power.classList.add('neutral');
+    }
+  }
+
+  let liveRefreshTimer = null;
+  let liveRefreshRunning = false;
+
+  function getOpenMinerIds() {
+    return Array.from(document.querySelectorAll('[data-miner-card][open]'))
+      .map((card) => card.dataset.minerId)
+      .filter(Boolean);
+  }
+
+  async function refreshMinerLiveData() {
+    const root = document.querySelector('[data-miners-live-root]');
+    if (!root || document.hidden || liveRefreshRunning) return;
+
+    liveRefreshRunning = true;
+    try {
+      const openIds = getOpenMinerIds();
+      const url = new URL('/api/miners/status', window.location.origin);
+      if (openIds.length) url.searchParams.set('open_ids', openIds.join(','));
+      const response = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+      const data = await readJsonResponse(response, 'Live-Daten konnten nicht aktualisiert werden.');
+      for (const miner of data.miners || []) {
+        const card = document.querySelector(`[data-miner-card][data-miner-id="${cssEscape(miner.id)}"]`);
+        if (!card) continue;
+        updateMinerSummary(card, miner.summary);
+        if (card.open && typeof miner.details_html === 'string') {
+          const details = card.querySelector('[data-miner-details-container]');
+          if (details) details.innerHTML = miner.details_html;
+        }
+      }
+    } catch (error) {
+      // Deliberately quiet: transient miner/network errors are reflected in status pills.
+      console.debug('PV2Hash live refresh failed:', error);
+    } finally {
+      liveRefreshRunning = false;
+    }
+  }
+
+  function startMinerLiveRefresh() {
+    const root = document.querySelector('[data-miners-live-root]');
+    if (!root || document.hidden) return;
+    stopMinerLiveRefresh();
+    const seconds = Math.max(2, Number(root.dataset.refreshSeconds || 5));
+    liveRefreshTimer = window.setInterval(refreshMinerLiveData, seconds * 1000);
+  }
+
+  function stopMinerLiveRefresh() {
+    if (liveRefreshTimer) {
+      window.clearInterval(liveRefreshTimer);
+      liveRefreshTimer = null;
+    }
+  }
+
+  function setupMinerLiveRefresh() {
+    const root = document.querySelector('[data-miners-live-root]');
+    if (!root) return;
+
+    for (const card of document.querySelectorAll('[data-miner-card]')) {
+      card.addEventListener('toggle', () => {
+        if (card.open && !document.hidden) refreshMinerLiveData();
+      });
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopMinerLiveRefresh();
+      } else {
+        refreshMinerLiveData();
+        startMinerLiveRefresh();
+      }
+    });
+
+    refreshMinerLiveData();
+    startMinerLiveRefresh();
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     for (const button of document.querySelectorAll('[data-miner-action][data-disable-when-control="1"]')) {
       button.dataset.originalTitle = button.getAttribute('title') || '';
@@ -319,5 +431,6 @@
 
     const params = new URLSearchParams(window.location.search);
     openAndScrollToMiner(params.get('miner_id'));
+    setupMinerLiveRefresh();
   });
 })();
