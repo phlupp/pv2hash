@@ -117,13 +117,76 @@ class BatteryModbusSource(EnergySource):
 
     def get_config_fields(self, *, config: dict | None = None) -> list[dict]:
         settings = (config or {}).get("settings", {}) or {}
+
+        def modbus_fields(title: str, prefix: str, value_cfg: object) -> dict:
+            cfg = settings.get(prefix.replace("battery_", ""), None)
+            if prefix == "battery_soc":
+                cfg = settings.get("soc", cfg)
+            elif prefix == "battery_charge_power":
+                cfg = settings.get("charge_power", cfg)
+            elif prefix == "battery_discharge_power":
+                cfg = settings.get("discharge_power", cfg)
+
+            if not isinstance(cfg, dict):
+                cfg = {}
+            return {
+                "type": "fieldset",
+                "title": title,
+                "fields": [
+                    {"name": f"{prefix}_address", "label": "Adresse", "type": "number", "value": cfg.get("address", getattr(value_cfg, "address", "")), "step": 1},
+                    {
+                        "name": f"{prefix}_register_type",
+                        "label": "Registerart",
+                        "type": "select",
+                        "value": cfg.get("register_type", getattr(value_cfg, "register_type", "holding")),
+                        "options": [
+                            {"value": "holding", "label": "holding"},
+                            {"value": "input", "label": "input"},
+                            {"value": "coil", "label": "coil"},
+                            {"value": "discrete_input", "label": "discrete_input"},
+                        ],
+                    },
+                    {
+                        "name": f"{prefix}_value_type",
+                        "label": "Wertetyp",
+                        "type": "select",
+                        "value": cfg.get("value_type", getattr(value_cfg, "value_type", "uint16")),
+                        "options": [
+                            {"value": "uint8", "label": "uint8"},
+                            {"value": "int8", "label": "int8"},
+                            {"value": "uint16", "label": "uint16"},
+                            {"value": "int16", "label": "int16"},
+                            {"value": "uint32", "label": "uint32"},
+                            {"value": "int32", "label": "int32"},
+                            {"value": "float32", "label": "float32"},
+                        ],
+                    },
+                    {
+                        "name": f"{prefix}_endian",
+                        "label": "Endian",
+                        "type": "select",
+                        "value": cfg.get("endian", getattr(value_cfg, "endian", "big_endian")),
+                        "options": [
+                            {"value": "big_endian", "label": "big_endian"},
+                            {"value": "little_endian", "label": "little_endian"},
+                        ],
+                    },
+                    {"name": f"{prefix}_factor", "label": "Faktor", "type": "number", "value": cfg.get("factor", getattr(value_cfg, "factor", 1.0)), "step": "any"},
+                ],
+                "help": "Leer lassen, wenn dieser Wert aktuell nicht abgefragt werden soll. Der Messwert wird mit dem Faktor multipliziert.",
+            }
+
         return [
             {"name": "battery_host", "label": "Host / IP", "type": "text", "value": settings.get("host", self.host)},
             {"name": "battery_port", "label": "Port", "type": "number", "value": settings.get("port", self.port), "step": 1},
             {"name": "battery_unit_id", "label": "Unit-ID", "type": "number", "value": settings.get("unit_id", self.unit_id), "step": 1},
             {"name": "battery_poll_interval_ms", "label": "Poll-Intervall", "type": "number", "value": settings.get("poll_interval_ms", self.poll_interval_ms), "unit": "ms", "step": 100},
             {"name": "battery_request_timeout_seconds", "label": "Request-Timeout", "type": "number", "value": settings.get("request_timeout_seconds", self.request_timeout_seconds), "unit": "s", "step": 0.1},
+            modbus_fields("SOC", "battery_soc", self.soc_cfg),
+            modbus_fields("Ladeleistung", "battery_charge_power", self.charge_power_cfg),
+            modbus_fields("Entladeleistung", "battery_discharge_power", self.discharge_power_cfg),
         ]
+
 
     def get_detail_groups(self, *, snapshot=None, debug_info: dict | None = None) -> list[dict]:
         debug_info = debug_info or self.debug_info

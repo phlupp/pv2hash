@@ -765,68 +765,307 @@
     });
   }
 
-  function updateSmaDeviceSelect(devices, selectedSerial) {
-    const select = document.querySelector('[data-sma-device-select]');
-    if (!select || select.dataset.userTouched === '1') return;
-
-    const normalizedSelected = String(selectedSerial || select.value || '').trim();
-    const currentOptions = JSON.stringify(Array.from(select.options).map((option) => [option.value, option.textContent]));
-    const nextDevices = Array.isArray(devices) ? devices : [];
-    const nextOptions = nextDevices.map((item) => [String(item.serial_number || ''), String(item.label || item.serial_number || '')]);
-    const nextSignature = JSON.stringify(nextOptions);
-    if (currentOptions === nextSignature && select.value === normalizedSelected) return;
-
-    select.innerHTML = '';
-    if (!normalizedSelected) {
-      const placeholder = document.createElement('option');
-      placeholder.value = '';
-      placeholder.textContent = 'SMA-Gerät auswählen …';
-      placeholder.disabled = true;
-      placeholder.selected = true;
-      select.appendChild(placeholder);
-    }
-
-    for (const [value, label] of nextOptions) {
-      if (!value) continue;
-      const option = document.createElement('option');
-      option.value = value;
-      option.textContent = label;
-      option.selected = value === normalizedSelected;
-      select.appendChild(option);
-    }
-  }
-
-  function updateSourcesGuiModels(data) {
-    window.pv2hashSourcesGuiModels = Array.isArray(data?.gui_models)
+  function sourceModelsFromPayload(data) {
+    return Array.isArray(data?.gui_models)
       ? data.gui_models
       : Array.isArray(data?.sources)
         ? data.sources
         : [];
   }
 
-  function updateSourcesSummary(data) {
-    if (!data) return;
-    updateSourcesGuiModels(data);
+  function formatSourceValue(field) {
+    const value = field?.value;
+    if (value === null || value === undefined || value === '') return '—';
+    const precision = Number.isFinite(Number(field?.precision)) ? Number(field.precision) : null;
+    if (typeof value === 'number' && precision !== null) {
+      return `${value.toFixed(precision)}${field.unit ? ` ${field.unit}` : ''}`;
+    }
+    return `${value}${field?.unit ? ` ${field.unit}` : ''}`;
+  }
 
-    const source = data.source || {};
-    setText('[data-source-summary-field="profile"]', source.profile_label || '—');
-    setText('[data-source-summary-field="device"]', source.device_label || '—');
-    setText('[data-source-summary-field="serial"]', source.serial_number || '—');
-    setText('[data-source-summary-field="susy"]', source.susy_id || '—');
+  function createSourceField(field, model) {
+    if (!field) return null;
 
-    const sourceCard = document.getElementById('napMeasurementCard');
-    if (sourceCard) {
-      sourceCard.dataset.sourceType = source.type || '';
-      sourceCard.dataset.sourceDeviceLabel = source.device_label || '';
-      sourceCard.dataset.sourceSerial = source.serial_number || '';
-      sourceCard.dataset.sourceSusy = source.susy_id || '';
+    if (field.type === 'fieldset') {
+      const section = document.createElement('section');
+      section.className = 'card type-subcard top-gap';
+      const header = document.createElement('div');
+      header.className = 'card-head';
+      const title = document.createElement('h3');
+      title.textContent = field.title || field.label || 'Einstellungen';
+      header.appendChild(title);
+      section.appendChild(header);
+
+      const grid = document.createElement('div');
+      grid.className = 'form-grid';
+      for (const child of field.fields || []) {
+        const childElement = createSourceField(child, model);
+        if (childElement) grid.appendChild(childElement);
+      }
+      section.appendChild(grid);
+
+      if (field.help) {
+        const help = document.createElement('small');
+        help.className = 'help';
+        help.textContent = field.help;
+        section.appendChild(help);
+      }
+      return section;
     }
 
-    const battery = data.battery || {};
-    setText('[data-battery-summary-field="profile"]', battery.profile_label || '—');
-    setText('[data-battery-summary-field="status"]', battery.status_label || 'deaktiviert');
+    if (!field.name) return null;
 
-    updateSmaDeviceSelect(source.discovered_devices, source.selected_device_serial);
+    const label = document.createElement('label');
+    if (field.type === 'checkbox') {
+      label.className = 'checkbox-row';
+    }
+
+    if (field.disabled_when_driver && model?.driver === field.disabled_when_driver) {
+      field = { ...field, disabled: true, value: false };
+    }
+
+    const caption = document.createElement('span');
+    caption.textContent = field.label || field.name;
+
+    let input;
+    if (field.type === 'select') {
+      input = document.createElement('select');
+      input.name = field.name;
+      if (field.required) input.required = true;
+
+      const options = Array.isArray(field.options) ? field.options : [];
+      if (!field.value && field.required) {
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        placeholder.textContent = 'Bitte auswählen …';
+        input.appendChild(placeholder);
+      }
+
+      for (const item of options) {
+        const option = document.createElement('option');
+        const value = String(item.value ?? '');
+        option.value = value;
+        option.textContent = String(item.label ?? value);
+        option.selected = value === String(field.value ?? '');
+        input.appendChild(option);
+      }
+
+      if (field.name === 'device_serial_number') {
+        input.dataset.smaDeviceSelect = '';
+      }
+    } else if (field.type === 'checkbox') {
+      input = document.createElement('input');
+      input.type = 'checkbox';
+      input.name = field.name;
+      input.checked = Boolean(field.value);
+    } else {
+      input = document.createElement('input');
+      input.type = field.type || 'text';
+      input.name = field.name;
+      if (field.value !== null && field.value !== undefined) input.value = field.value;
+      if (field.step !== null && field.step !== undefined) input.step = String(field.step);
+      if (field.min !== null && field.min !== undefined) input.min = String(field.min);
+      if (field.max !== null && field.max !== undefined) input.max = String(field.max);
+      if (field.required) input.required = true;
+    }
+
+    if (field.name === 'source_type') input.id = 'sourceTypeSelect';
+    if (field.name === 'battery_type') input.id = 'batteryTypeSelect';
+    if (field.name === 'battery_enabled') input.id = 'batteryEnabledCheckbox';
+
+    if (field.disabled) input.disabled = true;
+
+    if (field.type === 'checkbox') {
+      label.appendChild(input);
+      label.appendChild(caption);
+    } else {
+      label.appendChild(caption);
+      label.appendChild(input);
+    }
+
+    if (field.help || field.unit) {
+      const help = document.createElement('small');
+      help.className = 'help';
+      help.textContent = field.help || field.unit || '';
+      label.appendChild(help);
+    }
+
+    return label;
+  }
+
+  function createSourceKvRows(items) {
+    const kv = document.createElement('div');
+    kv.className = 'kv compact-kv';
+    for (const item of items || []) {
+      const row = document.createElement('div');
+      row.className = 'kv-row';
+      const label = document.createElement('span');
+      label.textContent = item.label || '';
+      const value = document.createElement('strong');
+      value.textContent = item.value === null || item.value === undefined || item.value === '' ? '—' : String(item.value);
+      row.appendChild(label);
+      row.appendChild(value);
+      kv.appendChild(row);
+    }
+    return kv;
+  }
+
+  function createSourceDetails(model) {
+    const groups = Array.isArray(model?.detail_groups) ? model.detail_groups : [];
+    const wrapper = document.createElement('div');
+    wrapper.className = 'source-detail-groups top-gap';
+
+    for (const group of groups) {
+      const section = document.createElement('section');
+      section.className = 'card type-subcard';
+      const header = document.createElement('div');
+      header.className = 'card-head';
+      const title = document.createElement('h3');
+      title.textContent = group.title || 'Details';
+      header.appendChild(title);
+      section.appendChild(header);
+      section.appendChild(createSourceKvRows((group.fields || []).map((field) => ({
+        label: field.label,
+        value: formatSourceValue(field),
+      }))));
+      wrapper.appendChild(section);
+    }
+
+    return wrapper;
+  }
+
+  function createSourceCard(model) {
+    const card = document.createElement('article');
+    card.className = 'card measurement-summary-card';
+    card.dataset.dirtyScope = model.id || model.role || 'source';
+    card.dataset.sourceModelId = model.id || '';
+
+    const panelId = `source-config-panel-${model.id || model.role || Math.random().toString(16).slice(2)}`;
+
+    const head = document.createElement('div');
+    head.className = 'card-head';
+
+    const titleBlock = document.createElement('div');
+    const title = document.createElement('h2');
+    title.textContent = model.title || model.role || 'Source';
+    const subtitle = document.createElement('p');
+    subtitle.className = 'card-subtitle';
+    subtitle.textContent = model.driver_label || model.driver || '';
+    titleBlock.appendChild(title);
+    titleBlock.appendChild(subtitle);
+
+    const actions = document.createElement('div');
+    actions.className = 'topbar-actions';
+    const toggle = document.createElement('button');
+    toggle.className = 'btn btn-small';
+    toggle.type = 'button';
+    toggle.dataset.toggleTarget = panelId;
+    toggle.textContent = 'Konfigurieren';
+    actions.appendChild(toggle);
+
+    head.appendChild(titleBlock);
+    head.appendChild(actions);
+    card.appendChild(head);
+
+    const status = model.status || {};
+    card.appendChild(createSourceKvRows([
+      ...(model.summary || []),
+      { label: 'Rolle', value: model.role },
+      { label: 'Alter', value: status.age_seconds === null || status.age_seconds === undefined ? '—' : `${Number(status.age_seconds).toFixed(1)} s` },
+    ]));
+
+    const details = createSourceDetails(model);
+    if (details.childElementCount) card.appendChild(details);
+
+    const panel = document.createElement('div');
+    panel.className = 'measurement-config-panel top-gap';
+    panel.id = panelId;
+    panel.hidden = true;
+
+    const basic = document.createElement('section');
+    basic.className = 'card type-subcard';
+    const basicHead = document.createElement('div');
+    basicHead.className = 'card-head';
+    const basicTitleBlock = document.createElement('div');
+    const basicTitle = document.createElement('h2');
+    basicTitle.textContent = 'Grunddaten';
+    const basicSubtitle = document.createElement('p');
+    basicSubtitle.className = 'card-subtitle';
+    basicSubtitle.textContent = 'Diese Felder werden vom Source-Modell geliefert.';
+    basicTitleBlock.appendChild(basicTitle);
+    basicTitleBlock.appendChild(basicSubtitle);
+    basicHead.appendChild(basicTitleBlock);
+    basic.appendChild(basicHead);
+
+    const grid = document.createElement('div');
+    grid.className = 'form-grid';
+
+    if (model.driver_field) {
+      const field = createSourceField(model.driver_field, model);
+      if (field) grid.appendChild(field);
+    }
+
+    for (const field of model.config_fields || []) {
+      const element = createSourceField(field, model);
+      if (element) grid.appendChild(element);
+    }
+
+    basic.appendChild(grid);
+    panel.appendChild(basic);
+
+    const actionsRow = document.createElement('div');
+    actionsRow.className = 'actions top-gap split';
+
+    const dirty = document.createElement('span');
+    dirty.className = 'dirty-indicator';
+    dirty.dataset.dirtyIndicator = '';
+    dirty.hidden = true;
+    dirty.textContent = 'Ungespeicherte Änderungen';
+
+    const submit = document.createElement('button');
+    submit.className = 'btn';
+    submit.type = 'submit';
+    submit.dataset.dirtySubmit = '';
+    submit.textContent = `${model.title || 'Source'} speichern`;
+
+    actionsRow.appendChild(dirty);
+    actionsRow.appendChild(submit);
+    panel.appendChild(actionsRow);
+
+    card.appendChild(panel);
+    return card;
+  }
+
+  function renderSourcesGuiModels(models) {
+    const container = document.querySelector('[data-sources-model-container]');
+    if (!container) return;
+
+    container.innerHTML = '';
+    for (const model of models || []) {
+      container.appendChild(createSourceCard(model));
+    }
+
+    bindPanelToggles();
+    bindDirtyScopes();
+    syncBatteryEnabled();
+  }
+
+  function updateSourcesGuiModels(data, options = {}) {
+    const models = sourceModelsFromPayload(data);
+    window.pv2hashSourcesGuiModels = models;
+
+    const form = document.querySelector('[data-sources-config-form]');
+    const hasDirtyScope = Boolean(form && form.querySelector('[data-dirty-scope][data-dirty="true"]'));
+    if (options.forceRender || !hasDirtyScope) {
+      renderSourcesGuiModels(models);
+    }
+  }
+
+  function updateSourcesSummary(data, options = {}) {
+    if (!data) return;
+    updateSourcesGuiModels(data, options);
   }
 
   async function submitSourcesConfig(form, submitter) {
@@ -837,8 +1076,7 @@
 
     try {
       const data = await postForm('/api/sources/config', form);
-      updateSourcesSummary(data);
-      for (const scope of form.querySelectorAll('[data-dirty-scope]')) resetDirtyScope(scope);
+      updateSourcesSummary(data, { forceRender: true });
       window.showToast('success', data.message || 'Messungen gespeichert.');
     } catch (error) {
       window.showToast('error', error.message || 'Messungen konnten nicht gespeichert werden.');
@@ -852,7 +1090,7 @@
   let sourcesRefreshRunning = false;
   let sourcesRefreshFailureCount = 0;
 
-  async function refreshSourcesLiveData() {
+  async function refreshSourcesLiveData(options = {}) {
     const root = document.querySelector('[data-sources-live-root]');
     const form = document.querySelector('[data-sources-config-form]');
     if (!root || document.hidden || sourcesRefreshRunning) return;
@@ -864,7 +1102,7 @@
       const data = await readJsonResponse(response, 'Messdaten konnten nicht aktualisiert werden.');
       if (document.hidden) return;
       sourcesRefreshFailureCount = 0;
-      updateSourcesSummary(data);
+      updateSourcesSummary(data, options);
     } catch (error) {
       sourcesRefreshFailureCount += 1;
       if (sourcesRefreshFailureCount === 1 || sourcesRefreshFailureCount % 10 === 0) {
@@ -894,21 +1132,8 @@
     const root = document.querySelector('[data-sources-live-root]');
     if (!root) return;
 
-    syncTypeSections('sourceTypeSelect', 'data-source-types');
-    syncTypeSections('batteryTypeSelect', 'data-battery-types');
-    bindPanelToggles();
-    syncBatteryEnabled();
-    bindDirtyScopes();
-
     const form = document.querySelector('[data-sources-config-form]');
     if (form) {
-      const select = form.querySelector('[data-sma-device-select]');
-      if (select) {
-        select.addEventListener('change', () => {
-          select.dataset.userTouched = '1';
-        });
-      }
-
       form.addEventListener('submit', (event) => {
         event.preventDefault();
         submitSourcesConfig(form, event.submitter);
@@ -928,14 +1153,15 @@
       if (document.hidden) {
         stopSourcesLiveRefresh();
       } else {
-        refreshSourcesLiveData();
+        refreshSourcesLiveData({ forceRender: true });
         startSourcesLiveRefresh();
       }
     });
 
-    refreshSourcesLiveData();
+    refreshSourcesLiveData({ forceRender: true });
     startSourcesLiveRefresh();
   }
+
 
   let versionStatusTimer = null;
   let versionStatusRunning = false;

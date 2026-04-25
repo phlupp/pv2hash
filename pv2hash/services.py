@@ -100,52 +100,92 @@ class RuntimeServices:
         snapshot = self.state.snapshot
         models: list[dict] = []
 
+        source_cfg = self.state.config.get("source", {}) or {}
+        source_type = str(source_cfg.get("type", "simulator") or "simulator")
         if self.source is not None:
-            models.append(
-                self.source.get_gui_model(
-                    source_id="grid",
-                    role=str(self.state.config.get("source", {}).get("role", "grid")),
-                    title="Netz-Messung",
-                    enabled=bool(self.state.config.get("source", {}).get("enabled", True)),
-                    config=self.state.config.get("source", {}),
-                    snapshot=snapshot,
-                    debug_info=self.get_source_debug_info(),
-                )
+            source_model = self.source.get_gui_model(
+                source_id="grid",
+                role=str(source_cfg.get("role", "grid")),
+                title="Netz-Messung",
+                enabled=bool(source_cfg.get("enabled", True)),
+                config=source_cfg,
+                snapshot=snapshot,
+                debug_info=self.get_source_debug_info(),
             )
+            source_model["summary"] = [
+                {"label": "Profil", "value": source_model.get("driver_label")},
+                {"label": "Status", "value": source_model.get("status", {}).get("text")},
+            ]
+            source_model["driver_field"] = {
+                "name": "source_type",
+                "label": "Messprofil",
+                "type": "select",
+                "value": source_type,
+                "help": "Das Profil bestimmt, welche weiteren Eingabefelder benötigt werden.",
+                "options": [
+                    {"value": "simulator", "label": "Simulierter Netzanschlusspunkt"},
+                    {"value": "sma_meter_protocol", "label": "SMA Energy Meter"},
+                ],
+            }
+            models.append(source_model)
 
         battery_cfg = self.state.config.get("battery", {}) or {}
-        battery_enabled = bool(battery_cfg.get("enabled")) and battery_cfg.get("type", "none") != "none"
+        battery_type = str(battery_cfg.get("type", "none") or "none")
+        battery_enabled = bool(battery_cfg.get("enabled")) and battery_type != "none"
         if self.battery_source is not None:
-            models.append(
-                self.battery_source.get_gui_model(
-                    source_id="battery",
-                    role=str(battery_cfg.get("role", "battery")),
-                    title="Batterie",
-                    enabled=battery_enabled,
-                    config=battery_cfg,
-                    snapshot=snapshot,
-                    debug_info=self.get_battery_source_debug_info(),
-                )
+            battery_model = self.battery_source.get_gui_model(
+                source_id="battery",
+                role=str(battery_cfg.get("role", "battery")),
+                title="Batterie",
+                enabled=battery_enabled,
+                config=battery_cfg,
+                snapshot=snapshot,
+                debug_info=self.get_battery_source_debug_info(),
             )
         else:
-            models.append(
-                {
-                    "id": "battery",
-                    "role": str(battery_cfg.get("role", "battery")),
-                    "title": "Batterie",
-                    "enabled": False,
-                    "driver": str(battery_cfg.get("type", "none") or "none"),
-                    "driver_label": str(battery_cfg.get("name", "Keine Batterie") or "Keine Batterie"),
-                    "status": {
-                        "state": "disabled",
-                        "text": "Deaktiviert",
-                        "age_seconds": None,
-                        "updated_at": None,
-                    },
-                    "config_fields": [],
-                    "detail_groups": [],
-                    "capabilities": {},
-                }
-            )
+            battery_model = {
+                "id": "battery",
+                "role": str(battery_cfg.get("role", "battery")),
+                "title": "Batterie",
+                "enabled": False,
+                "driver": battery_type,
+                "driver_label": str(battery_cfg.get("name", "Keine Batterie") or "Keine Batterie"),
+                "status": {
+                    "state": "disabled",
+                    "text": "Deaktiviert",
+                    "age_seconds": None,
+                    "updated_at": None,
+                },
+                "config_fields": [],
+                "detail_groups": [],
+                "capabilities": {},
+            }
+
+        battery_model["summary"] = [
+            {"label": "Profil", "value": battery_model.get("driver_label")},
+            {"label": "Status", "value": "aktiv" if battery_enabled else "deaktiviert"},
+        ]
+        battery_model["driver_field"] = {
+            "name": "battery_type",
+            "label": "Batterieprofil",
+            "type": "select",
+            "value": battery_type,
+            "help": "Das Profil bestimmt die nachfolgenden Eingabefelder.",
+            "options": [
+                {"value": "none", "label": "Keine Batterie"},
+                {"value": "battery_modbus", "label": "Modbus TCP Batterie"},
+            ],
+        }
+        battery_model["config_fields"] = [
+            {
+                "name": "battery_enabled",
+                "label": "Batterie aktiviert",
+                "type": "checkbox",
+                "value": battery_enabled,
+                "disabled_when_driver": "none",
+            },
+            *list(battery_model.get("config_fields") or []),
+        ]
+        models.append(battery_model)
 
         return models
