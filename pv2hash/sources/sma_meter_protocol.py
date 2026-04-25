@@ -177,54 +177,81 @@ class SmaMeterProtocolSource(EnergySource):
 
         return sock
 
+    def _recv_packet_batch(self) -> list[tuple[bytes, tuple]]:
+        """Receive one blocking packet, then drain already queued UDP packets.
+
+        SMA telegrams are sent continuously via UDP multicast. If the control loop
+        is slower than the telegram rate, the kernel socket buffer can contain old
+        packets. Draining the buffer avoids accumulating latency over time.
+        """
+        packets = [self.sock.recvfrom(4096)]
+        old_timeout = self.sock.gettimeout()
+
+        try:
+            self.sock.settimeout(0.0)
+            while len(packets) < 512:
+                try:
+                    packets.append(self.sock.recvfrom(4096))
+                except (BlockingIOError, InterruptedError, socket.timeout):
+                    break
+        finally:
+            self.sock.settimeout(old_timeout)
+
+        return packets
+
+    def _prepare_packet_debug(self, data: bytes, addr: tuple) -> None:
+        sender_ip, sender_port = addr[0], addr[1]
+        self.debug_info["last_sender_ip"] = sender_ip
+        self.debug_info["last_sender_port"] = sender_port
+        self.debug_info["last_packet_len"] = len(data)
+        self.debug_info["last_packet_decision"] = None
+        self.debug_info["last_packet_rejected_reason"] = None
+
     async def read(self) -> EnergySnapshot:
         try:
-            data, addr = await asyncio.to_thread(self.sock.recvfrom, 4096)
-            sender_ip, sender_port = addr[0], addr[1]
+            packets = await asyncio.to_thread(self._recv_packet_batch)
+            self.debug_info["received_packets"] += len(packets)
 
-            self.debug_info["received_packets"] += 1
-            self.debug_info["last_sender_ip"] = sender_ip
-            self.debug_info["last_sender_port"] = sender_port
-            self.debug_info["last_packet_len"] = len(data)
-            self.debug_info["last_packet_decision"] = None
-            self.debug_info["last_packet_rejected_reason"] = None
+            if len(packets) > 1:
+                self.debug_info["ignored_packets"] += len(packets) - 1
 
-            proto_index = data.find(self.EMETER_PROTOCOL_ID)
-            if proto_index < 0:
-                other_index = data.find(b"\x60\x65")
-                if other_index >= 0:
-                    self.debug_info["last_protocol"] = "0x6065"
-                else:
-                    self.debug_info["last_protocol"] = "unknown"
-                self.debug_info["ignored_packets"] += 1
-                self.debug_info["last_packet_decision"] = "ignored"
-                self.debug_info["last_packet_rejected_reason"] = "protocol_not_0x6069"
-                return self._fallback_snapshot()
+            for data, addr in reversed(packets):
+                self._prepare_packet_debug(data, addr)
+                sender_ip = addr[0]
 
-            self.debug_info["last_protocol"] = "0x6069"
-            packet_meta = self._parse_packet_meta(data, proto_index=proto_index)
-            self._store_seen_device(packet_meta, sender_ip)
+                proto_index = data.find(self.EMETER_PROTOCOL_ID)
+                if proto_index < 0:
+                    other_index = data.find(b"\x60\x65")
+                    if other_index >= 0:
+                        self.debug_info["last_protocol"] = "0x6065"
+                    else:
+                        self.debug_info["last_protocol"] = "unknown"
+                    self.debug_info["last_packet_decision"] = "ignored"
+                    self.debug_info["last_packet_rejected_reason"] = "protocol_not_0x6069"
+                    continue
 
-            packet_serial = self._normalize_serial_number(packet_meta["serial_number"])
-            if self.device_serial_number and packet_serial != self.device_serial_number:
-                self.debug_info["ignored_packets"] += 1
-                self.debug_info["last_packet_decision"] = "filtered"
-                self.debug_info["last_packet_rejected_reason"] = "serial_number_mismatch"
-                return self._fallback_snapshot()
+                self.debug_info["last_protocol"] = "0x6069"
+                packet_meta = self._parse_packet_meta(data, proto_index=proto_index)
+                self._store_seen_device(packet_meta, sender_ip)
 
-            snapshot = self._parse_emeter_packet(data, proto_index=proto_index, packet_meta=packet_meta)
-            self.last_snapshot = snapshot
-            self.last_live_packet_at = snapshot.updated_at
-            self.debug_info["parsed_packets"] += 1
-            self.debug_info["last_error"] = None
-            self.debug_info["last_live_packet_at"] = snapshot.updated_at.isoformat()
-            self.debug_info["last_packet_decision"] = "accepted"
-            self._set_quality("live")
+                packet_serial = self._normalize_serial_number(packet_meta["serial_number"])
+                if self.device_serial_number and packet_serial != self.device_serial_number:
+                    self.debug_info["last_packet_decision"] = "filtered"
+                    self.debug_info["last_packet_rejected_reason"] = "serial_number_mismatch"
+                    continue
 
-            return snapshot
+                snapshot = self._parse_emeter_packet(data, proto_index=proto_index, packet_meta=packet_meta)
+                self.last_snapshot = snapshot
+                self.last_live_packet_at = snapshot.updated_at
+                self.debug_info["parsed_packets"] += 1
+                self.debug_info["last_error"] = None
+                self.debug_info["last_live_packet_at"] = snapshot.updated_at.isoformat()
+                self.debug_info["last_packet_decision"] = "accepted"
+                self._set_quality("live")
+
+                return snapshot
 
         except IncompleteSmaPacketError as exc:
-            self.debug_info["ignored_packets"] += 1
             self.debug_info["incomplete_packets"] += 1
             self.debug_info["last_packet_decision"] = "rejected"
             self.debug_info["last_packet_rejected_reason"] = str(exc)
