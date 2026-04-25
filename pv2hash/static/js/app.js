@@ -346,6 +346,10 @@
   });
 
   document.addEventListener('submit', (event) => {
+    if (event.target.closest('[data-sources-config-form]')) {
+      return;
+    }
+
     const createForm = event.target.closest('[data-miner-create-form]');
     if (createForm) {
       event.preventDefault();
@@ -657,6 +661,273 @@
     startDashboardLiveRefresh();
   }
 
+
+
+  function syncTypeSections(selectId, attributeName) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+
+    const update = () => {
+      const current = select.value;
+      document.querySelectorAll(`[${attributeName}]`).forEach((element) => {
+        const visibleFor = (element.getAttribute(attributeName) || '')
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean);
+        element.hidden = !visibleFor.includes(current);
+      });
+    };
+
+    select.addEventListener('change', update);
+    update();
+  }
+
+  function bindPanelToggles() {
+    document.querySelectorAll('[data-toggle-target]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const target = document.getElementById(button.getAttribute('data-toggle-target'));
+        if (!target) return;
+
+        const willShow = target.hidden;
+        target.hidden = !willShow;
+        button.textContent = willShow ? 'Konfiguration verbergen' : 'Konfigurieren';
+      });
+    });
+  }
+
+  function syncBatteryEnabled() {
+    const typeSelect = document.getElementById('batteryTypeSelect');
+    const enabledCheckbox = document.getElementById('batteryEnabledCheckbox');
+    if (!typeSelect || !enabledCheckbox) return;
+
+    const update = () => {
+      const noBattery = typeSelect.value === 'none';
+      if (noBattery) enabledCheckbox.checked = false;
+      enabledCheckbox.disabled = noBattery;
+    };
+
+    typeSelect.addEventListener('change', update);
+    update();
+  }
+
+  function serializeDirtyFields(container) {
+    const fields = Array.from(container.querySelectorAll('input, select, textarea'))
+      .filter((field) => field.name && !field.disabled && !['submit', 'button', 'reset', 'file'].includes(field.type));
+
+    return JSON.stringify(fields.map((field) => {
+      if (field.type === 'checkbox' || field.type === 'radio') return [field.name, field.checked];
+      return [field.name, field.value];
+    }));
+  }
+
+  function resetDirtyScope(scope) {
+    if (!scope) return;
+    scope.dataset.dirtyBaseline = serializeDirtyFields(scope);
+    scope.dataset.dirtyTouched = '0';
+    const hint = scope.querySelector('[data-dirty-indicator]');
+    if (hint) hint.hidden = true;
+    for (const button of scope.querySelectorAll('[data-dirty-submit]')) {
+      button.classList.remove('is-dirty');
+    }
+    scope.dataset.dirty = 'false';
+  }
+
+  function refreshDirtyScope(scope) {
+    if (!scope) return;
+    const touched = scope.dataset.dirtyTouched === '1';
+    const baseline = scope.dataset.dirtyBaseline || serializeDirtyFields(scope);
+    const dirty = serializeDirtyFields(scope) !== baseline;
+    const visibleDirty = touched && dirty;
+    const hint = scope.querySelector('[data-dirty-indicator]');
+    if (hint) hint.hidden = !visibleDirty;
+    for (const button of scope.querySelectorAll('[data-dirty-submit]')) {
+      button.classList.toggle('is-dirty', visibleDirty);
+    }
+    scope.dataset.dirty = visibleDirty ? 'true' : 'false';
+  }
+
+  function bindDirtyScopes() {
+    document.querySelectorAll('[data-dirty-scope]').forEach((scope) => {
+      resetDirtyScope(scope);
+
+      scope.querySelectorAll('input, select, textarea').forEach((field) => {
+        if (!field.name || ['submit', 'button', 'reset', 'file'].includes(field.type)) return;
+        const onUserChange = () => {
+          scope.dataset.dirtyTouched = '1';
+          refreshDirtyScope(scope);
+        };
+        field.addEventListener('input', onUserChange);
+        field.addEventListener('change', onUserChange);
+      });
+
+      window.requestAnimationFrame(() => resetDirtyScope(scope));
+      window.setTimeout(() => resetDirtyScope(scope), 120);
+    });
+  }
+
+  function updateSmaDeviceSelect(devices, selectedSerial) {
+    const select = document.querySelector('[data-sma-device-select]');
+    if (!select || select.dataset.userTouched === '1') return;
+
+    const normalizedSelected = String(selectedSerial || select.value || '').trim();
+    const currentOptions = JSON.stringify(Array.from(select.options).map((option) => [option.value, option.textContent]));
+    const nextDevices = Array.isArray(devices) ? devices : [];
+    const nextOptions = nextDevices.map((item) => [String(item.serial_number || ''), String(item.label || item.serial_number || '')]);
+    const nextSignature = JSON.stringify(nextOptions);
+    if (currentOptions === nextSignature && select.value === normalizedSelected) return;
+
+    select.innerHTML = '';
+    if (!normalizedSelected) {
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'SMA-Gerät auswählen …';
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      select.appendChild(placeholder);
+    }
+
+    for (const [value, label] of nextOptions) {
+      if (!value) continue;
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      option.selected = value === normalizedSelected;
+      select.appendChild(option);
+    }
+  }
+
+  function updateSourcesSummary(data) {
+    if (!data) return;
+
+    const source = data.source || {};
+    setText('[data-source-summary-field="profile"]', source.profile_label || '—');
+    setText('[data-source-summary-field="device"]', source.device_label || '—');
+    setText('[data-source-summary-field="serial"]', source.serial_number || '—');
+    setText('[data-source-summary-field="susy"]', source.susy_id || '—');
+
+    const sourceCard = document.getElementById('napMeasurementCard');
+    if (sourceCard) {
+      sourceCard.dataset.sourceType = source.type || '';
+      sourceCard.dataset.sourceDeviceLabel = source.device_label || '';
+      sourceCard.dataset.sourceSerial = source.serial_number || '';
+      sourceCard.dataset.sourceSusy = source.susy_id || '';
+    }
+
+    const battery = data.battery || {};
+    setText('[data-battery-summary-field="profile"]', battery.profile_label || '—');
+    setText('[data-battery-summary-field="status"]', battery.status_label || 'deaktiviert');
+
+    updateSmaDeviceSelect(source.discovered_devices, source.selected_device_serial);
+  }
+
+  async function submitSourcesConfig(form, submitter) {
+    if (!form || form.dataset.busy === '1') return;
+
+    const restore = setButtonBusy(submitter || form.querySelector('[type="submit"]'), 'Speichert …');
+    setFormBusy(form, true);
+
+    try {
+      const data = await postForm('/api/sources/config', form);
+      updateSourcesSummary(data);
+      for (const scope of form.querySelectorAll('[data-dirty-scope]')) resetDirtyScope(scope);
+      window.showToast('success', data.message || 'Messungen gespeichert.');
+    } catch (error) {
+      window.showToast('error', error.message || 'Messungen konnten nicht gespeichert werden.');
+    } finally {
+      setFormBusy(form, false);
+      restore();
+    }
+  }
+
+  let sourcesRefreshTimer = null;
+  let sourcesRefreshRunning = false;
+  let sourcesRefreshFailureCount = 0;
+
+  async function refreshSourcesLiveData() {
+    const root = document.querySelector('[data-sources-live-root]');
+    const form = document.querySelector('[data-sources-config-form]');
+    if (!root || document.hidden || sourcesRefreshRunning) return;
+    if (form && form.dataset.busy === '1') return;
+
+    sourcesRefreshRunning = true;
+    try {
+      const response = await fetch('/api/sources/status', { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+      const data = await readJsonResponse(response, 'Messdaten konnten nicht aktualisiert werden.');
+      if (document.hidden) return;
+      sourcesRefreshFailureCount = 0;
+      updateSourcesSummary(data);
+    } catch (error) {
+      sourcesRefreshFailureCount += 1;
+      if (sourcesRefreshFailureCount === 1 || sourcesRefreshFailureCount % 10 === 0) {
+        console.debug('PV2Hash sources refresh failed:', error);
+      }
+    } finally {
+      sourcesRefreshRunning = false;
+    }
+  }
+
+  function startSourcesLiveRefresh() {
+    const root = document.querySelector('[data-sources-live-root]');
+    if (!root || document.hidden) return;
+    stopSourcesLiveRefresh();
+    const seconds = Math.max(2, Number(root.dataset.refreshSeconds || 5));
+    sourcesRefreshTimer = window.setInterval(refreshSourcesLiveData, seconds * 1000);
+  }
+
+  function stopSourcesLiveRefresh() {
+    if (sourcesRefreshTimer) {
+      window.clearInterval(sourcesRefreshTimer);
+      sourcesRefreshTimer = null;
+    }
+  }
+
+  function setupSourcesPage() {
+    const root = document.querySelector('[data-sources-live-root]');
+    if (!root) return;
+
+    syncTypeSections('sourceTypeSelect', 'data-source-types');
+    syncTypeSections('batteryTypeSelect', 'data-battery-types');
+    bindPanelToggles();
+    syncBatteryEnabled();
+    bindDirtyScopes();
+
+    const form = document.querySelector('[data-sources-config-form]');
+    if (form) {
+      const select = form.querySelector('[data-sma-device-select]');
+      if (select) {
+        select.addEventListener('change', () => {
+          select.dataset.userTouched = '1';
+        });
+      }
+
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        submitSourcesConfig(form, event.submitter);
+      });
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('saved') === '1') {
+      window.showToast('success', 'Messungen gespeichert.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (params.get('serial_required') === '1') {
+      window.showToast('warning', 'Bitte ein SMA-Gerät bzw. eine Seriennummer auswählen.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopSourcesLiveRefresh();
+      } else {
+        refreshSourcesLiveData();
+        startSourcesLiveRefresh();
+      }
+    });
+
+    refreshSourcesLiveData();
+    startSourcesLiveRefresh();
+  }
+
   let versionStatusTimer = null;
   let versionStatusRunning = false;
   let versionStatusFailureCount = 0;
@@ -756,6 +1027,7 @@
     openAndScrollToMiner(params.get('miner_id'));
     setupMinerLiveRefresh();
     setupDashboardLiveRefresh();
+    setupSourcesPage();
     setupVersionStatusRefresh();
   });
 })();

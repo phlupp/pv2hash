@@ -77,7 +77,7 @@
         {% set nav_subtitle = 'Messungen' %}
         {% include "partials/nav.html" %}
 
-        <main class="content">
+        <main class="content" data-sources-live-root data-refresh-seconds="{{ refresh_seconds }}">
             <header class="topbar">
                 <div>
                     <h1>Messungen</h1>
@@ -89,7 +89,7 @@
             </header>
 
             {% if saved %}<div id="measurementsSavedNotice" hidden></div>{% endif %}
-            <form method="post" action="/sources">
+            <form method="post" action="/sources" data-sources-config-form>
                 <section class="grid grid-2 measurement-summary-grid">
                     <article class="card measurement-summary-card" id="napMeasurementCard" data-dirty-scope="nap" data-source-type="{{ source_type }}" data-source-device-label="{{ source_device_label or "" }}" data-source-serial="{{ source_device_serial_number or "" }}" data-source-susy="{{ source_device_susy_id or "" }}">
                         <div class="card-head">
@@ -104,12 +104,10 @@
                         </div>
 
                         <div class="kv compact-kv">
-                            <div class="kv-row"><span>Profil</span><strong>{{ source_profile_label }}</strong></div>
-                            {% if source_type == 'sma_meter_protocol' %}
-                            <div class="kv-row"><span>Gerät</span><strong>{{ source_device_label or '—' }}</strong></div>
-                            <div class="kv-row"><span>Seriennummer</span><strong>{{ source_device_serial_number or '—' }}</strong></div>
-                            <div class="kv-row"><span>SUSy-ID</span><strong>{{ source_device_susy_id or '—' }}</strong></div>
-                            {% endif %}
+                            <div class="kv-row"><span>Profil</span><strong data-source-summary-field="profile">{{ source_profile_label }}</strong></div>
+                            <div class="kv-row"><span>Gerät</span><strong data-source-summary-field="device">{{ source_device_label or '—' }}</strong></div>
+                            <div class="kv-row"><span>Seriennummer</span><strong data-source-summary-field="serial">{{ source_device_serial_number or '—' }}</strong></div>
+                            <div class="kv-row"><span>SUSy-ID</span><strong data-source-summary-field="susy">{{ source_device_susy_id or '—' }}</strong></div>
                         </div>
 
                         <div class="measurement-config-panel top-gap" id="nap-config-panel" hidden>
@@ -197,7 +195,7 @@
                                     <label>
                                         <span>SMA-Gerät / Seriennummer</span>
                                         {% set selected_sma_serial = selected_sma_device_serial if selected_sma_device_serial is defined else (source_settings.device_serial_number if source_settings and source_settings.device_serial_number is defined else '') %}
-                                        <select name="device_serial_number">
+                                        <select name="device_serial_number" data-sma-device-select>
                                             {% if not selected_sma_serial %}
                                             <option value="" selected disabled>SMA-Gerät auswählen …</option>
                                             {% endif %}
@@ -257,8 +255,8 @@
                         </div>
 
                         <div class="kv compact-kv">
-                            <div class="kv-row"><span>Profil</span><strong>{{ battery_profile_label }}</strong></div>
-                            <div class="kv-row"><span>Status</span><strong>{{ 'aktiv' if battery_type != 'none' and battery and battery.enabled else 'deaktiviert' }}</strong></div>
+                            <div class="kv-row"><span>Profil</span><strong data-battery-summary-field="profile">{{ battery_profile_label }}</strong></div>
+                            <div class="kv-row"><span>Status</span><strong data-battery-summary-field="status">{{ 'aktiv' if battery_type != 'none' and battery and battery.enabled else 'deaktiviert' }}</strong></div>
                         </div>
 
                         <div class="measurement-config-panel top-gap" id="battery-config-panel" hidden>
@@ -354,189 +352,5 @@
         </main>
     </div>
 
-    <script>
-        function syncTypeSections(selectId, attributeName) {
-            const select = document.getElementById(selectId);
-            if (!select) {
-                return;
-            }
-
-            const update = () => {
-                const current = select.value;
-                document.querySelectorAll(`[${attributeName}]`).forEach((element) => {
-                    const visibleFor = (element.getAttribute(attributeName) || '')
-                        .split(',')
-                        .map((item) => item.trim())
-                        .filter(Boolean);
-                    const show = visibleFor.includes(current);
-                    element.hidden = !show;
-                });
-            };
-
-            select.addEventListener('change', update);
-            update();
-        }
-
-        function bindPanelToggles() {
-            document.querySelectorAll('[data-toggle-target]').forEach((button) => {
-                button.addEventListener('click', () => {
-                    const target = document.getElementById(button.getAttribute('data-toggle-target'));
-                    if (!target) {
-                        return;
-                    }
-                    const willShow = target.hidden;
-                    target.hidden = !willShow;
-                    button.textContent = willShow ? 'Konfiguration verbergen' : 'Konfigurieren';
-                });
-            });
-        }
-
-        function syncBatteryEnabled() {
-            const typeSelect = document.getElementById('batteryTypeSelect');
-            const enabledCheckbox = document.getElementById('batteryEnabledCheckbox');
-            if (!typeSelect || !enabledCheckbox) {
-                return;
-            }
-
-            const update = () => {
-                const noBattery = typeSelect.value === 'none';
-                if (noBattery) {
-                    enabledCheckbox.checked = false;
-                }
-                enabledCheckbox.disabled = noBattery;
-            };
-
-            typeSelect.addEventListener('change', update);
-            update();
-        }
-
-        function serializeDirtyFields(container) {
-            const fields = Array.from(container.querySelectorAll('input, select, textarea'))
-                .filter((field) => field.name && !field.disabled && !['submit', 'button', 'reset', 'file'].includes(field.type));
-            return JSON.stringify(fields.map((field) => {
-                if (field.type === 'checkbox' || field.type === 'radio') {
-                    return [field.name, field.checked];
-                }
-                return [field.name, field.value];
-            }));
-        }
-
-        function bindDirtyScopes() {
-            document.querySelectorAll('[data-dirty-scope]').forEach((scope) => {
-                const hint = scope.querySelector('[data-dirty-indicator]');
-                const submitButtons = scope.querySelectorAll('[data-dirty-submit]');
-                let baseline = serializeDirtyFields(scope);
-                let touched = false;
-
-                const applyDirtyState = (dirty) => {
-                    const visibleDirty = touched && dirty;
-                    if (hint) {
-                        hint.hidden = !visibleDirty;
-                    }
-                    submitButtons.forEach((button) => button.classList.toggle('is-dirty', visibleDirty));
-                    scope.dataset.dirty = visibleDirty ? 'true' : 'false';
-                };
-
-                const refresh = () => {
-                    const dirty = serializeDirtyFields(scope) !== baseline;
-                    applyDirtyState(dirty);
-                };
-
-                scope.querySelectorAll('input, select, textarea').forEach((field) => {
-                    if (!field.name || ['submit', 'button', 'reset', 'file'].includes(field.type)) {
-                        return;
-                    }
-                    const onUserChange = () => {
-                        touched = true;
-                        refresh();
-                    };
-                    field.addEventListener('input', onUserChange);
-                    field.addEventListener('change', onUserChange);
-                });
-
-                scope.querySelectorAll('[data-dirty-submit]').forEach((button) => {
-                    button.addEventListener('click', () => {
-                        baseline = serializeDirtyFields(scope);
-                        touched = false;
-                        applyDirtyState(false);
-                    });
-                });
-
-                const finalizeBaseline = () => {
-                    baseline = serializeDirtyFields(scope);
-                    touched = false;
-                    applyDirtyState(false);
-                };
-
-                window.requestAnimationFrame(finalizeBaseline);
-                window.setTimeout(finalizeBaseline, 120);
-            });
-        }
-
-
-        async function autoRefreshMeasurementIdentity() {
-            const card = document.getElementById('napMeasurementCard');
-            const notice = document.getElementById('measurementsSavedNotice');
-            if (!card || !notice) {
-                return;
-            }
-
-            const params = new URLSearchParams(window.location.search);
-            if (params.get('saved') !== '1') {
-                sessionStorage.removeItem('pv2hash-measurements-refresh-attempts');
-                return;
-            }
-
-            if (card.dataset.sourceType !== 'sma_meter_protocol') {
-                sessionStorage.removeItem('pv2hash-measurements-refresh-attempts');
-                return;
-            }
-
-            const currentSerial = (card.dataset.sourceSerial || '').trim();
-            const currentSusy = (card.dataset.sourceSusy || '').trim();
-            const currentLabel = (card.dataset.sourceDeviceLabel || '').trim();
-            if (currentSerial && currentSusy && currentLabel) {
-                sessionStorage.removeItem('pv2hash-measurements-refresh-attempts');
-                return;
-            }
-
-            const maxAttempts = 8;
-            const attemptKey = 'pv2hash-measurements-refresh-attempts';
-            const attempts = Number(sessionStorage.getItem(attemptKey) || '0');
-            if (attempts >= maxAttempts) {
-                sessionStorage.removeItem(attemptKey);
-                return;
-            }
-
-            try {
-                const response = await fetch('/api/status', { cache: 'no-store' });
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                const payload = await response.json();
-                const debug = payload.source_debug || {};
-                const serial = String(debug.last_packet_serial_number || '').trim();
-                const susy = String(debug.last_packet_susy_id || '').trim();
-                const label = String(debug.last_packet_device_name || '').trim();
-                if (serial || susy || label) {
-                    sessionStorage.removeItem(attemptKey);
-                    window.location.reload();
-                    return;
-                }
-            } catch (error) {
-                console.debug('Messungen-Autorefresh wartet noch auf neue Netz-Messdaten.', error);
-            }
-
-            sessionStorage.setItem(attemptKey, String(attempts + 1));
-            window.setTimeout(() => window.location.reload(), 2500);
-        }
-
-        autoRefreshMeasurementIdentity();
-        syncTypeSections('sourceTypeSelect', 'data-source-types');
-        syncTypeSections('batteryTypeSelect', 'data-battery-types');
-        bindPanelToggles();
-        syncBatteryEnabled();
-        bindDirtyScopes();
-    </script>
 </body>
 </html>

@@ -1047,6 +1047,127 @@ def _build_miners_live_payload(open_ids: set[str] | None = None) -> dict:
 
 
 
+def _build_sources_live_payload() -> dict:
+    source_debug = services.get_source_debug_info()
+    battery_debug = services.get_battery_source_debug_info()
+    source_cfg = state.config.get("source", {})
+    battery_cfg = state.config.get("battery", {})
+    sma_devices, selected_sma_device_serial = _build_sma_device_choices(source_cfg, source_debug)
+
+    source_type = source_cfg.get("type", "simulator")
+    battery_type = battery_cfg.get("type", "none")
+    snapshot = state.snapshot
+
+    source_device_label = _resolve_sma_device_label(source_debug)
+    source_serial = source_debug.get("last_packet_serial_number") if source_debug else None
+    source_susy = source_debug.get("last_packet_susy_id") if source_debug else None
+
+    battery_enabled = bool(battery_cfg.get("enabled")) and battery_type != "none"
+
+    return {
+        "status": "ok",
+        "source": {
+            "type": source_type,
+            "profile_label": _resolve_measurement_profile_label(source_type),
+            "device_label": source_device_label or "—",
+            "serial_number": str(source_serial or ""),
+            "susy_id": str(source_susy or ""),
+            "quality": getattr(snapshot, "quality", None) if snapshot else None,
+            "grid_power_w": float(snapshot.grid_power_w) if snapshot else None,
+            "discovered_devices": sma_devices,
+            "selected_device_serial": selected_sma_device_serial,
+            "debug": source_debug or {},
+        },
+        "battery": {
+            "type": battery_type,
+            "profile_label": _resolve_battery_profile_label(battery_type),
+            "enabled": battery_enabled,
+            "status_label": "aktiv" if battery_enabled else "deaktiviert",
+            "soc_pct": snapshot.battery_soc_pct if snapshot else None,
+            "charge_power_w": snapshot.battery_charge_power_w if snapshot else None,
+            "discharge_power_w": snapshot.battery_discharge_power_w if snapshot else None,
+            "is_active": bool(snapshot.battery_is_active) if snapshot else False,
+            "is_charging": bool(snapshot.battery_is_charging) if snapshot else False,
+            "is_discharging": bool(snapshot.battery_is_discharging) if snapshot else False,
+            "debug": battery_debug or {},
+        },
+    }
+
+
+def _save_source_config_from_form(form: Any) -> dict[str, Any]:
+    source_type = str(form.get("source_type", "simulator")).strip()
+
+    state.config["source"]["type"] = source_type
+    state.config["source"]["name"] = _resolve_measurement_profile_label(source_type)
+    state.config["source"]["enabled"] = True
+    state.config["source"].setdefault("settings", {})
+    state.config["source"]["settings"]["multicast_ip"] = form.get(
+        "multicast_ip", "239.12.255.254"
+    )
+    state.config["source"]["settings"]["bind_port"] = _safe_int(form.get("bind_port", 9522), 9522)
+    state.config["source"]["settings"]["interface_ip"] = (
+        form.get("interface_ip", "0.0.0.0").strip() or "0.0.0.0"
+    )
+    state.config["source"]["settings"]["packet_timeout_seconds"] = _safe_float(
+        form.get("packet_timeout_seconds", 1.0), 1.0
+    )
+    state.config["source"]["settings"]["stale_after_seconds"] = _safe_float(
+        form.get("stale_after_seconds", 8.0), 8.0
+    )
+    state.config["source"]["settings"]["offline_after_seconds"] = _safe_float(
+        form.get("offline_after_seconds", 30.0), 30.0
+    )
+    selected_device_serial = _normalize_sma_serial_number(form.get("device_serial_number", ""))
+    if source_type == "sma_meter_protocol" and not selected_device_serial:
+        return {"status": "error", "message": "Bitte ein SMA-Gerät bzw. eine Seriennummer auswählen."}
+
+    state.config["source"]["settings"]["device_serial_number"] = selected_device_serial
+    state.config["source"]["settings"].pop("device_ip", None)
+    state.config["source"]["settings"]["debug_dump_obis"] = form.get("debug_dump_obis") == "on"
+    state.config["source"]["settings"]["simulator_import_power_w"] = _safe_float(
+        form.get("simulator_import_power_w", 1000.0), 1000.0
+    )
+    state.config["source"]["settings"]["simulator_export_power_w"] = _safe_float(
+        form.get("simulator_export_power_w", 10000.0), 10000.0
+    )
+    state.config["source"]["settings"]["simulator_ramp_rate_w_per_minute"] = _safe_float(
+        form.get("simulator_ramp_rate_w_per_minute", 600.0), 600.0
+    )
+
+    battery_type = str(form.get("battery_type", "none")).strip()
+    battery_enabled = (form.get("battery_enabled") == "on") and battery_type != "none"
+
+    state.config.setdefault("battery", {})
+    state.config["battery"]["type"] = battery_type
+    state.config["battery"]["name"] = _resolve_battery_profile_label(battery_type)
+    state.config["battery"]["enabled"] = battery_enabled
+    state.config["battery"].setdefault("settings", {})
+    state.config["battery"]["settings"]["host"] = str(form.get("battery_host", "")).strip()
+    state.config["battery"]["settings"]["port"] = _safe_int(form.get("battery_port", 502), 502)
+    state.config["battery"]["settings"]["unit_id"] = _safe_int(form.get("battery_unit_id", 1), 1)
+    state.config["battery"]["settings"]["poll_interval_ms"] = _safe_int(
+        form.get("battery_poll_interval_ms", 1000), 1000
+    )
+    state.config["battery"]["settings"]["request_timeout_seconds"] = _safe_float(
+        form.get("battery_request_timeout_seconds", 1.0), 1.0
+    )
+    state.config["battery"]["settings"]["soc"] = _parse_modbus_value_form(form, "battery_soc")
+    state.config["battery"]["settings"]["charge_power"] = _parse_modbus_value_form(form, "battery_charge_power")
+    state.config["battery"]["settings"]["discharge_power"] = _parse_modbus_value_form(form, "battery_discharge_power")
+
+    save_config(state.config)
+    logger.info(
+        "Source settings saved: type=%s battery_type=%s battery_enabled=%s",
+        source_type,
+        battery_type,
+        battery_enabled,
+    )
+    reload_runtime()
+    payload = _build_sources_live_payload()
+    payload["message"] = "Messungen gespeichert."
+    return payload
+
+
 def _build_dashboard_live_payload() -> dict:
     snapshot = state.snapshot
     source_debug = services.get_source_debug_info()
@@ -1562,77 +1683,22 @@ async def sources_page(request: Request):
 
 @app.post("/sources")
 async def save_source(request: Request):
-    form = await request.form()
-
-    source_type = str(form.get("source_type", "simulator")).strip()
-
-    state.config["source"]["type"] = source_type
-    state.config["source"]["name"] = _resolve_measurement_profile_label(source_type)
-    state.config["source"]["enabled"] = True
-    state.config["source"].setdefault("settings", {})
-    state.config["source"]["settings"]["multicast_ip"] = form.get(
-        "multicast_ip", "239.12.255.254"
-    )
-    state.config["source"]["settings"]["bind_port"] = _safe_int(form.get("bind_port", 9522), 9522)
-    state.config["source"]["settings"]["interface_ip"] = (
-        form.get("interface_ip", "0.0.0.0").strip() or "0.0.0.0"
-    )
-    state.config["source"]["settings"]["packet_timeout_seconds"] = _safe_float(
-        form.get("packet_timeout_seconds", 1.0), 1.0
-    )
-    state.config["source"]["settings"]["stale_after_seconds"] = _safe_float(
-        form.get("stale_after_seconds", 8.0), 8.0
-    )
-    state.config["source"]["settings"]["offline_after_seconds"] = _safe_float(
-        form.get("offline_after_seconds", 30.0), 30.0
-    )
-    selected_device_serial = _normalize_sma_serial_number(form.get("device_serial_number", ""))
-    if source_type == "sma_meter_protocol" and not selected_device_serial:
+    result = _save_source_config_from_form(await request.form())
+    if result.get("status") == "error":
         return RedirectResponse(url="/sources?serial_required=1", status_code=303)
-
-    state.config["source"]["settings"]["device_serial_number"] = selected_device_serial
-    state.config["source"]["settings"].pop("device_ip", None)
-    state.config["source"]["settings"]["debug_dump_obis"] = form.get("debug_dump_obis") == "on"
-    state.config["source"]["settings"]["simulator_import_power_w"] = _safe_float(
-        form.get("simulator_import_power_w", 1000.0), 1000.0
-    )
-    state.config["source"]["settings"]["simulator_export_power_w"] = _safe_float(
-        form.get("simulator_export_power_w", 10000.0), 10000.0
-    )
-    state.config["source"]["settings"]["simulator_ramp_rate_w_per_minute"] = _safe_float(
-        form.get("simulator_ramp_rate_w_per_minute", 600.0), 600.0
-    )
-
-    battery_type = str(form.get("battery_type", "none")).strip()
-    battery_enabled = (form.get("battery_enabled") == "on") and battery_type != "none"
-
-    state.config.setdefault("battery", {})
-    state.config["battery"]["type"] = battery_type
-    state.config["battery"]["name"] = _resolve_battery_profile_label(battery_type)
-    state.config["battery"]["enabled"] = battery_enabled
-    state.config["battery"].setdefault("settings", {})
-    state.config["battery"]["settings"]["host"] = str(form.get("battery_host", "")).strip()
-    state.config["battery"]["settings"]["port"] = _safe_int(form.get("battery_port", 502), 502)
-    state.config["battery"]["settings"]["unit_id"] = _safe_int(form.get("battery_unit_id", 1), 1)
-    state.config["battery"]["settings"]["poll_interval_ms"] = _safe_int(
-        form.get("battery_poll_interval_ms", 1000), 1000
-    )
-    state.config["battery"]["settings"]["request_timeout_seconds"] = _safe_float(
-        form.get("battery_request_timeout_seconds", 1.0), 1.0
-    )
-    state.config["battery"]["settings"]["soc"] = _parse_modbus_value_form(form, "battery_soc")
-    state.config["battery"]["settings"]["charge_power"] = _parse_modbus_value_form(form, "battery_charge_power")
-    state.config["battery"]["settings"]["discharge_power"] = _parse_modbus_value_form(form, "battery_discharge_power")
-
-    save_config(state.config)
-    logger.info(
-        "Source settings saved: type=%s battery_type=%s battery_enabled=%s",
-        source_type,
-        battery_type,
-        battery_enabled,
-    )
-    reload_runtime()
     return RedirectResponse(url="/sources?saved=1", status_code=303)
+
+
+@app.post("/api/sources/config")
+async def api_save_sources_config(request: Request):
+    result = _save_source_config_from_form(await request.form())
+    status_code = 200 if result.get("status") == "ok" else 400
+    return JSONResponse(content=jsonable_encoder(result), status_code=status_code)
+
+
+@app.get("/api/sources/status")
+async def api_sources_status():
+    return JSONResponse(content=jsonable_encoder(_build_sources_live_payload()))
 
 
 @app.get("/miners")
