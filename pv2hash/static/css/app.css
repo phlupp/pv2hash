@@ -1666,3 +1666,52 @@ form.is-busy {
     font-weight: 700;
     overflow-wrap: anywhere;
 }
+
+/* Source details use the same visual pattern as miner details. */
+.details-section {
+    margin-top: 1.25rem;
+    padding: 1rem;
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 14px;
+    background: rgba(255,255,255,.03);
+}
+
+.details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: .75rem;
+}
+
+.details-item {
+    display: flex;
+    flex-direction: column;
+    gap: .15rem;
+}
+
+.details-item-label {
+    font-size: .8rem;
+    opacity: .75;
+}
+
+.source-details-section .source-details-item {
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    background: transparent;
+    display: flex;
+    gap: .15rem;
+}
+
+.source-details-section .source-details-label {
+    color: var(--muted);
+    font-size: .8rem;
+    font-weight: 400;
+    opacity: .75;
+}
+
+.source-details-section .source-details-value {
+    color: var(--text);
+    font-size: 1rem;
+    font-weight: 400;
+    overflow-wrap: anywhere;
+}

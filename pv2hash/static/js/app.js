@@ -996,41 +996,26 @@
     const groups = Array.isArray(model?.detail_groups) ? model.detail_groups.filter((group) => Array.isArray(group?.fields) && group.fields.length) : [];
     if (!groups.length) return null;
 
-    const wrapper = document.createElement('section');
-    wrapper.className = 'type-subcard source-details-card top-gap';
+    const section = document.createElement('section');
+    section.className = 'details-section source-details-section';
 
-    const title = document.createElement('h3');
-    title.className = 'section-title';
+    const title = document.createElement('strong');
     title.textContent = 'Details';
-    wrapper.appendChild(title);
+    section.appendChild(title);
 
-    const body = document.createElement('div');
-    body.className = 'source-detail-groups';
+    const grid = document.createElement('div');
+    grid.className = 'details-grid source-details-grid';
+    grid.style.marginTop = '.75rem';
 
     for (const group of groups) {
-      const section = document.createElement('div');
-      section.className = 'source-detail-group';
-
-      const groupTitle = String(group.title || '').trim();
-      const showGroupTitle = groupTitle && groupTitle.toLowerCase() !== 'details';
-      if (showGroupTitle) {
-        const groupTitleEl = document.createElement('h4');
-        groupTitleEl.className = 'source-detail-group-title';
-        groupTitleEl.textContent = groupTitle;
-        section.appendChild(groupTitleEl);
-      }
-
-      const grid = document.createElement('div');
-      grid.className = 'source-details-grid';
-
       for (const field of group.fields || []) {
         const item = document.createElement('div');
-        item.className = 'source-details-item';
+        item.className = 'details-item source-details-item';
         item.dataset.sourceDetailField = sourceFieldKey(field);
         const label = document.createElement('span');
-        label.className = 'source-details-label';
+        label.className = 'details-item-label source-details-label';
         label.textContent = field.label || '';
-        const value = document.createElement('strong');
+        const value = document.createElement('span');
         value.className = 'source-details-value';
         value.dataset.sourceDetailValue = '';
         value.textContent = formatSourceValue(field);
@@ -1038,13 +1023,10 @@
         item.appendChild(value);
         grid.appendChild(item);
       }
-
-      section.appendChild(grid);
-      body.appendChild(section);
     }
 
-    wrapper.appendChild(body);
-    return wrapper;
+    section.appendChild(grid);
+    return section;
   }
 
   function createSourceActions(model) {
