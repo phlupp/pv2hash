@@ -1464,14 +1464,11 @@ async def miners_page(request: Request):
     )
 
 
-@app.post("/miners/add")
-async def add_miner(request: Request):
-    form = await request.form()
-
+async def _add_miner_result(form: Any) -> dict[str, Any]:
     miner_id = f"m-{uuid4().hex[:8]}"
     driver = _normalize_miner_driver(form.get("driver", "simulator"))
     if not _driver_supports_gui_schema(driver):
-        return _redirect_to_miners(error="Dieser Treiber ist noch nicht auf das neue GUI-Schema migriert.")
+        return {"status": "error", "message": "Dieser Treiber ist noch nicht auf das neue GUI-Schema migriert."}
 
     miner_cfg = {
         "id": miner_id,
@@ -1505,13 +1502,30 @@ async def add_miner(request: Request):
             _set_nested_value(miner_cfg, field.name, value)
 
     if validation_error:
-        return _redirect_to_miners(error=validation_error)
+        return {"status": "error", "message": validation_error}
 
     state.config.setdefault("miners", []).append(miner_cfg)
     save_config(state.config)
-    logger.info("Miner added via metadata UI: id=%s name=%s driver=%s host=%s", miner_id, miner_cfg.get("name"), driver, miner_cfg.get("host"))
+    logger.info(
+        "Miner added via metadata UI: id=%s name=%s driver=%s host=%s",
+        miner_id,
+        miner_cfg.get("name"),
+        driver,
+        miner_cfg.get("host"),
+    )
     reload_runtime()
-    return _redirect_to_miners(miner_id=miner_id, saved=True)
+    return {
+        "status": "ok",
+        "message": "Miner angelegt.",
+        "miner_id": miner_id,
+    }
+
+
+@app.post("/api/miners/add")
+async def api_add_miner(request: Request):
+    result = await _add_miner_result(await request.form())
+    status_code = 200 if result.get("status") == "ok" else 400
+    return JSONResponse(result, status_code=status_code)
 
 
 async def _update_miner_config_result(form: Any) -> dict[str, Any]:
@@ -1581,15 +1595,6 @@ async def api_update_miner_config(miner_id: str, request: Request):
     status_code = 200 if result.get("status") == "ok" else 400
     return JSONResponse(result, status_code=status_code)
 
-
-@app.post("/miners/update")
-async def update_miner(request: Request):
-    form = await request.form()
-    result = await _update_miner_config_result(form)
-    miner_id = str(result.get("miner_id") or form.get("miner_id", "")).strip() or None
-    if result.get("status") != "ok":
-        return _redirect_to_miners(miner_id=miner_id, error=str(result.get("message") or "Miner-Konfiguration konnte nicht gespeichert werden."))
-    return _redirect_to_miners(miner_id=miner_id, saved=True)
 
 
 @app.post("/miners/set-control-enabled")
@@ -1680,12 +1685,6 @@ async def _apply_miner_device_settings_result(miner_id: str, form: Any) -> dict[
     return {"ok": False, "message": "Miner nicht gefunden."}
 
 
-async def _apply_miner_device_settings_impl(request: Request, miner_id: str):
-    result = await _apply_miner_device_settings_result(miner_id, await request.form())
-    if not result.get("ok"):
-        return _redirect_to_miners(miner_id=miner_id, error=result.get("message", "Geräte-Einstellung fehlgeschlagen."))
-    return _redirect_to_miners(miner_id=miner_id, saved=True)
-
 
 @app.post("/api/miner/{miner_id}/device-settings")
 async def api_apply_miner_device_settings(miner_id: str, request: Request):
@@ -1698,10 +1697,6 @@ async def api_apply_miner_device_settings(miner_id: str, request: Request):
         status_code=200 if result.get("ok") else 400,
     )
 
-
-@app.post("/miners/{miner_id}/device-settings")
-async def apply_miner_device_settings_for_miner(miner_id: str, request: Request):
-    return await _apply_miner_device_settings_impl(request, miner_id)
 
 async def _run_miner_action_impl(miner_id: str, action_name: str) -> dict[str, Any]:
     miner_id = str(miner_id).strip()
@@ -1754,25 +1749,21 @@ async def api_run_miner_action(miner_id: str, request: Request):
     )
 
 
-@app.post("/miners/{miner_id}/action")
-async def run_miner_action(miner_id: str, request: Request):
-    form = await request.form()
-    action_name = str(form.get("action_name", "")).strip()
-    result = await _run_miner_action_impl(miner_id, action_name)
-    if not result.get("ok"):
-        return _redirect_to_miners(miner_id=miner_id, error=result.get("message", "Miner-Aktion fehlgeschlagen."))
-    return _redirect_to_miners(miner_id=miner_id, saved=True)
 
-
-@app.post("/miners/delete")
-async def delete_miner(miner_id: str = Form(...)):
-    logger.info("Deleting miner: id=%s", miner_id)
+@app.post("/api/miner/{miner_id}/delete")
+async def api_delete_miner(miner_id: str):
+    miner_id = str(miner_id).strip()
+    before = len(state.config.get("miners", []))
     state.config["miners"] = [
-        miner for miner in state.config.get("miners", []) if miner["id"] != miner_id
+        miner for miner in state.config.get("miners", []) if miner.get("id") != miner_id
     ]
+    if len(state.config.get("miners", [])) == before:
+        return JSONResponse({"status": "error", "message": "Miner nicht gefunden."}, status_code=404)
+
+    logger.info("Deleting miner: id=%s", miner_id)
     save_config(state.config)
     reload_runtime()
-    return _redirect_to_miners(saved=True)
+    return JSONResponse({"status": "ok", "message": "Miner gelöscht.", "miner_id": miner_id})
 
 
 @app.get("/system")

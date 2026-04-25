@@ -41,7 +41,7 @@
         <section class="card">
             <h2>Neuen Miner anlegen</h2>
             <p>Erst Treiber auswählen, dann die Basic-Felder ausfüllen. Die restliche Konfiguration erfolgt danach in der geöffneten Miner-Karte.</p>
-            <form method="post" action="/miners/add" id="miner-create-form">
+            <form id="miner-create-form" data-miner-create-form>
                 <div class="miner-create-grid">
                     {% for field in core_identity_basic_fields %}
                     <div class="field {% if field.type == 'checkbox' %}checkbox-field{% endif %}">
@@ -130,7 +130,7 @@
                 </summary>
                 <div class="miner-card-body">
                     {% if miner.supports_gui_schema %}
-                    <form method="post" action="/miners/update" class="details-form" data-miner-config-form data-miner-id="{{ miner.id }}">
+                    <form class="details-form" data-miner-config-form data-miner-id="{{ miner.id }}">
                         <input type="hidden" name="miner_id" value="{{ miner.id }}">
                         <h3 class="section-title">Identität</h3>
                         <div class="miner-field-grid">
@@ -319,10 +319,9 @@
                         Dieser Miner verwendet noch einen Treiber ohne neues GUI-Schema. Für diesen ersten Umbau-Schritt wird hier nur die kompakte Statuskarte angezeigt. Die Migration des Treibers folgt in einem späteren Schritt.
                     </div>
                     {% endif %}
-                    <form method="post" action="/miners/delete" class="actions-row" onsubmit="return confirm('Miner wirklich löschen?');">
-                        <input type="hidden" name="miner_id" value="{{ miner.id }}">
-                        <button class="btn btn-danger" type="submit">Miner löschen</button>
-                    </form>
+                    <div class="actions-row">
+                        <button class="btn btn-danger" type="button" data-miner-delete data-miner-id="{{ miner.id }}">Miner löschen</button>
+                    </div>
                 </div>
             </details>
             {% else %}

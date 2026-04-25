@@ -193,6 +193,41 @@
     }
   };
 
+
+  window.submitMinerCreate = async function submitMinerCreate(form, submitter) {
+    const restore = setButtonBusy(submitter || form.querySelector('[type="submit"]'), 'Legt an …');
+    try {
+      const data = await postForm('/api/miners/add', form);
+      window.showToast('success', data.message || 'Miner angelegt.');
+      const minerId = data.miner_id ? String(data.miner_id) : '';
+      window.setTimeout(() => {
+        window.location.href = minerId ? `/miners?miner_id=${encodeURIComponent(minerId)}` : '/miners';
+      }, 350);
+    } catch (error) {
+      window.showToast('error', error.message || 'Miner konnte nicht angelegt werden.');
+    } finally {
+      restore();
+    }
+  };
+
+  window.deleteMiner = async function deleteMiner(button) {
+    const minerId = button.dataset.minerId;
+    if (!minerId) return;
+    if (!window.confirm('Miner wirklich löschen?')) return;
+
+    const restore = setButtonBusy(button, 'Löscht …');
+    try {
+      const data = await postJson(`/api/miner/${encodeURIComponent(minerId)}/delete`, {});
+      window.showToast('success', data.message || 'Miner gelöscht.');
+      const card = button.closest('.miner-card');
+      if (card) card.remove();
+    } catch (error) {
+      window.showToast('error', error.message || 'Miner konnte nicht gelöscht werden.');
+    } finally {
+      restore();
+    }
+  };
+
   document.addEventListener('click', (event) => {
     const actionButton = event.target.closest('[data-miner-action]');
     if (actionButton && !actionButton.disabled) {
@@ -205,10 +240,24 @@
     if (deviceSettingsButton && !deviceSettingsButton.disabled) {
       event.preventDefault();
       window.submitMinerDeviceSettings(deviceSettingsButton);
+      return;
+    }
+
+    const deleteButton = event.target.closest('[data-miner-delete]');
+    if (deleteButton && !deleteButton.disabled) {
+      event.preventDefault();
+      window.deleteMiner(deleteButton);
     }
   });
 
   document.addEventListener('submit', (event) => {
+    const createForm = event.target.closest('[data-miner-create-form]');
+    if (createForm) {
+      event.preventDefault();
+      window.submitMinerCreate(createForm, event.submitter);
+      return;
+    }
+
     const form = event.target.closest('[data-miner-config-form]');
     if (!form) return;
     event.preventDefault();
