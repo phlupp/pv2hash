@@ -53,6 +53,9 @@ class ModbusValueConfig:
 
 
 class BatteryModbusSource(EnergySource):
+    driver_id = "battery_modbus"
+    driver_label = "Modbus TCP Batterie"
+
     def __init__(
         self,
         host: str,
@@ -111,6 +114,33 @@ class BatteryModbusSource(EnergySource):
             self.unit_id,
             self.poll_interval_ms,
         )
+
+    def get_config_fields(self, *, config: dict | None = None) -> list[dict]:
+        settings = (config or {}).get("settings", {}) or {}
+        return [
+            {"name": "battery_host", "label": "Host / IP", "type": "text", "value": settings.get("host", self.host)},
+            {"name": "battery_port", "label": "Port", "type": "number", "value": settings.get("port", self.port), "step": 1},
+            {"name": "battery_unit_id", "label": "Unit-ID", "type": "number", "value": settings.get("unit_id", self.unit_id), "step": 1},
+            {"name": "battery_poll_interval_ms", "label": "Poll-Intervall", "type": "number", "value": settings.get("poll_interval_ms", self.poll_interval_ms), "unit": "ms", "step": 100},
+            {"name": "battery_request_timeout_seconds", "label": "Request-Timeout", "type": "number", "value": settings.get("request_timeout_seconds", self.request_timeout_seconds), "unit": "s", "step": 0.1},
+        ]
+
+    def get_detail_groups(self, *, snapshot=None, debug_info: dict | None = None) -> list[dict]:
+        debug_info = debug_info or self.debug_info
+        soc = getattr(snapshot, "battery_soc_pct", None) if snapshot is not None else debug_info.get("battery_soc_pct")
+        charge = getattr(snapshot, "battery_charge_power_w", None) if snapshot is not None else debug_info.get("battery_charge_power_w")
+        discharge = getattr(snapshot, "battery_discharge_power_w", None) if snapshot is not None else debug_info.get("battery_discharge_power_w")
+        return [
+            {
+                "title": "Batterie",
+                "fields": [
+                    {"label": "SOC", "value": soc, "unit": "%", "precision": 1},
+                    {"label": "Ladeleistung", "value": charge, "unit": "W", "precision": 0},
+                    {"label": "Entladeleistung", "value": discharge, "unit": "W", "precision": 0},
+                    {"label": "Host", "value": self.host or None},
+                ],
+            }
+        ]
 
     async def read(self) -> EnergySnapshot:
         async with self._read_lock:

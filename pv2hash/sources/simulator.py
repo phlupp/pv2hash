@@ -6,6 +6,9 @@ from pv2hash.models.energy import EnergySnapshot
 
 
 class SimulatorSource(EnergySource):
+    driver_id = "simulator"
+    driver_label = "Simulierter Netzanschlusspunkt"
+
     def __init__(
         self,
         simulator_import_power_w: float = 1000.0,
@@ -36,6 +39,48 @@ class SimulatorSource(EnergySource):
             "measured_grid_power_w": self._base_grid_power_w,
             "direction": "towards_export",
         }
+
+    def get_config_fields(self, *, config: dict | None = None) -> list[dict]:
+        settings = (config or {}).get("settings", {}) or {}
+        return [
+            {
+                "name": "simulator_import_power_w",
+                "label": "Startwert Netzbezug",
+                "type": "number",
+                "value": settings.get("simulator_import_power_w", self.import_power_w),
+                "unit": "W",
+                "step": 1,
+            },
+            {
+                "name": "simulator_export_power_w",
+                "label": "Endwert Einspeisung",
+                "type": "number",
+                "value": settings.get("simulator_export_power_w", self.export_power_w),
+                "unit": "W",
+                "step": 1,
+            },
+            {
+                "name": "simulator_ramp_rate_w_per_minute",
+                "label": "Änderungsgeschwindigkeit",
+                "type": "number",
+                "value": settings.get("simulator_ramp_rate_w_per_minute", self.ramp_rate_w_per_minute),
+                "unit": "W / Minute",
+                "step": 1,
+            },
+        ]
+
+    def get_detail_groups(self, *, snapshot=None, debug_info: dict | None = None) -> list[dict]:
+        grid_power_w = getattr(snapshot, "grid_power_w", None) if snapshot is not None else None
+        return [
+            {
+                "title": "Simulation",
+                "fields": [
+                    {"label": "Netzleistung", "value": grid_power_w, "unit": "W", "precision": 0},
+                    {"label": "Basiswert", "value": self._base_grid_power_w, "unit": "W", "precision": 0},
+                    {"label": "simulierte Minerlast", "value": self._simulated_miner_power_w, "unit": "W", "precision": 0},
+                ],
+            }
+        ]
 
     def set_simulated_miner_power_w(self, power_w: float) -> None:
         self._simulated_miner_power_w = max(0.0, float(power_w))

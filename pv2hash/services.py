@@ -95,3 +95,57 @@ class RuntimeServices:
         if self.battery_source is None:
             return {}
         return getattr(self.battery_source, "debug_info", {}) or {}
+
+    def get_source_gui_models(self) -> list[dict]:
+        snapshot = self.state.snapshot
+        models: list[dict] = []
+
+        if self.source is not None:
+            models.append(
+                self.source.get_gui_model(
+                    source_id="grid",
+                    role=str(self.state.config.get("source", {}).get("role", "grid")),
+                    title="Netz-Messung",
+                    enabled=bool(self.state.config.get("source", {}).get("enabled", True)),
+                    config=self.state.config.get("source", {}),
+                    snapshot=snapshot,
+                    debug_info=self.get_source_debug_info(),
+                )
+            )
+
+        battery_cfg = self.state.config.get("battery", {}) or {}
+        battery_enabled = bool(battery_cfg.get("enabled")) and battery_cfg.get("type", "none") != "none"
+        if self.battery_source is not None:
+            models.append(
+                self.battery_source.get_gui_model(
+                    source_id="battery",
+                    role=str(battery_cfg.get("role", "battery")),
+                    title="Batterie",
+                    enabled=battery_enabled,
+                    config=battery_cfg,
+                    snapshot=snapshot,
+                    debug_info=self.get_battery_source_debug_info(),
+                )
+            )
+        else:
+            models.append(
+                {
+                    "id": "battery",
+                    "role": str(battery_cfg.get("role", "battery")),
+                    "title": "Batterie",
+                    "enabled": False,
+                    "driver": str(battery_cfg.get("type", "none") or "none"),
+                    "driver_label": str(battery_cfg.get("name", "Keine Batterie") or "Keine Batterie"),
+                    "status": {
+                        "state": "disabled",
+                        "text": "Deaktiviert",
+                        "age_seconds": None,
+                        "updated_at": None,
+                    },
+                    "config_fields": [],
+                    "detail_groups": [],
+                    "capabilities": {},
+                }
+            )
+
+        return models

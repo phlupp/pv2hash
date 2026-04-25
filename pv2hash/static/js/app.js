@@ -796,8 +796,17 @@
     }
   }
 
+  function updateSourcesGuiModels(data) {
+    window.pv2hashSourcesGuiModels = Array.isArray(data?.gui_models)
+      ? data.gui_models
+      : Array.isArray(data?.sources)
+        ? data.sources
+        : [];
+  }
+
   function updateSourcesSummary(data) {
     if (!data) return;
+    updateSourcesGuiModels(data);
 
     const source = data.source || {};
     setText('[data-source-summary-field="profile"]', source.profile_label || '—');

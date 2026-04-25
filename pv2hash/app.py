@@ -1066,6 +1066,7 @@ def _build_sources_live_payload() -> dict:
 
     return {
         "status": "ok",
+        "gui_models": services.get_source_gui_models(),
         "source": {
             "type": source_type,
             "profile_label": _resolve_measurement_profile_label(source_type),
@@ -1310,6 +1311,7 @@ def _miners_context(request: Request, *, error_message: str | None = None) -> di
         "driver_catalog": _build_driver_catalog(),
         "core_identity_basic_fields": _core_identity_basic_fields(),
         "refresh_seconds": _safe_int(state.config.get("app", {}).get("refresh_seconds", 5), 5),
+        "source_gui_models": services.get_source_gui_models(),
         "wiki_links": {
             "overview": "https://github.com/phlupp/pv2hash/wiki/Miner",
             "profiles": "https://github.com/phlupp/pv2hash/wiki/Leistungsprofile",
@@ -1699,6 +1701,14 @@ async def api_save_sources_config(request: Request):
 @app.get("/api/sources/status")
 async def api_sources_status():
     return JSONResponse(content=jsonable_encoder(_build_sources_live_payload()))
+
+
+@app.get("/api/sources/gui")
+async def api_sources_gui():
+    return JSONResponse(content=jsonable_encoder({
+        "status": "ok",
+        "sources": services.get_source_gui_models(),
+    }))
 
 
 @app.get("/miners")

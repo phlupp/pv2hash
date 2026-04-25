@@ -16,6 +16,9 @@ class IncompleteSmaPacketError(ValueError):
 
 
 class SmaMeterProtocolSource(EnergySource):
+    driver_id = "sma_meter_protocol"
+    driver_label = "SMA Energy Meter"
+
     EMETER_PROTOCOL_ID = b"\x60\x69"
 
     POWER_INDEXES = {
@@ -129,6 +132,44 @@ class SmaMeterProtocolSource(EnergySource):
         }
 
         self.sock = self._create_socket()
+
+    def get_config_fields(self, *, config: dict | None = None) -> list[dict]:
+        settings = (config or {}).get("settings", {}) or {}
+        device_options = []
+        for item in self.debug_info.get("seen_devices", []) or []:
+            serial = self._normalize_serial_number(item.get("serial_number"))
+            if not serial:
+                continue
+            label = f"{item.get('device_name') or 'SMA Gerät'} – S/N {serial}"
+            sender_ip = str(item.get("sender_ip") or "").strip()
+            if sender_ip:
+                label += f" – {sender_ip}"
+            device_options.append({"value": serial, "label": label})
+
+        return [
+            {"name": "multicast_ip", "label": "Multicast-IP", "type": "text", "value": settings.get("multicast_ip", self.multicast_ip)},
+            {"name": "bind_port", "label": "Bind-Port", "type": "number", "value": settings.get("bind_port", self.bind_port), "step": 1},
+            {"name": "interface_ip", "label": "Lokale Interface-IP", "type": "text", "value": settings.get("interface_ip", self.interface_ip)},
+            {"name": "device_serial_number", "label": "SMA-Gerät / Seriennummer", "type": "select", "value": settings.get("device_serial_number", self.device_serial_number), "options": device_options, "required": True},
+            {"name": "packet_timeout_seconds", "label": "Paket-Timeout", "type": "number", "value": settings.get("packet_timeout_seconds", self.packet_timeout_seconds), "unit": "s", "step": 0.1},
+            {"name": "stale_after_seconds", "label": "Veraltet nach", "type": "number", "value": settings.get("stale_after_seconds", self.stale_after_seconds), "unit": "s", "step": 0.1},
+            {"name": "offline_after_seconds", "label": "Offline nach", "type": "number", "value": settings.get("offline_after_seconds", self.offline_after_seconds), "unit": "s", "step": 0.1},
+        ]
+
+    def get_detail_groups(self, *, snapshot=None, debug_info: dict | None = None) -> list[dict]:
+        debug_info = debug_info or self.debug_info
+        grid_power_w = getattr(snapshot, "grid_power_w", None) if snapshot is not None else debug_info.get("grid_power_w")
+        return [
+            {
+                "title": "Gesamt",
+                "fields": [
+                    {"label": "Netzleistung", "value": grid_power_w, "unit": "W", "precision": 0},
+                    {"label": "Gerät", "value": debug_info.get("last_packet_device_name")},
+                    {"label": "Seriennummer", "value": debug_info.get("last_packet_serial_number")},
+                    {"label": "SUSy-ID", "value": debug_info.get("last_packet_susy_id")},
+                ],
+            }
+        ]
 
     def _join_multicast(self, sock: socket.socket, interface_ip: str) -> str:
         requested_interface_ip = interface_ip.strip() or "0.0.0.0"
