@@ -42,15 +42,6 @@ class EnergySource(ABC):
         age_seconds = status.get("age_seconds")
         fields.append({"label": "Alter", "value": age_seconds, "unit": "s", "precision": 1})
 
-        for group in detail_groups or []:
-            for field in group.get("fields", []) or []:
-                if not field.get("show_in_header"):
-                    continue
-                header_field = dict(field)
-                if header_field.get("header_label"):
-                    header_field["label"] = header_field["header_label"]
-                fields.append(header_field)
-
         return fields
 
     def get_gui_model(

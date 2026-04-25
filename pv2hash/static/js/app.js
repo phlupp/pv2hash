@@ -987,23 +987,43 @@
   }
 
   function createSourceDetails(model) {
-    const groups = Array.isArray(model?.detail_groups) ? model.detail_groups : [];
+    const groups = Array.isArray(model?.detail_groups) ? model.detail_groups.filter((group) => Array.isArray(group?.fields) && group.fields.length) : [];
+    if (!groups.length) return null;
+
     const wrapper = document.createElement('div');
-    wrapper.className = 'source-detail-groups top-gap';
+    wrapper.className = 'top-gap';
+
+    const title = document.createElement('h3');
+    title.className = 'section-title';
+    title.textContent = 'Details';
+    wrapper.appendChild(title);
 
     for (const group of groups) {
       const section = document.createElement('section');
-      section.className = 'card type-subcard';
-      const header = document.createElement('div');
-      header.className = 'card-head';
-      const title = document.createElement('h3');
-      title.textContent = group.title || 'Details';
-      header.appendChild(title);
-      section.appendChild(header);
-      section.appendChild(createSourceKvRows((group.fields || []).map((field) => ({
-        label: field.label,
-        value: formatSourceValue(field),
-      }))));
+      section.className = 'details-section';
+
+      const groupTitle = document.createElement('strong');
+      groupTitle.textContent = group.title || 'Details';
+      section.appendChild(groupTitle);
+
+      const grid = document.createElement('div');
+      grid.className = 'details-grid';
+      grid.style.marginTop = '.75rem';
+
+      for (const field of group.fields || []) {
+        const item = document.createElement('div');
+        item.className = 'details-item';
+        const label = document.createElement('span');
+        label.className = 'details-item-label';
+        label.textContent = field.label || '';
+        const value = document.createElement('span');
+        value.textContent = formatSourceValue(field);
+        item.appendChild(label);
+        item.appendChild(value);
+        grid.appendChild(item);
+      }
+
+      section.appendChild(grid);
       wrapper.appendChild(section);
     }
 
@@ -1055,7 +1075,7 @@
     panel.hidden = !expanded;
 
     const details = createSourceDetails(model);
-    if (details.childElementCount) panel.appendChild(details);
+    if (details) panel.appendChild(details);
 
     const basic = document.createElement('section');
     basic.className = 'card type-subcard';
@@ -1143,6 +1163,21 @@
     updateSourcesGuiModels(data, options);
   }
 
+  let sourcesPreviewRunning = false;
+
+  async function previewSourcesConfig(form) {
+    if (!form || sourcesPreviewRunning) return;
+    sourcesPreviewRunning = true;
+    try {
+      const data = await postForm('/api/sources/gui/preview', form);
+      updateSourcesSummary(data, { forceRender: true });
+    } catch (error) {
+      window.showToast('error', error.message || 'Source-Profil konnte nicht aktualisiert werden.');
+    } finally {
+      sourcesPreviewRunning = false;
+    }
+  }
+
   async function submitSourcesConfig(form, submitter) {
     if (!form || form.dataset.busy === '1') return;
 
@@ -1212,6 +1247,13 @@
       form.addEventListener('submit', (event) => {
         event.preventDefault();
         submitSourcesConfig(form, event.submitter);
+      });
+
+      form.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLSelectElement)) return;
+        if (target.name !== 'source_type' && target.name !== 'battery_type') return;
+        previewSourcesConfig(form);
       });
     }
 

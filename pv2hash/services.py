@@ -3,6 +3,9 @@ from datetime import UTC, datetime
 from pv2hash.config.store import load_config
 from pv2hash.controller.basic import BasicController
 from pv2hash.factory import build_battery_source, build_miners, build_source
+from pv2hash.sources.battery_modbus import BatteryModbusSource, ModbusValueConfig
+from pv2hash.sources.simulator import SimulatorSource
+from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
 from pv2hash.logging_ext.setup import get_logger
 from pv2hash.runtime import AppState
 
@@ -96,21 +99,98 @@ class RuntimeServices:
             return {}
         return getattr(self.battery_source, "debug_info", {}) or {}
 
-    def get_source_gui_models(self) -> list[dict]:
-        snapshot = self.state.snapshot
+    def _preview_source_adapter(self, source_type: str, source_cfg: dict):
+        settings = source_cfg.get("settings", {}) or {}
+        if source_type == "simulator":
+            return SimulatorSource(
+                simulator_import_power_w=float(settings.get("simulator_import_power_w", 1000.0) or 1000.0),
+                simulator_export_power_w=float(settings.get("simulator_export_power_w", 10000.0) or 10000.0),
+                simulator_ramp_rate_w_per_minute=float(settings.get("simulator_ramp_rate_w_per_minute", 600.0) or 600.0),
+            )
+        if source_type == "sma_meter_protocol":
+            class SmaPreviewSource(SmaMeterProtocolSource):
+                def __init__(self):
+                    self.driver_id = SmaMeterProtocolSource.driver_id
+                    self.driver_label = SmaMeterProtocolSource.driver_label
+                    self.debug_info = {}
+
+                def get_config_fields(self, *, config: dict | None = None) -> list[dict]:
+                    return SmaMeterProtocolSource.config_fields_from_settings(
+                        settings=(config or {}).get("settings", {}) or {},
+                        debug_info=self.debug_info,
+                    )
+
+            preview = SmaPreviewSource()
+            preview.debug_info = self.get_source_debug_info()
+            return preview
+        return None
+
+    def _preview_battery_adapter(self, battery_type: str, battery_cfg: dict):
+        settings = battery_cfg.get("settings", {}) or {}
+        if battery_type == "battery_modbus":
+            def cfg(name: str) -> ModbusValueConfig:
+                raw = settings.get(name, {}) if isinstance(settings.get(name), dict) else {}
+                address = raw.get("address")
+                try:
+                    address = int(address) if address not in (None, "") else None
+                except Exception:
+                    address = None
+                try:
+                    factor = float(raw.get("factor", 1.0))
+                except Exception:
+                    factor = 1.0
+                return ModbusValueConfig(
+                    name=name,
+                    register_type=str(raw.get("register_type", "holding") or "holding"),
+                    address=address,
+                    value_type=str(raw.get("value_type", "uint16") or "uint16"),
+                    endian=str(raw.get("endian", "big_endian") or "big_endian"),
+                    factor=factor,
+                )
+
+            def as_int(value, default: int) -> int:
+                try:
+                    return int(value)
+                except Exception:
+                    return default
+
+            def as_float(value, default: float) -> float:
+                try:
+                    return float(value)
+                except Exception:
+                    return default
+
+            return BatteryModbusSource(
+                host=str(settings.get("host", "") or ""),
+                port=as_int(settings.get("port", 502), 502),
+                unit_id=as_int(settings.get("unit_id", 1), 1),
+                poll_interval_ms=as_int(settings.get("poll_interval_ms", 1000), 1000),
+                request_timeout_seconds=as_float(settings.get("request_timeout_seconds", 1.0), 1.0),
+                soc=cfg("soc"),
+                charge_power=cfg("charge_power"),
+                discharge_power=cfg("discharge_power"),
+            )
+        return None
+
+    def get_source_gui_models(self, config: dict | None = None) -> list[dict]:
+        runtime_config = self.state.config or {}
+        config = config or runtime_config
+        preview_mode = config is not runtime_config
+        snapshot = self.state.snapshot if not preview_mode else None
         models: list[dict] = []
 
-        source_cfg = self.state.config.get("source", {}) or {}
+        source_cfg = config.get("source", {}) or {}
         source_type = str(source_cfg.get("type", "simulator") or "simulator")
-        if self.source is not None:
-            source_model = self.source.get_gui_model(
+        source_adapter = self.source if (not preview_mode and self.source is not None) else self._preview_source_adapter(source_type, source_cfg)
+        if source_adapter is not None:
+            source_model = source_adapter.get_gui_model(
                 source_id="grid",
                 role=str(source_cfg.get("role", "grid")),
                 title="Netz-Messung",
                 enabled=bool(source_cfg.get("enabled", True)),
                 config=source_cfg,
-                snapshot=getattr(self.source, "last_snapshot", None) or snapshot,
-                debug_info=self.get_source_debug_info(),
+                snapshot=(getattr(source_adapter, "last_snapshot", None) or snapshot),
+                debug_info=(self.get_source_debug_info() if not preview_mode or source_type == runtime_config.get("source", {}).get("type") else {}),
             )
             source_model["summary"] = [
                 {"label": "Profil", "value": source_model.get("driver_label")},
@@ -129,18 +209,19 @@ class RuntimeServices:
             }
             models.append(source_model)
 
-        battery_cfg = self.state.config.get("battery", {}) or {}
+        battery_cfg = config.get("battery", {}) or {}
         battery_type = str(battery_cfg.get("type", "none") or "none")
         battery_enabled = bool(battery_cfg.get("enabled")) and battery_type != "none"
-        if self.battery_source is not None:
-            battery_model = self.battery_source.get_gui_model(
+        battery_adapter = self.battery_source if (not preview_mode and self.battery_source is not None) else self._preview_battery_adapter(battery_type, battery_cfg)
+        if battery_adapter is not None and battery_type != "none":
+            battery_model = battery_adapter.get_gui_model(
                 source_id="battery",
                 role=str(battery_cfg.get("role", "battery")),
                 title="Batterie",
                 enabled=battery_enabled,
                 config=battery_cfg,
-                snapshot=getattr(self.battery_source, "last_snapshot", None),
-                debug_info=self.get_battery_source_debug_info(),
+                snapshot=(getattr(battery_adapter, "last_snapshot", None) if not preview_mode else None),
+                debug_info=(self.get_battery_source_debug_info() if not preview_mode or battery_type == runtime_config.get("battery", {}).get("type") else {}),
             )
         else:
             battery_model = {

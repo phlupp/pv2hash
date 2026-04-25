@@ -69,13 +69,19 @@ class SimulatorSource(EnergySource):
             },
         ]
 
+
+    def get_header_fields(self, *, snapshot=None, debug_info: dict | None = None, status: dict | None = None, detail_groups=None) -> list[dict]:
+        fields = super().get_header_fields(snapshot=snapshot, debug_info=debug_info, status=status, detail_groups=detail_groups)
+        grid_power_w = getattr(snapshot, "grid_power_w", None) if snapshot is not None else None
+        fields.append({"label": "Leistung", "value": grid_power_w, "unit": "W", "precision": 0})
+        return fields
+
     def get_detail_groups(self, *, snapshot=None, debug_info: dict | None = None) -> list[dict]:
         grid_power_w = getattr(snapshot, "grid_power_w", None) if snapshot is not None else None
         return [
             {
-                "title": "Simulation",
+                "title": "Details",
                 "fields": [
-                    {"label": "Netzleistung", "header_label": "Leistung", "value": grid_power_w, "unit": "W", "precision": 0, "show_in_header": True},
                     {"label": "Basiswert", "value": self._base_grid_power_w, "unit": "W", "precision": 0},
                     {"label": "simulierte Minerlast", "value": self._simulated_miner_power_w, "unit": "W", "precision": 0},
                 ],

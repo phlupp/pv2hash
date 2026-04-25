@@ -7,10 +7,6 @@
     <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
-    {% macro help_link(url, label='Hilfe') -%}
-    <a class="btn btn-secondary btn-small" href="{{ url }}" target="_blank" rel="noopener">{{ label }}</a>
-    {%- endmacro %}
-
     <div class="layout">
         {% set nav_active = 'sources' %}
         {% set nav_subtitle = 'Messungen' %}
@@ -21,9 +17,6 @@
                 <div>
                     <h1>Messungen</h1>
                     <p>Netz-Messung und Batterie werden live aktualisiert.</p>
-                </div>
-                <div class="topbar-actions">
-                    {{ help_link(wiki_links.overview, 'Wiki: Messungen') }}
                 </div>
             </header>
 

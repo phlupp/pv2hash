@@ -133,11 +133,14 @@ class SmaMeterProtocolSource(EnergySource):
 
         self.sock = self._create_socket()
 
-    def get_config_fields(self, *, config: dict | None = None) -> list[dict]:
-        settings = (config or {}).get("settings", {}) or {}
+    @classmethod
+    def config_fields_from_settings(cls, *, settings: dict | None = None, debug_info: dict | None = None, defaults: dict | None = None) -> list[dict]:
+        settings = settings or {}
+        debug_info = debug_info or {}
+        defaults = defaults or {}
         device_options = []
-        for item in self.debug_info.get("seen_devices", []) or []:
-            serial = self._normalize_serial_number(item.get("serial_number"))
+        for item in debug_info.get("seen_devices", []) or []:
+            serial = cls._normalize_serial_number(item.get("serial_number"))
             if not serial:
                 continue
             label = f"{item.get('device_name') or 'SMA Gerät'} – S/N {serial}"
@@ -147,29 +150,45 @@ class SmaMeterProtocolSource(EnergySource):
             device_options.append({"value": serial, "label": label})
 
         return [
-            {"name": "multicast_ip", "label": "Multicast-IP", "type": "text", "value": settings.get("multicast_ip", self.multicast_ip)},
-            {"name": "bind_port", "label": "Bind-Port", "type": "number", "value": settings.get("bind_port", self.bind_port), "step": 1},
-            {"name": "interface_ip", "label": "Lokale Interface-IP", "type": "text", "value": settings.get("interface_ip", self.interface_ip)},
-            {"name": "device_serial_number", "label": "SMA-Gerät / Seriennummer", "type": "select", "value": settings.get("device_serial_number", self.device_serial_number), "options": device_options, "required": True},
-            {"name": "packet_timeout_seconds", "label": "Paket-Timeout", "type": "number", "value": settings.get("packet_timeout_seconds", self.packet_timeout_seconds), "unit": "s", "step": 0.1},
-            {"name": "stale_after_seconds", "label": "Veraltet nach", "type": "number", "value": settings.get("stale_after_seconds", self.stale_after_seconds), "unit": "s", "step": 0.1},
-            {"name": "offline_after_seconds", "label": "Offline nach", "type": "number", "value": settings.get("offline_after_seconds", self.offline_after_seconds), "unit": "s", "step": 0.1},
+            {"name": "multicast_ip", "label": "Multicast-IP", "type": "text", "value": settings.get("multicast_ip", defaults.get("multicast_ip", "239.12.255.254"))},
+            {"name": "bind_port", "label": "Bind-Port", "type": "number", "value": settings.get("bind_port", defaults.get("bind_port", 9522)), "step": 1},
+            {"name": "interface_ip", "label": "Lokale Interface-IP", "type": "text", "value": settings.get("interface_ip", defaults.get("interface_ip", "0.0.0.0"))},
+            {"name": "device_serial_number", "label": "SMA-Gerät / Seriennummer", "type": "select", "value": settings.get("device_serial_number", defaults.get("device_serial_number", "")), "options": device_options, "required": True},
+            {"name": "packet_timeout_seconds", "label": "Paket-Timeout", "type": "number", "value": settings.get("packet_timeout_seconds", defaults.get("packet_timeout_seconds", 1.0)), "unit": "s", "step": 0.1},
+            {"name": "stale_after_seconds", "label": "Veraltet nach", "type": "number", "value": settings.get("stale_after_seconds", defaults.get("stale_after_seconds", 8.0)), "unit": "s", "step": 0.1},
+            {"name": "offline_after_seconds", "label": "Offline nach", "type": "number", "value": settings.get("offline_after_seconds", defaults.get("offline_after_seconds", 30.0)), "unit": "s", "step": 0.1},
         ]
+
+    def get_config_fields(self, *, config: dict | None = None) -> list[dict]:
+        settings = (config or {}).get("settings", {}) or {}
+        defaults = {
+            "multicast_ip": self.multicast_ip,
+            "bind_port": self.bind_port,
+            "interface_ip": self.interface_ip,
+            "device_serial_number": self.device_serial_number,
+            "packet_timeout_seconds": self.packet_timeout_seconds,
+            "stale_after_seconds": self.stale_after_seconds,
+            "offline_after_seconds": self.offline_after_seconds,
+        }
+        return self.config_fields_from_settings(settings=settings, debug_info=self.debug_info, defaults=defaults)
+
+
+
+    def get_header_fields(self, *, snapshot=None, debug_info: dict | None = None, status: dict | None = None, detail_groups=None) -> list[dict]:
+        debug_info = debug_info or self.debug_info
+        fields = super().get_header_fields(snapshot=snapshot, debug_info=debug_info, status=status, detail_groups=detail_groups)
+        grid_power_w = getattr(snapshot, "grid_power_w", None) if snapshot is not None else debug_info.get("grid_power_w")
+        fields.append({"label": "Gerät", "value": debug_info.get("last_packet_device_name") or self.driver_label})
+        fields.append({"label": "Leistung", "value": grid_power_w, "unit": "W", "precision": 0})
+        return fields
 
     def get_detail_groups(self, *, snapshot=None, debug_info: dict | None = None) -> list[dict]:
         debug_info = debug_info or self.debug_info
-        grid_power_w = getattr(snapshot, "grid_power_w", None) if snapshot is not None else debug_info.get("grid_power_w")
-        return [
-            {
-                "title": "Gesamt",
-                "fields": [
-                    {"label": "Netzleistung", "header_label": "Leistung", "value": grid_power_w, "unit": "W", "precision": 0, "show_in_header": True},
-                    {"label": "Gerät", "value": debug_info.get("last_packet_device_name"), "show_in_header": True},
-                    {"label": "Seriennummer", "value": debug_info.get("last_packet_serial_number")},
-                    {"label": "SUSy-ID", "value": debug_info.get("last_packet_susy_id")},
-                ],
-            }
+        fields = [
+            {"label": "Seriennummer", "value": debug_info.get("last_packet_serial_number")},
+            {"label": "SUSy-ID", "value": debug_info.get("last_packet_susy_id")},
         ]
+        return [{"title": "Details", "fields": fields}] if any(field.get("value") not in (None, "") for field in fields) else []
 
     def _join_multicast(self, sock: socket.socket, interface_ip: str) -> str:
         requested_interface_ip = interface_ip.strip() or "0.0.0.0"

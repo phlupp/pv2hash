@@ -188,21 +188,20 @@ class BatteryModbusSource(EnergySource):
         ]
 
 
-    def get_detail_groups(self, *, snapshot=None, debug_info: dict | None = None) -> list[dict]:
+
+    def get_header_fields(self, *, snapshot=None, debug_info: dict | None = None, status: dict | None = None, detail_groups=None) -> list[dict]:
         debug_info = debug_info or self.debug_info
+        fields = super().get_header_fields(snapshot=snapshot, debug_info=debug_info, status=status, detail_groups=detail_groups)
         soc = getattr(snapshot, "battery_soc_pct", None) if snapshot is not None else debug_info.get("battery_soc_pct")
         charge = getattr(snapshot, "battery_charge_power_w", None) if snapshot is not None else debug_info.get("battery_charge_power_w")
         discharge = getattr(snapshot, "battery_discharge_power_w", None) if snapshot is not None else debug_info.get("battery_discharge_power_w")
-        return [
-            {
-                "title": "Messwerte",
-                "fields": [
-                    {"label": "SOC", "value": soc, "unit": "%", "precision": 1, "show_in_header": True},
-                    {"label": "Ladeleistung", "value": charge, "unit": "W", "precision": 0, "show_in_header": True},
-                    {"label": "Entladeleistung", "value": discharge, "unit": "W", "precision": 0, "show_in_header": True},
-                ],
-            }
-        ]
+        fields.append({"label": "SoC", "value": soc, "unit": "%", "precision": 1})
+        fields.append({"label": "Ladeleistung", "value": charge, "unit": "W", "precision": 0})
+        fields.append({"label": "Entladeleistung", "value": discharge, "unit": "W", "precision": 0})
+        return fields
+
+    def get_detail_groups(self, *, snapshot=None, debug_info: dict | None = None) -> list[dict]:
+        return []
 
     async def read(self) -> EnergySnapshot:
         async with self._read_lock:
