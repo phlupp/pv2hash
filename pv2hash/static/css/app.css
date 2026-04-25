@@ -1542,3 +1542,12 @@ form.is-busy {
     padding: 5px 9px;
     font-size: 12px;
 }
+
+/* Live versionstatus in shared navigation */
+.brand-version:hover {
+    color: var(--text);
+}
+
+.brand-version .badge-update-indicator[hidden] {
+    display: none;
+}

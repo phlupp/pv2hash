@@ -335,6 +335,18 @@
                 updateCommand.textContent = "";
             }
 
+            if (window.applyPv2HashVersionStatus) {
+                window.applyPv2HashVersionStatus({
+                    status: data.status,
+                    update_status: data.status,
+                    version_full: data.local_version_full || "{{ app_version_full }}",
+                    update_available: data.status === "update_available",
+                    release_version_full: data.release_version_full,
+                    release_tag: data.release_tag,
+                    href: "/system"
+                });
+            }
+
             if (status === "disabled") {
                 updateMessage.textContent = "Update-Prüfung ist in der Konfiguration deaktiviert.";
                 return;

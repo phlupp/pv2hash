@@ -2021,6 +2021,42 @@ async def api_dashboard_status():
     return JSONResponse(content=jsonable_encoder(_build_dashboard_live_payload()))
 
 
+def _build_ui_versionstatus_payload() -> dict[str, Any]:
+    update_status = update_checker.snapshot()
+    status_value = str(update_status.get("status") or "unknown")
+    update_available = status_value == "update_available"
+    release_label = update_status.get("release_version_full") or update_status.get("release_tag")
+
+    if update_available and release_label:
+        label = f"Version {APP_VERSION_FULL} · Update verfügbar: {release_label}"
+        title = "Update verfügbar – zur Systemseite wechseln"
+    elif update_available:
+        label = f"Version {APP_VERSION_FULL} · Update verfügbar"
+        title = "Update verfügbar – zur Systemseite wechseln"
+    else:
+        label = f"Version {APP_VERSION_FULL}"
+        title = "Zur Systemseite wechseln"
+
+    return {
+        "status": "ok",
+        "version": APP_VERSION,
+        "version_full": APP_VERSION_FULL,
+        "label": label,
+        "title": title,
+        "href": "/system",
+        "update_status": status_value,
+        "update_available": update_available,
+        "release_version_full": update_status.get("release_version_full"),
+        "release_tag": update_status.get("release_tag"),
+        "checked_at": update_status.get("checked_at"),
+    }
+
+
+@app.get("/api/ui/versionstatus")
+async def api_ui_versionstatus():
+    return JSONResponse(content=jsonable_encoder(_build_ui_versionstatus_payload()))
+
+
 @app.get("/api/miners/status")
 async def api_miners_status(open_ids: str = ""):
     selected_open_ids = {item.strip() for item in str(open_ids or "").split(",") if item.strip()}

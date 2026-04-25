@@ -6,14 +6,16 @@
             <div class="brand-subtitle">{{ nav_subtitle|default(instance_name|default('PV2Hash')) }}</div>
             {% set nav_update_status = update_check.status if update_check is defined and update_check else "idle" %}
             {% if app_version_full is defined %}
-                {% if nav_update_status == "update_available" %}
-                <a class="brand-version brand-version-alert" href="/system" title="Update verfügbar – zur Systemseite wechseln">
-                    <span>Version {{ app_version_full }}</span>
-                    <span class="badge-update-indicator" aria-label="Update verfügbar"></span>
-                </a>
-                {% else %}
-                <div class="brand-version">Version {{ app_version_full }}</div>
-                {% endif %}
+            <a
+                class="brand-version{% if nav_update_status == 'update_available' %} brand-version-alert{% endif %}"
+                href="/system"
+                title="{% if nav_update_status == 'update_available' %}Update verfügbar – zur Systemseite wechseln{% else %}Zur Systemseite wechseln{% endif %}"
+                data-versionstatus
+                data-versionstatus-state="{{ nav_update_status }}"
+            >
+                <span data-versionstatus-text>Version {{ app_version_full }}{% if nav_update_status == "update_available" %} · Update verfügbar{% endif %}</span>
+                <span class="badge-update-indicator" data-versionstatus-indicator aria-label="Update verfügbar"{% if nav_update_status != "update_available" %} hidden{% endif %}></span>
+            </a>
             {% endif %}
         </div>
     </div>

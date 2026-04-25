@@ -657,6 +657,95 @@
     startDashboardLiveRefresh();
   }
 
+  let versionStatusTimer = null;
+  let versionStatusRunning = false;
+  let versionStatusFailureCount = 0;
+
+  window.applyPv2HashVersionStatus = function applyPv2HashVersionStatus(data) {
+    if (!data) return;
+    const link = document.querySelector('[data-versionstatus]');
+    if (!link) return;
+
+    const updateAvailable = Boolean(data.update_available || data.status === 'update_available');
+    const versionFull = data.version_full || data.local_version_full || '';
+    const releaseLabel = data.release_version_full || data.release_tag || '';
+    const text = link.querySelector('[data-versionstatus-text]');
+    const indicator = link.querySelector('[data-versionstatus-indicator]');
+
+    if (text) {
+      if (data.label) {
+        text.textContent = data.label;
+      } else if (updateAvailable && releaseLabel) {
+        text.textContent = `Version ${versionFull} · Update verfügbar: ${releaseLabel}`;
+      } else if (updateAvailable) {
+        text.textContent = `Version ${versionFull} · Update verfügbar`;
+      } else {
+        text.textContent = `Version ${versionFull}`;
+      }
+    }
+
+    link.classList.toggle('brand-version-alert', updateAvailable);
+    link.dataset.versionstatusState = data.update_status || data.status || 'unknown';
+    link.href = data.href || '/system';
+    link.title = data.title || (updateAvailable ? 'Update verfügbar – zur Systemseite wechseln' : 'Zur Systemseite wechseln');
+
+    if (indicator) {
+      indicator.hidden = !updateAvailable;
+    }
+  };
+
+  async function refreshVersionStatus() {
+    const link = document.querySelector('[data-versionstatus]');
+    if (!link || document.hidden || versionStatusRunning) return;
+
+    versionStatusRunning = true;
+    try {
+      const response = await fetch('/api/ui/versionstatus', { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+      const data = await readJsonResponse(response, 'Versionsstatus konnte nicht aktualisiert werden.');
+      if (document.hidden) return;
+      versionStatusFailureCount = 0;
+      window.applyPv2HashVersionStatus(data);
+    } catch (error) {
+      versionStatusFailureCount += 1;
+      if (versionStatusFailureCount === 1 || versionStatusFailureCount % 10 === 0) {
+        console.debug('PV2Hash versionstatus refresh failed:', error);
+      }
+    } finally {
+      versionStatusRunning = false;
+    }
+  }
+
+  function startVersionStatusRefresh() {
+    const link = document.querySelector('[data-versionstatus]');
+    if (!link || document.hidden) return;
+    stopVersionStatusRefresh();
+    versionStatusTimer = window.setInterval(refreshVersionStatus, 60 * 1000);
+  }
+
+  function stopVersionStatusRefresh() {
+    if (versionStatusTimer) {
+      window.clearInterval(versionStatusTimer);
+      versionStatusTimer = null;
+    }
+  }
+
+  function setupVersionStatusRefresh() {
+    const link = document.querySelector('[data-versionstatus]');
+    if (!link) return;
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopVersionStatusRefresh();
+      } else {
+        refreshVersionStatus();
+        startVersionStatusRefresh();
+      }
+    });
+
+    refreshVersionStatus();
+    startVersionStatusRefresh();
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     for (const button of document.querySelectorAll('[data-miner-action][data-disable-when-control="1"]')) {
       button.dataset.originalTitle = button.getAttribute('title') || '';
@@ -670,5 +759,6 @@
     openAndScrollToMiner(params.get('miner_id'));
     setupMinerLiveRefresh();
     setupDashboardLiveRefresh();
+    setupVersionStatusRefresh();
   });
 })();
