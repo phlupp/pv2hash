@@ -194,6 +194,24 @@
   };
 
 
+  function setMinerCreateExpanded(expanded) {
+    const card = document.querySelector("[data-miner-create-card]");
+    const button = document.querySelector("[data-miner-create-toggle]");
+    if (!card || !button) return;
+
+    card.classList.toggle("is-collapsed", !expanded);
+    button.dataset.createExpanded = expanded ? "1" : "0";
+    button.type = expanded ? "submit" : "button";
+    button.textContent = expanded ? "Miner anlegen" : "+ Neuen Miner anlegen";
+
+    if (expanded) {
+      window.setTimeout(() => {
+        const firstInput = card.querySelector("input:not([type=hidden]):not([disabled]), select:not([disabled])");
+        if (firstInput) firstInput.focus({ preventScroll: true });
+      }, 80);
+    }
+  }
+
   function openAndScrollToMiner(minerId) {
     if (!minerId) return;
     const safeMinerId = window.CSS && window.CSS.escape ? window.CSS.escape(String(minerId)) : String(minerId).replace(/"/g, '\"');
@@ -216,6 +234,8 @@
     try {
       const data = await postForm('/api/miners/add', form);
       window.showToast('success', data.message || 'Miner angelegt.');
+      setMinerCreateExpanded(false);
+      if (form && typeof form.reset === 'function') form.reset();
       const minerId = data.miner_id ? String(data.miner_id) : '';
       window.setTimeout(() => {
         window.location.href = minerId ? `/miners?miner_id=${encodeURIComponent(minerId)}` : '/miners';
@@ -246,6 +266,13 @@
   };
 
   document.addEventListener('click', (event) => {
+    const createToggle = event.target.closest('[data-miner-create-toggle]');
+    if (createToggle && createToggle.dataset.createExpanded !== '1') {
+      event.preventDefault();
+      setMinerCreateExpanded(true);
+      return;
+    }
+
     const actionButton = event.target.closest('[data-miner-action]');
     if (actionButton && !actionButton.disabled) {
       event.preventDefault();

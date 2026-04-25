@@ -24,6 +24,12 @@
         .details-item{display:flex;flex-direction:column;gap:.15rem}
         .details-item-label{font-size:.8rem;opacity:.75}.details-table-wrap{grid-column:1/-1}.details-table{width:100%;border-collapse:collapse;margin-top:.6rem;font-size:.9rem}.details-table th,.details-table td{padding:.45rem .55rem;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;vertical-align:top}.details-table th{font-size:.8rem;opacity:.75;font-weight:600}.details-table-empty{margin-top:.5rem;opacity:.75}
             .miner-card-highlight{box-shadow:0 0 0 2px rgba(34,197,94,.55),0 0 28px rgba(34,197,94,.18)}
+        .miner-create-card{transition:border-color .18s ease,background .18s ease}
+        .miner-create-header{display:flex;justify-content:space-between;align-items:center;gap:1rem}
+        .miner-create-title{display:block}
+        .miner-create-body{margin-top:1rem}
+        .miner-create-card.is-collapsed .miner-create-title,.miner-create-card.is-collapsed .miner-create-body{display:none}
+        .miner-create-card.is-collapsed .miner-create-header{justify-content:flex-start}
     </style>
 </head>
 <body>
@@ -39,9 +45,15 @@
                 <p>Neue Miner über Basic-Felder anlegen und bestehende Miner in einklappbaren Karten konfigurieren.</p>
             </div>
         </header>
-        <section class="card">
-            <h2>Neuen Miner anlegen</h2>
-            <p>Erst Treiber auswählen, dann die Basic-Felder ausfüllen. Die restliche Konfiguration erfolgt danach in der geöffneten Miner-Karte.</p>
+        <section class="card miner-create-card is-collapsed" data-miner-create-card>
+            <div class="miner-create-header">
+                <div class="miner-create-title">
+                    <h2>Neuen Miner anlegen</h2>
+                    <p>Erst Treiber auswählen, dann die Basic-Felder ausfüllen. Die restliche Konfiguration erfolgt danach in der geöffneten Miner-Karte.</p>
+                </div>
+                <button class="btn btn-primary" type="button" id="create-submit" form="miner-create-form" data-miner-create-toggle>+ Neuen Miner anlegen</button>
+            </div>
+            <div class="miner-create-body" data-miner-create-body>
             <form id="miner-create-form" data-miner-create-form>
                 <div class="miner-create-grid">
                     {% for field in core_identity_basic_fields %}
@@ -104,10 +116,8 @@
                 </div>
                 {% endfor %}
 
-                <div class="actions-row">
-                    <button class="btn btn-primary" type="submit" id="create-submit">Miner anlegen</button>
-                </div>
             </form>
+            </div>
         </section>
 
         <section>
