@@ -194,6 +194,23 @@
   };
 
 
+  function openAndScrollToMiner(minerId) {
+    if (!minerId) return;
+    const safeMinerId = window.CSS && window.CSS.escape ? window.CSS.escape(String(minerId)) : String(minerId).replace(/"/g, '\"');
+    const card = document.querySelector(`[data-miner-card][data-miner-id="${safeMinerId}"]`);
+    if (!card) return;
+
+    if (card.tagName && card.tagName.toLowerCase() === 'details') {
+      card.open = true;
+    }
+
+    window.setTimeout(() => {
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      card.classList.add('miner-card-highlight');
+      window.setTimeout(() => card.classList.remove('miner-card-highlight'), 1800);
+    }, 120);
+  }
+
   window.submitMinerCreate = async function submitMinerCreate(form, submitter) {
     const restore = setButtonBusy(submitter || form.querySelector('[type="submit"]'), 'Legt an …');
     try {
@@ -272,5 +289,8 @@
       // Action availability is based on the last saved server state, not on unsaved form edits.
       syncMinerActionGuards(form);
     }
+
+    const params = new URLSearchParams(window.location.search);
+    openAndScrollToMiner(params.get('miner_id'));
   });
 })();

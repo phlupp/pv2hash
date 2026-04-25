@@ -23,6 +23,7 @@
         .details-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.75rem}
         .details-item{display:flex;flex-direction:column;gap:.15rem}
         .details-item-label{font-size:.8rem;opacity:.75}.details-table-wrap{grid-column:1/-1}.details-table{width:100%;border-collapse:collapse;margin-top:.6rem;font-size:.9rem}.details-table th,.details-table td{padding:.45rem .55rem;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;vertical-align:top}.details-table th{font-size:.8rem;opacity:.75;font-weight:600}.details-table-empty{margin-top:.5rem;opacity:.75}
+            .miner-card-highlight{box-shadow:0 0 0 2px rgba(34,197,94,.55),0 0 28px rgba(34,197,94,.18)}
     </style>
 </head>
 <body>
@@ -111,7 +112,7 @@
 
         <section>
             {% for miner in miners %}
-            <details class="miner-card" {% if open_miner_id == miner.id %}open{% endif %}>
+            <details class="miner-card" data-miner-card data-miner-id="{{ miner.id }}" {% if open_miner_id == miner.id %}open{% endif %}>
                 <summary>
                     <div>
                         <strong>{{ miner.name }}</strong>
