@@ -372,6 +372,10 @@
     element.classList.add(stateClass || 'neutral');
   }
 
+  function isMinerCardBusy(card) {
+    return Boolean(card && card.querySelector('form[data-busy="1"], button[data-busy="1"]'));
+  }
+
   function updateMinerSummary(card, summary) {
     if (!card || !summary) return;
     setPillState(card.querySelector('[data-summary-field="control"]'), summary.control_text, summary.control_class);
@@ -398,6 +402,7 @@
 
   let liveRefreshTimer = null;
   let liveRefreshRunning = false;
+  let liveRefreshFailureCount = 0;
 
   function getOpenMinerIds() {
     return Array.from(document.querySelectorAll('[data-miner-card][open]'))
@@ -416,18 +421,32 @@
       if (openIds.length) url.searchParams.set('open_ids', openIds.join(','));
       const response = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
       const data = await readJsonResponse(response, 'Live-Daten konnten nicht aktualisiert werden.');
+
+      // The tab may have been hidden while the request was in flight. Do not touch
+      // the DOM in that case; the visibility handler refreshes immediately on return.
+      if (document.hidden) return;
+
+      liveRefreshFailureCount = 0;
       for (const miner of data.miners || []) {
         const card = document.querySelector(`[data-miner-card][data-miner-id="${cssEscape(miner.id)}"]`);
         if (!card) continue;
+
         updateMinerSummary(card, miner.summary);
-        if (card.open && typeof miner.details_html === 'string') {
+
+        // Details can be large and may contain forms. Update them only for open cards
+        // and never while the user is saving settings/config for that card.
+        if (card.open && !isMinerCardBusy(card) && typeof miner.details_html === 'string') {
           const details = card.querySelector('[data-miner-details-container]');
           if (details) details.innerHTML = miner.details_html;
         }
       }
     } catch (error) {
       // Deliberately quiet: transient miner/network errors are reflected in status pills.
-      console.debug('PV2Hash live refresh failed:', error);
+      // Avoid console spam when a browser/network/device has a short hiccup.
+      liveRefreshFailureCount += 1;
+      if (liveRefreshFailureCount === 1 || liveRefreshFailureCount % 10 === 0) {
+        console.debug('PV2Hash live refresh failed:', error);
+      }
     } finally {
       liveRefreshRunning = false;
     }
