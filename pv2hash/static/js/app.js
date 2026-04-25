@@ -1038,6 +1038,28 @@
     return wrapper;
   }
 
+  function createSourceActions(model) {
+    const actions = Array.isArray(model?.actions) ? model.actions : [];
+    if (!actions.length) return null;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'actions top-gap source-driver-actions';
+
+    for (const action of actions) {
+      if (!action?.id) continue;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = action.style === 'danger' ? 'btn danger' : 'btn secondary';
+      button.dataset.sourceAction = action.id;
+      button.dataset.sourceId = model.id || model.role || '';
+      button.textContent = action.label || action.id;
+      if (action.help) button.title = action.help;
+      wrapper.appendChild(button);
+    }
+
+    return wrapper;
+  }
+
   function createSourceCard(model, options = {}) {
     const card = document.createElement('article');
     card.className = 'card measurement-summary-card source-model-card';
@@ -1114,6 +1136,8 @@
     }
 
     basic.appendChild(grid);
+    const driverActions = createSourceActions(model);
+    if (driverActions) basic.appendChild(driverActions);
     panel.appendChild(basic);
 
     const actionsRow = document.createElement('div');
@@ -1223,6 +1247,32 @@
     }
   }
 
+  async function runSourceAction(form, button) {
+    if (!form || !button || form.dataset.busy === '1') return;
+
+    const payload = new FormData(form);
+    payload.set('source_id', button.dataset.sourceId || '');
+    payload.set('action_id', button.dataset.sourceAction || '');
+
+    const restore = setButtonBusy(button, 'Suche …');
+    setFormBusy(form, true);
+    try {
+      const response = await fetch('/api/sources/action', {
+        method: 'POST',
+        body: payload,
+        headers: { 'Accept': 'application/json' },
+      });
+      const data = await readJsonResponse(response, 'Source-Aktion fehlgeschlagen.');
+      updateSourcesSummary(data, { forceRender: true });
+      window.showToast(data.status === 'error' ? 'error' : 'success', data.message || 'Aktion abgeschlossen.');
+    } catch (error) {
+      window.showToast('error', error.message || 'Source-Aktion fehlgeschlagen.');
+    } finally {
+      setFormBusy(form, false);
+      restore();
+    }
+  }
+
   async function submitSourcesConfig(form, submitter) {
     if (!form || form.dataset.busy === '1') return;
 
@@ -1299,6 +1349,13 @@
         if (!(target instanceof HTMLSelectElement)) return;
         if (target.name !== 'source_type' && target.name !== 'battery_type') return;
         previewSourcesConfig(form);
+      });
+
+      form.addEventListener('click', (event) => {
+        const button = event.target instanceof Element ? event.target.closest('[data-source-action]') : null;
+        if (!button) return;
+        event.preventDefault();
+        runSourceAction(form, button);
       });
     }
 

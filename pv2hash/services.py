@@ -24,10 +24,23 @@ class RuntimeServices:
         self.reload_generation = 0
         self._retired_miners = []
 
+    @staticmethod
+    def _close_adapter(adapter) -> None:
+        if adapter is None:
+            return
+        close = getattr(adapter, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                logger.debug("Error while closing old adapter", exc_info=True)
+
     def reload_from_config(self) -> None:
         config = load_config()
         self.state.config = config
 
+        old_source = self.source
+        old_battery_source = self.battery_source
         old_miners = list(self.miners)
         old_by_id = {getattr(miner.info, "id", None): miner for miner in old_miners}
 
@@ -50,6 +63,10 @@ class RuntimeServices:
             if miner_id is not None and miner_id not in {m.info.id for m in self.miners}
         ]
         self.controller = BasicController(config["control"], config.get("battery", {}))
+        if old_source is not self.source:
+            self._close_adapter(old_source)
+        if old_battery_source is not self.battery_source:
+            self._close_adapter(old_battery_source)
         self.last_error = None
         self.reload_generation += 1
 
@@ -172,7 +189,7 @@ class RuntimeServices:
             )
         return None
 
-    def get_source_gui_models(self, config: dict | None = None) -> list[dict]:
+    def get_source_gui_models(self, config: dict | None = None, *, source_debug_override: dict | None = None) -> list[dict]:
         runtime_config = self.state.config or {}
         config = config or runtime_config
         preview_mode = config is not runtime_config
@@ -182,6 +199,9 @@ class RuntimeServices:
         source_cfg = config.get("source", {}) or {}
         source_type = str(source_cfg.get("type", "simulator") or "simulator")
         source_adapter = self.source if (not preview_mode and self.source is not None) else self._preview_source_adapter(source_type, source_cfg)
+        source_debug = source_debug_override
+        if source_debug is None:
+            source_debug = self.get_source_debug_info() if (not preview_mode or source_type == runtime_config.get("source", {}).get("type")) else {}
         if source_adapter is not None:
             source_model = source_adapter.get_gui_model(
                 source_id="grid",
@@ -190,7 +210,7 @@ class RuntimeServices:
                 enabled=bool(source_cfg.get("enabled", True)),
                 config=source_cfg,
                 snapshot=(getattr(source_adapter, "last_snapshot", None) or snapshot),
-                debug_info=(self.get_source_debug_info() if not preview_mode or source_type == runtime_config.get("source", {}).get("type") else {}),
+                debug_info=source_debug,
             )
             source_model["summary"] = [
                 {"label": "Profil", "value": source_model.get("driver_label")},

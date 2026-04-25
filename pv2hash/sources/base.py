@@ -26,7 +26,14 @@ class EnergySource(ABC):
     ) -> list[dict[str, Any]]:
         return []
 
+    def get_actions(self, *, config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        return []
 
+    async def run_action(self, action: str, *, config: dict[str, Any] | None = None) -> dict[str, Any]:
+        return {"status": "error", "message": f"Unbekannte Source-Aktion: {action}"}
+
+    def close(self) -> None:
+        return None
 
     def get_header_fields(
         self,
@@ -94,6 +101,7 @@ class EnergySource(ABC):
             "config_fields": self.get_config_fields(config=config),
             "detail_groups": detail_groups,
             "capabilities": self.get_capabilities(),
+            "actions": self.get_actions(config=config),
         }
 
     def get_capabilities(self) -> dict[str, Any]:

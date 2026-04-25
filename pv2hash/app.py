@@ -1724,6 +1724,52 @@ async def api_sources_gui_preview(request: Request):
     }))
 
 
+@app.post("/api/sources/action")
+async def api_sources_action(request: Request):
+    form = await request.form()
+    source_id = str(form.get("source_id", "")).strip()
+    action_id = str(form.get("action_id", "")).strip()
+
+    if source_id != "grid" or action_id != "sma_device_search":
+        return JSONResponse(
+            content={"status": "error", "message": "Unbekannte Source-Aktion."},
+            status_code=400,
+        )
+
+    preview_config = _apply_source_config_form(deepcopy(state.config), form)
+    source_type = str(preview_config.get("source", {}).get("type", "")).strip()
+    if source_type != "sma_meter_protocol":
+        return JSONResponse(
+            content={"status": "error", "message": "Geräte-Suche ist nur für SMA Energy Meter verfügbar."},
+            status_code=400,
+        )
+
+    from pv2hash.factory import build_source
+
+    adapter = None
+    try:
+        adapter = build_source(preview_config)
+        result = await adapter.run_action(action_id, config=preview_config.get("source", {}))
+        source_debug = result.get("debug_info") if isinstance(result, dict) else None
+        if not source_debug:
+            source_debug = getattr(adapter, "debug_info", {}) or {}
+        return JSONResponse(content=jsonable_encoder({
+            "status": result.get("status", "ok") if isinstance(result, dict) else "ok",
+            "message": result.get("message", "Geräte-Suche abgeschlossen.") if isinstance(result, dict) else "Geräte-Suche abgeschlossen.",
+            "sources": services.get_source_gui_models(config=preview_config, source_debug_override=source_debug),
+        }))
+    except Exception as exc:
+        logger.exception("SMA device search failed")
+        return JSONResponse(
+            content={"status": "error", "message": f"Geräte-Suche fehlgeschlagen: {exc}"},
+            status_code=500,
+        )
+    finally:
+        close = getattr(adapter, "close", None) if adapter is not None else None
+        if callable(close):
+            close()
+
+
 @app.get("/miners")
 async def miners_page(request: Request):
     context = _miners_context(request)

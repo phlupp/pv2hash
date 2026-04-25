@@ -1,10 +1,13 @@
 import asyncio
 import socket
 import struct
+import threading
+import time
 from datetime import UTC, datetime
 
 from pv2hash.logging_ext.setup import get_logger
 from pv2hash.models.energy import EnergySnapshot
+from pv2hash.netutils import get_local_ipv4_addresses
 from pv2hash.sources.base import EnergySource
 
 
@@ -131,7 +134,15 @@ class SmaMeterProtocolSource(EnergySource):
             "last_packet_manufacturer_specific_count": 0,
         }
 
+        self._lock = threading.RLock()
+        self._stop_event = threading.Event()
         self.sock = self._create_socket()
+        self._receiver_thread = threading.Thread(
+            target=self._receiver_loop,
+            name="pv2hash-sma-receiver",
+            daemon=True,
+        )
+        self._receiver_thread.start()
 
     @classmethod
     def config_fields_from_settings(cls, *, settings: dict | None = None, debug_info: dict | None = None, defaults: dict | None = None) -> list[dict]:
@@ -149,11 +160,23 @@ class SmaMeterProtocolSource(EnergySource):
                 label += f" – {sender_ip}"
             device_options.append({"value": serial, "label": label})
 
+        interface_value = settings.get("interface_ip", defaults.get("interface_ip", "0.0.0.0"))
+        interface_options = [
+            {"value": item.get("address", ""), "label": item.get("label", item.get("address", ""))}
+            for item in get_local_ipv4_addresses()
+        ]
+        if interface_value and all(str(opt.get("value")) != str(interface_value) for opt in interface_options):
+            interface_options.append({"value": str(interface_value), "label": f"Aktuell konfiguriert — {interface_value}"})
+
+        serial_help = None
+        if not device_options:
+            serial_help = "Bitte Geräte-Suche starten."
+
         return [
             {"name": "multicast_ip", "label": "Multicast-IP", "type": "text", "value": settings.get("multicast_ip", defaults.get("multicast_ip", "239.12.255.254"))},
             {"name": "bind_port", "label": "Bind-Port", "type": "number", "value": settings.get("bind_port", defaults.get("bind_port", 9522)), "step": 1},
-            {"name": "interface_ip", "label": "Lokale Interface-IP", "type": "text", "value": settings.get("interface_ip", defaults.get("interface_ip", "0.0.0.0"))},
-            {"name": "device_serial_number", "label": "SMA-Gerät / Seriennummer", "type": "select", "value": settings.get("device_serial_number", defaults.get("device_serial_number", "")), "options": device_options, "required": True},
+            {"name": "interface_ip", "label": "Lokale Interface-IP / Automatisch", "type": "select", "value": interface_value or "0.0.0.0", "options": interface_options},
+            {"name": "device_serial_number", "label": "SMA-Gerät / Seriennummer", "type": "select", "value": settings.get("device_serial_number", defaults.get("device_serial_number", "")), "options": device_options, "required": True, "help": serial_help},
             {"name": "packet_timeout_seconds", "label": "Paket-Timeout", "type": "number", "value": settings.get("packet_timeout_seconds", defaults.get("packet_timeout_seconds", 1.0)), "unit": "s", "step": 0.1},
             {"name": "stale_after_seconds", "label": "Veraltet nach", "type": "number", "value": settings.get("stale_after_seconds", defaults.get("stale_after_seconds", 8.0)), "unit": "s", "step": 0.1},
             {"name": "offline_after_seconds", "label": "Offline nach", "type": "number", "value": settings.get("offline_after_seconds", defaults.get("offline_after_seconds", 30.0)), "unit": "s", "step": 0.1},
@@ -171,6 +194,38 @@ class SmaMeterProtocolSource(EnergySource):
             "offline_after_seconds": self.offline_after_seconds,
         }
         return self.config_fields_from_settings(settings=settings, debug_info=self.debug_info, defaults=defaults)
+
+
+    def get_actions(self, *, config: dict | None = None) -> list[dict]:
+        return [
+            {
+                "id": "sma_device_search",
+                "label": "Geräte-Suche",
+                "style": "secondary",
+                "help": "Sammelt kurz SMA-Telegramme und aktualisiert die Geräteauswahl.",
+            }
+        ]
+
+    async def discover_devices(self, *, seconds: float = 4.0) -> list[dict]:
+        deadline = time.monotonic() + max(0.5, float(seconds))
+        while time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+            if self._seen_devices:
+                # Keep listening for the full short window so multiple SMA senders can appear.
+                continue
+        with self._lock:
+            return list(self.debug_info.get("seen_devices", []) or [])
+
+    async def run_action(self, action: str, *, config: dict | None = None) -> dict:
+        if action != "sma_device_search":
+            return await super().run_action(action, config=config)
+        devices = await self.discover_devices(seconds=4.0)
+        return {
+            "status": "ok",
+            "message": f"Geräte-Suche abgeschlossen: {len(devices)} Gerät(e) gefunden.",
+            "debug_info": {"seen_devices": devices},
+        }
+
 
 
 
@@ -268,66 +323,85 @@ class SmaMeterProtocolSource(EnergySource):
         self.debug_info["last_packet_rejected_reason"] = None
 
     async def read(self) -> EnergySnapshot:
-        try:
-            packets = await asyncio.to_thread(self._recv_packet_batch)
-            self.debug_info["received_packets"] += len(packets)
+        return self._fallback_snapshot()
 
-            if len(packets) > 1:
-                self.debug_info["ignored_packets"] += len(packets) - 1
+    def _receiver_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                self._receive_once()
+            except Exception:
+                logger.exception("Unhandled error in SMA receiver loop")
+                time.sleep(0.5)
+
+    def _receive_once(self) -> None:
+        try:
+            packets = self._recv_packet_batch()
+            with self._lock:
+                self.debug_info["received_packets"] += len(packets)
+                if len(packets) > 1:
+                    self.debug_info["ignored_packets"] += len(packets) - 1
 
             for data, addr in reversed(packets):
-                self._prepare_packet_debug(data, addr)
+                with self._lock:
+                    self._prepare_packet_debug(data, addr)
                 sender_ip = addr[0]
 
                 proto_index = data.find(self.EMETER_PROTOCOL_ID)
                 if proto_index < 0:
-                    other_index = data.find(b"\x60\x65")
-                    if other_index >= 0:
-                        self.debug_info["last_protocol"] = "0x6065"
-                    else:
-                        self.debug_info["last_protocol"] = "unknown"
-                    self.debug_info["last_packet_decision"] = "ignored"
-                    self.debug_info["last_packet_rejected_reason"] = "protocol_not_0x6069"
+                    with self._lock:
+                        other_index = data.find(b"\x60\x65")
+                        self.debug_info["last_protocol"] = "0x6065" if other_index >= 0 else "unknown"
+                        self.debug_info["last_packet_decision"] = "ignored"
+                        self.debug_info["last_packet_rejected_reason"] = "protocol_not_0x6069"
                     continue
 
-                self.debug_info["last_protocol"] = "0x6069"
                 packet_meta = self._parse_packet_meta(data, proto_index=proto_index)
-                self._store_seen_device(packet_meta, sender_ip)
+                with self._lock:
+                    self.debug_info["last_protocol"] = "0x6069"
+                    self._store_seen_device(packet_meta, sender_ip)
 
                 packet_serial = self._normalize_serial_number(packet_meta["serial_number"])
                 if self.device_serial_number and packet_serial != self.device_serial_number:
-                    self.debug_info["last_packet_decision"] = "filtered"
-                    self.debug_info["last_packet_rejected_reason"] = "serial_number_mismatch"
+                    with self._lock:
+                        self.debug_info["last_packet_decision"] = "filtered"
+                        self.debug_info["last_packet_rejected_reason"] = "serial_number_mismatch"
                     continue
 
                 snapshot = self._parse_emeter_packet(data, proto_index=proto_index, packet_meta=packet_meta)
-                self.last_snapshot = snapshot
-                self.last_live_packet_at = snapshot.updated_at
-                self.debug_info["parsed_packets"] += 1
-                self.debug_info["last_error"] = None
-                self.debug_info["last_live_packet_at"] = snapshot.updated_at.isoformat()
-                self.debug_info["last_packet_decision"] = "accepted"
-                self._set_quality("live")
-
-                return snapshot
+                with self._lock:
+                    self.last_snapshot = snapshot
+                    self.last_live_packet_at = snapshot.updated_at
+                    self.debug_info["parsed_packets"] += 1
+                    self.debug_info["last_error"] = None
+                    self.debug_info["last_live_packet_at"] = snapshot.updated_at.isoformat()
+                    self.debug_info["last_packet_decision"] = "accepted"
+                    self._set_quality("live")
+                return
 
         except IncompleteSmaPacketError as exc:
-            self.debug_info["incomplete_packets"] += 1
-            self.debug_info["last_packet_decision"] = "rejected"
-            self.debug_info["last_packet_rejected_reason"] = str(exc)
-            self.debug_info["last_error"] = None
+            with self._lock:
+                self.debug_info["incomplete_packets"] += 1
+                self.debug_info["last_packet_decision"] = "rejected"
+                self.debug_info["last_packet_rejected_reason"] = str(exc)
+                self.debug_info["last_error"] = None
             logger.debug("Rejected SMA packet: %s", exc)
-        except TimeoutError:
-            self.debug_info["timeouts"] += 1
-        except socket.timeout:
-            self.debug_info["timeouts"] += 1
+        except (TimeoutError, socket.timeout):
+            with self._lock:
+                self.debug_info["timeouts"] += 1
+            self._fallback_snapshot()
         except Exception as exc:
-            self.debug_info["parse_errors"] += 1
-            self.debug_info["last_error"] = str(exc)
-            self.debug_info["last_packet_decision"] = "error"
+            with self._lock:
+                self.debug_info["parse_errors"] += 1
+                self.debug_info["last_error"] = str(exc)
+                self.debug_info["last_packet_decision"] = "error"
             logger.exception("Error while reading SMA meter protocol packet")
 
-        return self._fallback_snapshot()
+    def close(self) -> None:
+        self._stop_event.set()
+        try:
+            self.sock.close()
+        except Exception:
+            pass
 
     def _set_quality(self, quality: str) -> None:
         self.debug_info["current_quality"] = quality
@@ -338,8 +412,12 @@ class SmaMeterProtocolSource(EnergySource):
     def _fallback_snapshot(self) -> EnergySnapshot:
         now = datetime.now(UTC)
 
-        if self.last_snapshot is not None and self.last_live_packet_at is not None:
-            age = (now - self.last_live_packet_at).total_seconds()
+        with self._lock:
+            last_snapshot = self.last_snapshot
+            last_live_packet_at = self.last_live_packet_at
+
+        if last_snapshot is not None and last_live_packet_at is not None:
+            age = (now - last_live_packet_at).total_seconds()
 
             if age < self.stale_after_seconds:
                 quality = "live"
@@ -351,12 +429,12 @@ class SmaMeterProtocolSource(EnergySource):
             self._set_quality(quality)
 
             return EnergySnapshot(
-                grid_power_w=self.last_snapshot.grid_power_w,
-                pv_power_w=self.last_snapshot.pv_power_w,
-                house_power_w=self.last_snapshot.house_power_w,
-                battery_charge_power_w=self.last_snapshot.battery_charge_power_w,
-                battery_discharge_power_w=self.last_snapshot.battery_discharge_power_w,
-                battery_soc_pct=self.last_snapshot.battery_soc_pct,
+                grid_power_w=last_snapshot.grid_power_w,
+                pv_power_w=last_snapshot.pv_power_w,
+                house_power_w=last_snapshot.house_power_w,
+                battery_charge_power_w=last_snapshot.battery_charge_power_w,
+                battery_discharge_power_w=last_snapshot.battery_discharge_power_w,
+                battery_soc_pct=last_snapshot.battery_soc_pct,
                 updated_at=now,
                 source="sma_meter_protocol",
                 quality=quality,
