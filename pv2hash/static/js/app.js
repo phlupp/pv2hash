@@ -100,12 +100,27 @@
     };
   }
 
-  function syncMinerActionGuards(form) {
+  function boolFromDataset(value) {
+    return value === '1' || value === 'true' || value === true;
+  }
+
+  function syncMinerActionGuards(form, savedControlEnabled = undefined) {
     if (!form) return;
     const card = form.closest('.miner-card');
     if (!card) return;
-    const control = form.querySelector('input[name="control_enabled"]');
-    const controlEnabled = Boolean(control && control.checked);
+
+    let controlEnabled;
+    if (typeof savedControlEnabled === 'boolean') {
+      controlEnabled = savedControlEnabled;
+      card.dataset.savedControlEnabled = controlEnabled ? '1' : '0';
+    } else if (card.dataset.savedControlEnabled !== undefined) {
+      controlEnabled = boolFromDataset(card.dataset.savedControlEnabled);
+    } else {
+      const control = form.querySelector('input[name="control_enabled"]');
+      controlEnabled = Boolean(control && control.checked);
+      card.dataset.savedControlEnabled = controlEnabled ? '1' : '0';
+    }
+
     for (const button of card.querySelectorAll('[data-miner-action][data-disable-when-control="1"]')) {
       button.disabled = controlEnabled;
       if (controlEnabled) {
@@ -160,7 +175,17 @@
     try {
       const data = await postForm(`/api/miner/${encodeURIComponent(minerId)}/config`, form);
       window.showToast('success', data.message || 'Miner-Konfiguration gespeichert.');
-      syncMinerActionGuards(form);
+      if (typeof data.monitor_enabled === 'boolean') {
+        const monitor = form.querySelector('input[name="monitor_enabled"]');
+        if (monitor) monitor.checked = data.monitor_enabled;
+      }
+      if (typeof data.control_enabled === 'boolean') {
+        const control = form.querySelector('input[name="control_enabled"]');
+        if (control) control.checked = data.control_enabled;
+        syncMinerActionGuards(form, data.control_enabled);
+      } else {
+        syncMinerActionGuards(form);
+      }
     } catch (error) {
       window.showToast('error', error.message || 'Miner-Konfiguration konnte nicht gespeichert werden.');
     } finally {
@@ -195,11 +220,8 @@
       button.dataset.originalTitle = button.getAttribute('title') || '';
     }
     for (const form of document.querySelectorAll('[data-miner-config-form]')) {
+      // Action availability is based on the last saved server state, not on unsaved form edits.
       syncMinerActionGuards(form);
-      const control = form.querySelector('input[name="control_enabled"]');
-      const monitor = form.querySelector('input[name="monitor_enabled"]');
-      if (control) control.addEventListener('change', () => syncMinerActionGuards(form));
-      if (monitor) monitor.addEventListener('change', () => syncMinerActionGuards(form));
     }
   });
 })();
