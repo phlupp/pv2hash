@@ -878,6 +878,40 @@
     return wrapper;
   }
 
+
+  function setSourceCardExpanded(toggle, expanded) {
+    if (!toggle) return;
+    const card = toggle.closest('[data-source-card]');
+    const panelId = toggle.dataset.sourceCardToggle;
+    const panel = panelId ? document.getElementById(panelId) : card?.querySelector('.measurement-config-panel');
+    if (!card || !panel) return;
+
+    const nextExpanded = typeof expanded === 'boolean' ? expanded : card.dataset.sourceExpanded !== 'true';
+    card.dataset.sourceExpanded = nextExpanded ? 'true' : 'false';
+    toggle.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+    panel.hidden = !nextExpanded;
+  }
+
+  function bindPanelToggles() {
+    if (window.pv2hashSourceToggleBound) return;
+    window.pv2hashSourceToggleBound = true;
+
+    document.addEventListener('click', (event) => {
+      const toggle = event.target.closest('[data-source-card-toggle]');
+      if (!toggle) return;
+      event.preventDefault();
+      setSourceCardExpanded(toggle);
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const toggle = event.target.closest('[data-source-card-toggle]');
+      if (!toggle) return;
+      event.preventDefault();
+      setSourceCardExpanded(toggle);
+    });
+  }
+
   function createSourceCard(model, options = {}) {
     const card = document.createElement('article');
     card.className = 'card measurement-summary-card source-model-card';
