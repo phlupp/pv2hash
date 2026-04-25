@@ -10,6 +10,10 @@
         .miner-card{border:1px solid rgba(255,255,255,.08);border-radius:18px;background:rgba(17,24,39,.92);margin-bottom:1rem;overflow:hidden}
         .miner-card summary{list-style:none;cursor:pointer;padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:flex-start;gap:1rem}
         .miner-card summary::-webkit-details-marker{display:none}
+        .miner-card summary::after{content:'▸';flex:0 0 auto;margin-top:.15rem;font-size:1.05rem;opacity:.7;transition:transform .15s ease,opacity .15s ease}
+        .miner-card[open] summary::after{content:'▾';opacity:.9}
+        .miner-card summary:hover::after{opacity:1}
+        .miner-list{margin-top:1.25rem}
         .miner-card-body{padding:0 1.25rem 1.25rem}
         .miner-meta{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.35rem}
         .pill{display:inline-flex;align-items:center;padding:.2rem .55rem;border-radius:999px;font-size:.8rem;background:rgba(255,255,255,.08)}
@@ -120,7 +124,7 @@
             </div>
         </section>
 
-        <section>
+        <section class="miner-list">
             {% for miner in miners %}
             <details class="miner-card" data-miner-card data-miner-id="{{ miner.id }}" {% if open_miner_id == miner.id %}open{% endif %}>
                 <summary>
