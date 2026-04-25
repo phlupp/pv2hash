@@ -53,6 +53,7 @@ class SmaMeterProtocolSource(EnergySource):
     }
     CURRENT_INDEXES = {31, 51, 71}
     VOLTAGE_INDEXES = {32, 52, 72}
+    FREQUENCY_INDEXES = {14}
     COSPHI_INDEXES = {13}
     KNOWN_SUSY_DEVICE_NAMES = {
         270: "SMA Energy Meter",
@@ -115,6 +116,12 @@ class SmaMeterProtocolSource(EnergySource):
             "active_plus_w": None,
             "active_minus_w": None,
             "grid_power_w": None,
+            "frequency_hz": None,
+            "phase_values": {
+                "L1": {"voltage_v": None, "current_a": None, "power_w": None},
+                "L2": {"voltage_v": None, "current_a": None, "power_w": None},
+                "L3": {"voltage_v": None, "current_a": None, "power_w": None},
+            },
             "has_active_plus": False,
             "has_active_minus": False,
             "last_used_active_plus_obis": None,
@@ -240,7 +247,19 @@ class SmaMeterProtocolSource(EnergySource):
 
     def get_detail_groups(self, *, snapshot=None, debug_info: dict | None = None) -> list[dict]:
         debug_info = debug_info or self.debug_info
+        phase_values = debug_info.get("phase_values") or {}
+
         fields = [
+            {"label": "Frequenz", "value": debug_info.get("frequency_hz"), "unit": "Hz", "precision": 2},
+            {"label": "L1 Spannung", "value": (phase_values.get("L1") or {}).get("voltage_v"), "unit": "V", "precision": 1},
+            {"label": "L1 Strom", "value": (phase_values.get("L1") or {}).get("current_a"), "unit": "A", "precision": 2},
+            {"label": "L1 Leistung", "value": (phase_values.get("L1") or {}).get("power_w"), "unit": "W", "precision": 0},
+            {"label": "L2 Spannung", "value": (phase_values.get("L2") or {}).get("voltage_v"), "unit": "V", "precision": 1},
+            {"label": "L2 Strom", "value": (phase_values.get("L2") or {}).get("current_a"), "unit": "A", "precision": 2},
+            {"label": "L2 Leistung", "value": (phase_values.get("L2") or {}).get("power_w"), "unit": "W", "precision": 0},
+            {"label": "L3 Spannung", "value": (phase_values.get("L3") or {}).get("voltage_v"), "unit": "V", "precision": 1},
+            {"label": "L3 Strom", "value": (phase_values.get("L3") or {}).get("current_a"), "unit": "A", "precision": 2},
+            {"label": "L3 Leistung", "value": (phase_values.get("L3") or {}).get("power_w"), "unit": "W", "precision": 0},
             {"label": "Seriennummer", "value": debug_info.get("last_packet_serial_number")},
             {"label": "SUSy-ID", "value": debug_info.get("last_packet_susy_id")},
         ]
@@ -596,6 +615,8 @@ class SmaMeterProtocolSource(EnergySource):
             return raw_value / 10.0, self.POWER_INDEXES[index], "current_average"
         if index in self.COSPHI_INDEXES:
             return raw_value / 1000.0, "cosphi", "current_average"
+        if index in self.FREQUENCY_INDEXES:
+            return raw_value / 1000.0, "Hz", "current_average"
         if index in self.CURRENT_INDEXES:
             return raw_value / 1000.0, "A", "current_average"
         if index in self.VOLTAGE_INDEXES:
@@ -670,6 +691,14 @@ class SmaMeterProtocolSource(EnergySource):
         pos = proto_index + 12
         active_plus_w: float | None = None
         active_minus_w: float | None = None
+        frequency_hz: float | None = None
+        phase_active_plus_w: dict[str, float | None] = {"L1": None, "L2": None, "L3": None}
+        phase_active_minus_w: dict[str, float | None] = {"L1": None, "L2": None, "L3": None}
+        phase_values: dict[str, dict[str, float | None]] = {
+            "L1": {"voltage_v": None, "current_a": None, "power_w": None},
+            "L2": {"voltage_v": None, "current_a": None, "power_w": None},
+            "L3": {"voltage_v": None, "current_a": None, "power_w": None},
+        }
         entries: list[dict] = []
 
         while pos + 4 <= len(packet):
@@ -717,6 +746,23 @@ class SmaMeterProtocolSource(EnergySource):
                 active_plus_w = float(decoded_value)
             elif obis_num == 0x00020400:
                 active_minus_w = float(decoded_value)
+            elif index in self.FREQUENCY_INDEXES and decoded_unit == "Hz":
+                frequency_hz = float(decoded_value)
+            elif index in self.CURRENT_INDEXES and decoded_unit == "A":
+                phase = {31: "L1", 51: "L2", 71: "L3"}.get(index)
+                if phase:
+                    phase_values[phase]["current_a"] = float(decoded_value)
+            elif index in self.VOLTAGE_INDEXES and decoded_unit == "V":
+                phase = {32: "L1", 52: "L2", 72: "L3"}.get(index)
+                if phase:
+                    phase_values[phase]["voltage_v"] = float(decoded_value)
+            elif index in self.POWER_INDEXES and decoded_unit == "W":
+                phase = {21: "L1", 41: "L2", 61: "L3"}.get(index)
+                if phase:
+                    phase_active_plus_w[phase] = float(decoded_value)
+                phase = {22: "L1", 42: "L2", 62: "L3"}.get(index)
+                if phase:
+                    phase_active_minus_w[phase] = float(decoded_value)
 
             pos += obis_length
 
@@ -762,10 +808,17 @@ class SmaMeterProtocolSource(EnergySource):
             raise IncompleteSmaPacketError("missing_" + "_and_".join(missing))
 
         grid_power_w = active_plus_w - active_minus_w
+        for phase in ("L1", "L2", "L3"):
+            plus_w = phase_active_plus_w.get(phase)
+            minus_w = phase_active_minus_w.get(phase)
+            if plus_w is not None and minus_w is not None:
+                phase_values[phase]["power_w"] = plus_w - minus_w
 
         self.debug_info["active_plus_w"] = active_plus_w
         self.debug_info["active_minus_w"] = active_minus_w
         self.debug_info["grid_power_w"] = grid_power_w
+        self.debug_info["frequency_hz"] = frequency_hz
+        self.debug_info["phase_values"] = phase_values
 
         return EnergySnapshot(
             grid_power_w=grid_power_w,
