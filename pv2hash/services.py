@@ -203,6 +203,8 @@ class RuntimeServices:
         if source_debug is None:
             source_debug = self.get_source_debug_info() if (not preview_mode or source_type == runtime_config.get("source", {}).get("type")) else {}
         if source_adapter is not None:
+            if source_debug_override is not None and hasattr(source_adapter, "debug_info"):
+                source_adapter.debug_info = source_debug_override
             source_model = source_adapter.get_gui_model(
                 source_id="grid",
                 role=str(source_cfg.get("role", "grid")),

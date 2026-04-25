@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import socket
 import struct
 import threading
@@ -299,18 +300,25 @@ class SmaMeterProtocolSource(EnergySource):
         is slower than the telegram rate, the kernel socket buffer can contain old
         packets. Draining the buffer avoids accumulating latency over time.
         """
+        if self._stop_event.is_set():
+            return []
+
         packets = [self.sock.recvfrom(4096)]
         old_timeout = self.sock.gettimeout()
 
         try:
             self.sock.settimeout(0.0)
-            while len(packets) < 512:
+            while len(packets) < 512 and not self._stop_event.is_set():
                 try:
                     packets.append(self.sock.recvfrom(4096))
                 except (BlockingIOError, InterruptedError, socket.timeout):
                     break
         finally:
-            self.sock.settimeout(old_timeout)
+            try:
+                self.sock.settimeout(old_timeout)
+            except OSError:
+                if not self._stop_event.is_set():
+                    raise
 
         return packets
 
@@ -336,6 +344,8 @@ class SmaMeterProtocolSource(EnergySource):
     def _receive_once(self) -> None:
         try:
             packets = self._recv_packet_batch()
+            if not packets:
+                return
             with self._lock:
                 self.debug_info["received_packets"] += len(packets)
                 if len(packets) > 1:
@@ -389,6 +399,14 @@ class SmaMeterProtocolSource(EnergySource):
             with self._lock:
                 self.debug_info["timeouts"] += 1
             self._fallback_snapshot()
+        except OSError as exc:
+            if self._stop_event.is_set() or getattr(exc, "errno", None) in (errno.EBADF, errno.ENOTSOCK):
+                return
+            with self._lock:
+                self.debug_info["parse_errors"] += 1
+                self.debug_info["last_error"] = str(exc)
+                self.debug_info["last_packet_decision"] = "error"
+            logger.exception("Error while reading SMA meter protocol packet")
         except Exception as exc:
             with self._lock:
                 self.debug_info["parse_errors"] += 1
@@ -402,6 +420,9 @@ class SmaMeterProtocolSource(EnergySource):
             self.sock.close()
         except Exception:
             pass
+        thread = getattr(self, "_receiver_thread", None)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
 
     def _set_quality(self, quality: str) -> None:
         self.debug_info["current_quality"] = quality
