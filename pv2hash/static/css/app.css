@@ -1488,3 +1488,33 @@ select:focus {
         width: calc(100vw - 24px);
     }
 }
+
+/* AJAX loading states */
+button.is-loading,
+.btn.is-loading {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+button.is-loading::before,
+.btn.is-loading::before {
+    content: '';
+    width: 0.9em;
+    height: 0.9em;
+    border-radius: 999px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    flex: 0 0 auto;
+    animation: pv2hash-spin .75s linear infinite;
+}
+
+form.is-busy {
+    cursor: progress;
+}
+
+@keyframes pv2hash-spin {
+    to { transform: rotate(360deg); }
+}
