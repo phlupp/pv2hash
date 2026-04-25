@@ -1652,38 +1652,13 @@ async def save_settings(request: Request):
 
 @app.get("/sources")
 async def sources_page(request: Request):
-    from pv2hash.netutils import get_local_ipv4_addresses
-
-    source_debug = services.get_source_debug_info()
-    source_cfg = state.config["source"]
-    battery_cfg = state.config.get("battery", {})
-    sma_discovered_devices, selected_sma_device_serial = _build_sma_device_choices(source_cfg, source_debug)
-
-    context = {
-        "request": request,
-        "source": source_cfg,
-        "battery": battery_cfg,
-        "snapshot": state.snapshot,
-        "source_debug": source_debug,
-        "source_profile_label": _resolve_measurement_profile_label(source_cfg.get("type", "simulator")),
-        "battery_profile_label": _resolve_battery_profile_label(battery_cfg.get("type", "none")),
-        "source_device_label": _resolve_sma_device_label(source_debug),
-        "source_device_serial_number": source_debug.get("last_packet_serial_number") if source_debug else None,
-        "source_device_susy_id": source_debug.get("last_packet_susy_id") if source_debug else None,
-        "sma_discovered_devices": sma_discovered_devices,
-        "selected_sma_device_serial": selected_sma_device_serial,
-        "saved": request.query_params.get("saved") == "1",
-        "serial_required": request.query_params.get("serial_required") == "1",
-        "local_interface_ips": get_local_ipv4_addresses(),
-        "modbus_register_types": MODBUS_REGISTER_TYPES,
-        "modbus_value_types": MODBUS_VALUE_TYPES,
-        "modbus_endian_types": MODBUS_ENDIAN_TYPES,
-        "refresh_seconds": _safe_int(state.config.get("app", {}).get("refresh_seconds", 5), 5),
-    }
     return templates.TemplateResponse(
         request=request,
         name="sources.html",
-        context=context,
+        context={
+            "request": request,
+            "refresh_seconds": _safe_int(state.config.get("app", {}).get("refresh_seconds", 5), 5),
+        },
     )
 
 

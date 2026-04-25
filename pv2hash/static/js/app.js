@@ -663,147 +663,6 @@
 
 
 
-  function syncTypeSections(selectId, attributeName) {
-    const select = document.getElementById(selectId);
-    if (!select) return;
-
-    const update = () => {
-      const current = select.value;
-      document.querySelectorAll(`[${attributeName}]`).forEach((element) => {
-        const visibleFor = (element.getAttribute(attributeName) || '')
-          .split(',')
-          .map((item) => item.trim())
-          .filter(Boolean);
-        element.hidden = !visibleFor.includes(current);
-      });
-    };
-
-    select.addEventListener('change', update);
-    update();
-  }
-
-  function setPanelExpanded(target, expanded) {
-    if (!target) return;
-    target.hidden = !expanded;
-
-    const card = target.closest('[data-source-card]');
-    if (card) card.dataset.sourceExpanded = expanded ? 'true' : 'false';
-
-    document.querySelectorAll(`[data-toggle-target="${target.id}"]`).forEach((button) => {
-      button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-      if (button.dataset.toggleTextClosed || button.dataset.toggleTextOpen) {
-        button.textContent = expanded
-          ? (button.dataset.toggleTextOpen || 'Konfiguration verbergen')
-          : (button.dataset.toggleTextClosed || 'Konfigurieren');
-      }
-    });
-
-    const header = card?.querySelector('[data-source-card-toggle]');
-    if (header) header.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-  }
-
-  function togglePanelById(targetId) {
-    const target = document.getElementById(targetId);
-    if (!target) return;
-    setPanelExpanded(target, target.hidden);
-  }
-
-  function bindPanelToggles() {
-    document.querySelectorAll('[data-toggle-target]').forEach((button) => {
-      if (button.dataset.toggleBound === '1') return;
-      button.dataset.toggleBound = '1';
-      button.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        togglePanelById(button.getAttribute('data-toggle-target'));
-      });
-    });
-
-    document.querySelectorAll('[data-source-card-toggle]').forEach((head) => {
-      if (head.dataset.toggleBound === '1') return;
-      head.dataset.toggleBound = '1';
-      head.addEventListener('click', (event) => {
-        if (event.target.closest('a, button, input, select, textarea, label')) return;
-        togglePanelById(head.getAttribute('data-source-card-toggle'));
-      });
-      head.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        togglePanelById(head.getAttribute('data-source-card-toggle'));
-      });
-    });
-  }
-
-  function syncBatteryEnabled() {
-    const typeSelect = document.getElementById('batteryTypeSelect');
-    const enabledCheckbox = document.getElementById('batteryEnabledCheckbox');
-    if (!typeSelect || !enabledCheckbox) return;
-
-    const update = () => {
-      const noBattery = typeSelect.value === 'none';
-      if (noBattery) enabledCheckbox.checked = false;
-      enabledCheckbox.disabled = noBattery;
-    };
-
-    typeSelect.addEventListener('change', update);
-    update();
-  }
-
-  function serializeDirtyFields(container) {
-    const fields = Array.from(container.querySelectorAll('input, select, textarea'))
-      .filter((field) => field.name && !field.disabled && !['submit', 'button', 'reset', 'file'].includes(field.type));
-
-    return JSON.stringify(fields.map((field) => {
-      if (field.type === 'checkbox' || field.type === 'radio') return [field.name, field.checked];
-      return [field.name, field.value];
-    }));
-  }
-
-  function resetDirtyScope(scope) {
-    if (!scope) return;
-    scope.dataset.dirtyBaseline = serializeDirtyFields(scope);
-    scope.dataset.dirtyTouched = '0';
-    const hint = scope.querySelector('[data-dirty-indicator]');
-    if (hint) hint.hidden = true;
-    for (const button of scope.querySelectorAll('[data-dirty-submit]')) {
-      button.classList.remove('is-dirty');
-    }
-    scope.dataset.dirty = 'false';
-  }
-
-  function refreshDirtyScope(scope) {
-    if (!scope) return;
-    const touched = scope.dataset.dirtyTouched === '1';
-    const baseline = scope.dataset.dirtyBaseline || serializeDirtyFields(scope);
-    const dirty = serializeDirtyFields(scope) !== baseline;
-    const visibleDirty = touched && dirty;
-    const hint = scope.querySelector('[data-dirty-indicator]');
-    if (hint) hint.hidden = !visibleDirty;
-    for (const button of scope.querySelectorAll('[data-dirty-submit]')) {
-      button.classList.toggle('is-dirty', visibleDirty);
-    }
-    scope.dataset.dirty = visibleDirty ? 'true' : 'false';
-  }
-
-  function bindDirtyScopes() {
-    document.querySelectorAll('[data-dirty-scope]').forEach((scope) => {
-      resetDirtyScope(scope);
-
-      scope.querySelectorAll('input, select, textarea').forEach((field) => {
-        if (!field.name || ['submit', 'button', 'reset', 'file'].includes(field.type)) return;
-        const onUserChange = () => {
-          scope.dataset.dirtyTouched = '1';
-          refreshDirtyScope(scope);
-        };
-        field.addEventListener('input', onUserChange);
-        field.addEventListener('change', onUserChange);
-      });
-
-      window.requestAnimationFrame(() => resetDirtyScope(scope));
-      window.setTimeout(() => resetDirtyScope(scope), 120);
-    });
-  }
-
   function sourceModelsFromPayload(data) {
     return Array.isArray(data?.gui_models)
       ? data.gui_models
@@ -891,9 +750,6 @@
         input.appendChild(option);
       }
 
-      if (field.name === 'device_serial_number') {
-        input.dataset.smaDeviceSelect = '';
-      }
     } else if (field.type === 'checkbox') {
       input = document.createElement('input');
       input.type = 'checkbox';
@@ -910,10 +766,8 @@
       if (field.required) input.required = true;
     }
 
-    if (field.name === 'source_type') input.id = 'sourceTypeSelect';
-    if (field.name === 'battery_type') input.id = 'batteryTypeSelect';
-    if (field.name === 'battery_enabled') input.id = 'batteryEnabledCheckbox';
 
+    if (field.refresh_on_change) input.dataset.sourceRefreshConfig = '1';
     if (field.disabled) input.disabled = true;
 
     if (field.type === 'checkbox') {
@@ -932,33 +786,6 @@
     }
 
     return label;
-  }
-
-  function createSourceKvRows(items) {
-    const kv = document.createElement('div');
-    kv.className = 'kv compact-kv';
-    for (const item of items || []) {
-      const row = document.createElement('div');
-      row.className = 'kv-row';
-      const label = document.createElement('span');
-      label.textContent = item.label || '';
-      const value = document.createElement('strong');
-      value.textContent = item.value === null || item.value === undefined || item.value === '' ? '—' : String(item.value);
-      row.appendChild(label);
-      row.appendChild(value);
-      kv.appendChild(row);
-    }
-    return kv;
-  }
-
-  function findSourceDetailValue(model, labels) {
-    const wanted = new Set((labels || []).map((label) => String(label).toLowerCase()));
-    for (const group of model?.detail_groups || []) {
-      for (const field of group.fields || []) {
-        if (wanted.has(String(field.label || '').toLowerCase())) return formatSourceValue(field);
-      }
-    }
-    return null;
   }
 
   function sourceFieldKey(field, fallback = '') {
@@ -1054,7 +881,6 @@
   function createSourceCard(model, options = {}) {
     const card = document.createElement('article');
     card.className = 'card measurement-summary-card source-model-card';
-    card.dataset.dirtyScope = model.id || model.role || 'source';
     card.dataset.sourceModelId = model.id || '';
     card.dataset.sourceCard = '';
 
@@ -1117,7 +943,7 @@
     grid.className = 'form-grid';
 
     if (model.driver_field) {
-      const field = createSourceField(model.driver_field, model);
+      const field = createSourceField({ ...model.driver_field, refresh_on_change: true }, model);
       if (field) grid.appendChild(field);
     }
 
@@ -1140,7 +966,6 @@
     const submit = document.createElement('button');
     submit.className = 'btn';
     submit.type = 'submit';
-    submit.dataset.dirtySubmit = '';
     submit.textContent = 'Speichern';
 
     actionsRow.appendChild(spacer);
@@ -1166,8 +991,6 @@
     }
 
     bindPanelToggles();
-    bindDirtyScopes();
-    syncBatteryEnabled();
   }
 
   function updateSourceRuntimeViews(models) {
@@ -1338,7 +1161,7 @@
       form.addEventListener('change', (event) => {
         const target = event.target;
         if (!(target instanceof HTMLSelectElement)) return;
-        if (target.name !== 'source_type' && target.name !== 'battery_type') return;
+        if (target.dataset.sourceRefreshConfig !== '1') return;
         previewSourcesConfig(form);
       });
 
@@ -1353,9 +1176,6 @@
     const params = new URLSearchParams(window.location.search);
     if (params.get('saved') === '1') {
       window.showToast('success', 'Messungen gespeichert.');
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (params.get('serial_required') === '1') {
-      window.showToast('warning', 'Bitte ein SMA-Gerät bzw. eine Seriennummer auswählen.');
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
