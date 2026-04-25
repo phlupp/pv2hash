@@ -47,6 +47,7 @@ logger = get_logger("pv2hash.app")
 app = FastAPI(title="PV2Hash", version=APP_VERSION_FULL)
 app.mount("/static", StaticFiles(directory="pv2hash/static"), name="static")
 templates = Jinja2Templates(directory="pv2hash/templates")
+templates.env.globals["app_version_full"] = APP_VERSION_FULL
 
 state = AppState(config=initial_config)
 services = RuntimeServices(state)
@@ -1045,6 +1046,109 @@ def _build_miners_live_payload(open_ids: set[str] | None = None) -> dict:
     return {"status": "ok", "miners": miners_payload}
 
 
+
+def _build_dashboard_live_payload() -> dict:
+    snapshot = state.snapshot
+    source_debug = services.get_source_debug_info()
+    host_status = _get_host_status()
+    controller_status = _build_controller_status()
+    dashboard_miners = _build_dashboard_miner_rows()
+
+    total_miner_power = sum(m.power_w for m in state.miners) if state.miners else 0.0
+
+    config_miners = state.config.get("miners", []) if state.config else []
+    active_count = sum(1 for miner in config_miners if bool(miner.get("control_enabled", True)))
+    max_p4_power = 0.0
+    for miner in config_miners:
+        try:
+            max_p4_power += float(miner.get("profiles", {}).get("p4", {}).get("power_w", 0.0) or 0.0)
+        except Exception:
+            pass
+
+    if snapshot:
+        grid_power_w = float(snapshot.grid_power_w)
+        grid_value = f"{grid_power_w:.0f} W"
+        grid_class = "good" if grid_power_w < 0 else "warn"
+        source_label = _resolve_sma_device_label(source_debug) or snapshot.source or "—"
+        source_quality = f"Qualität: {snapshot.quality}"
+    else:
+        grid_value = "—"
+        grid_class = ""
+        source_label = _resolve_sma_device_label(source_debug) or "—"
+        source_quality = "Qualität: —"
+
+    source_serial = source_debug.get("last_packet_serial_number") if source_debug else None
+    source_susy = source_debug.get("last_packet_susy_id") if source_debug else None
+    if source_serial:
+        source_meta = f"SN: {source_serial}" + (f" · SUSy-ID: {source_susy}" if source_susy else "")
+    elif source_susy:
+        source_meta = f"SUSy-ID: {source_susy}"
+    else:
+        source_meta = ""
+
+    battery_soc = snapshot.battery_soc_pct if snapshot and snapshot.battery_soc_pct is not None else None
+    battery_charge_power = snapshot.battery_charge_power_w if snapshot and snapshot.battery_charge_power_w is not None else None
+    battery_discharge_power = snapshot.battery_discharge_power_w if snapshot and snapshot.battery_discharge_power_w is not None else None
+    battery_class = ""
+    battery_state = "Batterie inaktiv"
+    if snapshot and snapshot.battery_is_charging and battery_charge_power is not None:
+        battery_class = "good"
+        battery_state = f"Batterie wird geladen ({battery_charge_power:.0f} W)"
+    elif snapshot and snapshot.battery_is_discharging and battery_discharge_power is not None:
+        battery_class = "warn"
+        battery_state = f"Batterie wird entladen ({battery_discharge_power:.0f} W)"
+    elif snapshot and snapshot.battery_is_active:
+        battery_state = "Batterie aktiv"
+    elif battery_soc is None:
+        battery_state = "Keine Batteriedaten verfügbar"
+
+    return {
+        "status": "ok",
+        "cards": {
+            "grid": {
+                "value": grid_value,
+                "class": grid_class,
+                "hint": "negativ = Einspeisung",
+            },
+            "source": {
+                "label": source_label,
+                "meta": source_meta,
+                "quality": source_quality,
+            },
+            "miners": {
+                "power": f"{total_miner_power:.0f} W",
+                "meta": f"{active_count} Miner aktiv (max. {max_p4_power:.0f} W)",
+            },
+            "battery": {
+                "value": f"{battery_soc:.1f} %" if battery_soc is not None else "—",
+                "class": battery_class,
+                "state": battery_state,
+            },
+            "host": {
+                "cpu": f"CPU {host_status.get('cpu_percent_text', '—')}",
+                "ram": "RAM "
+                + str(host_status.get("ram_text", "—"))
+                + (
+                    f" ({host_status.get('ram_percent_text')})"
+                    if host_status.get("ram_percent_text") and host_status.get("ram_percent_text") != "—"
+                    else ""
+                ),
+            },
+            "controller": {
+                "policy_mode": state.config.get("control", {}).get("policy_mode", "—"),
+                "distribution_mode": state.config.get("control", {}).get("distribution_mode", "—"),
+                "summary": controller_status.get("summary_text", "—"),
+                "last_switch": f"Letzte Umschaltung: {controller_status.get('last_switch_at_text') or '—'}",
+                "ring_state": controller_status.get("switch_ring_state", ""),
+                "ring_progress": controller_status.get("switch_progress", 1),
+                "ring_inner": controller_status.get("switch_inner_text", "—"),
+                "ring_hint": controller_status.get("switch_hint_text", ""),
+            },
+        },
+        "miners": dashboard_miners,
+    }
+
+
 def _build_miners_view() -> list[dict]:
     runtime_map = _get_runtime_miner_map()
     details_map = _get_runtime_details_map()
@@ -1344,6 +1448,7 @@ async def dashboard(request: Request):
         "source_device_susy_id": source_debug.get("last_packet_susy_id") if source_debug else None,
         "app_version_full": APP_VERSION_FULL,
         "update_check": update_checker.snapshot(),
+        "refresh_seconds": _safe_int(state.config.get("app", {}).get("refresh_seconds", 5), 5),
     }
 
     return templates.TemplateResponse(
@@ -1909,6 +2014,11 @@ async def system_logging(request: Request):
     logger.info("Log level changed to %s", log_level)
     return RedirectResponse(url="/system", status_code=303)
 
+
+
+@app.get("/api/dashboard/status")
+async def api_dashboard_status():
+    return JSONResponse(content=jsonable_encoder(_build_dashboard_live_payload()))
 
 
 @app.get("/api/miners/status")

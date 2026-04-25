@@ -1518,3 +1518,27 @@ form.is-busy {
 @keyframes pv2hash-spin {
     to { transform: rotate(360deg); }
 }
+
+/* Dashboard live refresh / shared nav version */
+.brand-version {
+    margin-top: 5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.2;
+}
+
+.brand-version-alert {
+    color: #f2f5ff;
+}
+
+.badge-row.compact {
+    gap: 7px;
+}
+
+.badge-row.compact .badge {
+    padding: 5px 9px;
+    font-size: 12px;
+}

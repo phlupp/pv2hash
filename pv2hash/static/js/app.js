@@ -490,6 +490,173 @@
     startMinerLiveRefresh();
   }
 
+
+  function setText(selectorOrElement, value) {
+    const element = typeof selectorOrElement === 'string' ? document.querySelector(selectorOrElement) : selectorOrElement;
+    if (!element) return;
+    element.textContent = value == null || value === '' ? '—' : String(value);
+  }
+
+  function setClassOnly(element, allowedClasses, activeClass) {
+    if (!element) return;
+    for (const cls of allowedClasses) element.classList.remove(cls);
+    if (activeClass) element.classList.add(activeClass);
+  }
+
+  function setHidden(element, hidden) {
+    if (!element) return;
+    element.hidden = Boolean(hidden);
+  }
+
+  const dashboardRunIcons = {
+    play: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 6.5v11l9-5.5l-9-5.5Z"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 6h3.5v12H8zm4.5 0H16v12h-3.5z"/></svg>',
+  };
+
+  let dashboardRefreshTimer = null;
+  let dashboardRefreshRunning = false;
+  let dashboardRefreshFailureCount = 0;
+
+  function updateDashboardCards(cards) {
+    if (!cards) return;
+
+    const gridValue = document.querySelector('[data-dashboard-field="grid_value"]');
+    setText(gridValue, cards.grid?.value);
+    if (gridValue) {
+      gridValue.classList.remove('good', 'warn');
+      if (cards.grid?.class) gridValue.classList.add(cards.grid.class);
+    }
+    setText('[data-dashboard-field="grid_hint"]', cards.grid?.hint);
+
+    setText('[data-dashboard-field="source_label"]', cards.source?.label);
+    const sourceMeta = document.querySelector('[data-dashboard-field="source_meta"]');
+    setText(sourceMeta, cards.source?.meta || '');
+    setHidden(sourceMeta, !cards.source?.meta);
+    setText('[data-dashboard-field="source_quality"]', cards.source?.quality);
+
+    setText('[data-dashboard-field="miners_power"]', cards.miners?.power);
+    setText('[data-dashboard-field="miners_meta"]', cards.miners?.meta);
+
+    const batteryValue = document.querySelector('[data-dashboard-field="battery_value"]');
+    setText(batteryValue, cards.battery?.value);
+    if (batteryValue) {
+      batteryValue.classList.remove('good', 'warn');
+      if (cards.battery?.class) batteryValue.classList.add(cards.battery.class);
+    }
+    setText('[data-dashboard-field="battery_state"]', cards.battery?.state);
+
+    setText('[data-dashboard-field="host_cpu"]', cards.host?.cpu);
+    setText('[data-dashboard-field="host_ram"]', cards.host?.ram);
+
+    setText('[data-dashboard-field="policy_mode"]', cards.controller?.policy_mode);
+    setText('[data-dashboard-field="distribution_mode"]', cards.controller?.distribution_mode);
+    setText('[data-dashboard-field="controller_summary"]', cards.controller?.summary);
+    setText('[data-dashboard-field="controller_last_switch"]', cards.controller?.last_switch);
+    const ring = document.querySelector('[data-dashboard-field="controller_ring"]');
+    if (ring) {
+      ring.classList.remove('waiting', 'ready', 'disabled');
+      if (cards.controller?.ring_state) ring.classList.add(cards.controller.ring_state);
+      ring.style.setProperty('--ring-progress', cards.controller?.ring_progress ?? 1);
+    }
+    setText('[data-dashboard-field="controller_ring_inner"]', cards.controller?.ring_inner);
+    setText('[data-dashboard-field="controller_ring_hint"]', cards.controller?.ring_hint);
+  }
+
+  function updateDashboardMinerRows(miners) {
+    if (!Array.isArray(miners)) return;
+
+    for (const miner of miners) {
+      if (!miner || !miner.id) continue;
+      const row = document.querySelector(`[data-dashboard-miner-row][data-miner-id="${cssEscape(miner.id)}"]`);
+      if (!row) continue;
+
+      const controlIcon = row.querySelector('[data-dashboard-miner-field="control_icon"]');
+      if (controlIcon) {
+        controlIcon.classList.toggle('is-enabled', Boolean(miner.control_enabled));
+        controlIcon.classList.toggle('is-disabled', !miner.control_enabled);
+      }
+
+      const networkIcon = row.querySelector('[data-dashboard-miner-field="network_icon"]');
+      if (networkIcon) {
+        networkIcon.classList.toggle('is-active', Boolean(miner.reachable));
+        networkIcon.classList.toggle('is-inactive', !miner.reachable);
+      }
+
+      const runIcon = row.querySelector('[data-dashboard-miner-field="run_icon"]');
+      if (runIcon) {
+        runIcon.classList.toggle('is-active', Boolean(miner.is_running));
+        runIcon.classList.toggle('is-paused', !miner.is_running);
+        runIcon.innerHTML = miner.is_running ? dashboardRunIcons.play : dashboardRunIcons.pause;
+      }
+
+      setText(row.querySelector('[data-dashboard-miner-field="name"]'), miner.name);
+      setText(row.querySelector('[data-dashboard-miner-field="priority"]'), miner.priority);
+      setText(row.querySelector('[data-dashboard-miner-field="profile"]'), miner.profile);
+      setText(row.querySelector('[data-dashboard-miner-field="power"]'), miner.power_text);
+      setText(row.querySelector('[data-dashboard-miner-field="hashrate"]'), miner.hashrate_text);
+      setText(row.querySelector('[data-dashboard-miner-field="control_action"]'), miner.action_label);
+
+      const controlInput = row.querySelector('input[name="control_enabled"]');
+      if (controlInput) controlInput.value = miner.control_enabled ? '0' : '1';
+    }
+  }
+
+  async function refreshDashboardLiveData() {
+    const root = document.querySelector('[data-dashboard-live-root]');
+    if (!root || document.hidden || dashboardRefreshRunning) return;
+
+    dashboardRefreshRunning = true;
+    try {
+      const response = await fetch('/api/dashboard/status', { headers: { 'Accept': 'application/json' } });
+      const data = await readJsonResponse(response, 'Dashboard-Daten konnten nicht aktualisiert werden.');
+
+      if (document.hidden) return;
+
+      dashboardRefreshFailureCount = 0;
+      updateDashboardCards(data.cards || {});
+      updateDashboardMinerRows(data.miners || []);
+    } catch (error) {
+      dashboardRefreshFailureCount += 1;
+      if (dashboardRefreshFailureCount === 1 || dashboardRefreshFailureCount % 10 === 0) {
+        console.debug('PV2Hash dashboard refresh failed:', error);
+      }
+    } finally {
+      dashboardRefreshRunning = false;
+    }
+  }
+
+  function startDashboardLiveRefresh() {
+    const root = document.querySelector('[data-dashboard-live-root]');
+    if (!root || document.hidden) return;
+    stopDashboardLiveRefresh();
+    const seconds = Math.max(2, Number(root.dataset.refreshSeconds || 5));
+    dashboardRefreshTimer = window.setInterval(refreshDashboardLiveData, seconds * 1000);
+  }
+
+  function stopDashboardLiveRefresh() {
+    if (dashboardRefreshTimer) {
+      window.clearInterval(dashboardRefreshTimer);
+      dashboardRefreshTimer = null;
+    }
+  }
+
+  function setupDashboardLiveRefresh() {
+    const root = document.querySelector('[data-dashboard-live-root]');
+    if (!root) return;
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopDashboardLiveRefresh();
+      } else {
+        refreshDashboardLiveData();
+        startDashboardLiveRefresh();
+      }
+    });
+
+    refreshDashboardLiveData();
+    startDashboardLiveRefresh();
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     for (const button of document.querySelectorAll('[data-miner-action][data-disable-when-control="1"]')) {
       button.dataset.originalTitle = button.getAttribute('title') || '';
@@ -502,5 +669,6 @@
     const params = new URLSearchParams(window.location.search);
     openAndScrollToMiner(params.get('miner_id'));
     setupMinerLiveRefresh();
+    setupDashboardLiveRefresh();
   });
 })();

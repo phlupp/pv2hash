@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PV2Hash</title>
     <link rel="stylesheet" href="/static/css/app.css">
-    <meta http-equiv="refresh" content="5">
 </head>
 <body>
     {% macro inline_icon(name) -%}
@@ -29,7 +28,7 @@
         {% set nav_subtitle = instance_name %}
         {% include "partials/nav.html" %}
 
-        <main class="content">
+        <main class="content" data-dashboard-live-root data-refresh-seconds="{{ refresh_seconds }}">
             {% set ns = namespace(active_count=0, max_p4_power=0.0) %}
             {% for miner in miners %}
                 {% if miner.is_active|default(true) %}
@@ -62,85 +61,71 @@
                     <h1>Dashboard</h1>
                     <p>Live-Status der Energie- und Miner-Steuerung</p>
                 </div>
-                <div class="badge-row">
-                    <span class="badge">{{ policy_mode }}</span>
-                    <span class="badge">{{ distribution_mode }}</span>
-                    {% set update_status = update_check.status if update_check else "idle" %}
-                    {% set update_available = update_status == "update_available" %}
-                    {% if update_available %}
-                        <a class="badge badge-link badge-version badge-version-alert" href="/system" title="Update verfügbar – zur Systemseite wechseln">
-                            <span>Version {{ app_version_full }}</span>
-                            <span class="badge-update-indicator" aria-label="Update verfügbar"></span>
-                        </a>
-                    {% else %}
-                        <span class="badge badge-version">Version {{ app_version_full }}</span>
-                    {% endif %}
-                </div>
             </header>
 
             <section class="grid grid-5">
-                <article class="card stat">
+                <article class="card stat" data-dashboard-card="grid">
                     <span class="label">Netzleistung</span>
                     {% if snapshot %}
-                        <strong class="{{ 'good' if snapshot.grid_power_w < 0 else 'warn' }}">
+                        <strong data-dashboard-field="grid_value" class="{{ 'good' if snapshot.grid_power_w < 0 else 'warn' }}">
                             {{ "%.0f"|format(snapshot.grid_power_w) }} W
                         </strong>
                     {% else %}
-                        <strong>—</strong>
+                        <strong data-dashboard-field="grid_value">—</strong>
                     {% endif %}
-                    <small>negativ = Einspeisung</small>
+                    <small data-dashboard-field="grid_hint">negativ = Einspeisung</small>
                 </article>
 
-                <article class="card stat">
+                <article class="card stat" data-dashboard-card="source">
                     <span class="label">Quelle</span>
-                    <strong>{{ source_device_label or (snapshot.source if snapshot else "—") }}</strong>
-                    {% if source_device_serial_number %}
-                    <small>SN: {{ source_device_serial_number }}{% if source_device_susy_id %} · SUSy-ID: {{ source_device_susy_id }}{% endif %}</small>
-                    {% elif source_device_susy_id %}
-                    <small>SUSy-ID: {{ source_device_susy_id }}</small>
-                    {% endif %}
-                    <small>Qualität: {{ snapshot.quality if snapshot else "—" }}</small>
+                    <strong data-dashboard-field="source_label">{{ source_device_label or (snapshot.source if snapshot else "—") }}</strong>
+                    <small data-dashboard-field="source_meta"{% if not source_device_serial_number and not source_device_susy_id %} hidden{% endif %}>{% if source_device_serial_number %}SN: {{ source_device_serial_number }}{% if source_device_susy_id %} · SUSy-ID: {{ source_device_susy_id }}{% endif %}{% elif source_device_susy_id %}SUSy-ID: {{ source_device_susy_id }}{% endif %}</small>
+                    <small data-dashboard-field="source_quality">Qualität: {{ snapshot.quality if snapshot else "—" }}</small>
                 </article>
 
-                <article class="card stat">
+                <article class="card stat" data-dashboard-card="miners">
                     <span class="label">Miner gesamt</span>
-                    <strong>{{ "%.0f"|format(total_miner_power) }} W</strong>
-                    <small>{{ ns.active_count }} Miner aktiv (max. {{ "%.0f"|format(ns.max_p4_power) }} W)</small>
+                    <strong data-dashboard-field="miners_power">{{ "%.0f"|format(total_miner_power) }} W</strong>
+                    <small data-dashboard-field="miners_meta">{{ ns.active_count }} Miner aktiv (max. {{ "%.0f"|format(ns.max_p4_power) }} W)</small>
                 </article>
 
-                <article class="card stat">
+                <article class="card stat" data-dashboard-card="battery">
                     <span class="label">Batterie</span>
-                    <strong class="{{ battery_soc_class }}">
+                    <strong data-dashboard-field="battery_value" class="{{ battery_soc_class }}">
                         {% if battery_soc is not none %}
                             {{ "%.1f"|format(battery_soc) }} %
                         {% else %}
                             —
                         {% endif %}
                     </strong>
-                    <small>{{ battery_state_text }}</small>
+                    <small data-dashboard-field="battery_state">{{ battery_state_text }}</small>
                 </article>
 
-                <article class="card stat">
+                <article class="card stat" data-dashboard-card="host">
                     <span class="label">Host-System</span>
-                    <strong>CPU {{ host_status.cpu_percent_text }}</strong>
-                    <small>RAM {{ host_status.ram_text }}{% if host_status.ram_percent_text and host_status.ram_percent_text != '—' %} ({{ host_status.ram_percent_text }}){% endif %}</small>
+                    <strong data-dashboard-field="host_cpu">CPU {{ host_status.cpu_percent_text }}</strong>
+                    <small data-dashboard-field="host_ram">RAM {{ host_status.ram_text }}{% if host_status.ram_percent_text and host_status.ram_percent_text != '—' %} ({{ host_status.ram_percent_text }}){% endif %}</small>
                 </article>
             </section>
 
-            <section class="card stat top-gap">
+            <section class="card stat top-gap" data-dashboard-card="controller">
                 <div class="controller-status-layout">
                     <div class="controller-status-main">
                         <div class="card-head">
                             <h2>Regler-Status</h2>
+                            <div class="badge-row compact">
+                                <span class="badge" data-dashboard-field="policy_mode">{{ policy_mode }}</span>
+                                <span class="badge" data-dashboard-field="distribution_mode">{{ distribution_mode }}</span>
+                            </div>
                         </div>
-                        <strong>{{ controller_status.summary_text }}</strong>
-                        <small>Letzte Umschaltung: {{ controller_status.last_switch_at_text or "—" }}</small>
+                        <strong data-dashboard-field="controller_summary">{{ controller_status.summary_text }}</strong>
+                        <small data-dashboard-field="controller_last_switch">Letzte Umschaltung: {{ controller_status.last_switch_at_text or "—" }}</small>
                     </div>
                     <div class="controller-ring-panel">
-                        <div class="controller-ring {{ controller_status.switch_ring_state }}" style="--ring-progress: {{ controller_status.switch_progress }};">
-                            <span>{{ controller_status.switch_inner_text }}</span>
+                        <div data-dashboard-field="controller_ring" class="controller-ring {{ controller_status.switch_ring_state }}" style="--ring-progress: {{ controller_status.switch_progress }};">
+                            <span data-dashboard-field="controller_ring_inner">{{ controller_status.switch_inner_text }}</span>
                         </div>
-                        <small>{{ controller_status.switch_hint_text }}</small>
+                        <small data-dashboard-field="controller_ring_hint">{{ controller_status.switch_hint_text }}</small>
                     </div>
                 </div>
             </section>
@@ -166,16 +151,16 @@
                         </thead>
                         <tbody>
                             {% for miner in dashboard_miners %}
-                            <tr>
+                            <tr data-dashboard-miner-row data-miner-id="{{ miner.id }}">
                                 <td>
                                     <span class="miner-state-icons miner-state-icons-table" aria-label="Minerstatus">
-                                        <span class="status-dot {% if miner.control_enabled %}is-enabled{% else %}is-disabled{% endif %}" title="Freigabe"></span>
-                                        <span class="status-icon status-icon-network {% if miner.reachable %}is-active{% else %}is-inactive{% endif %}" title="Erreichbarkeit">{{ inline_icon('network') }}</span>
-                                        <span class="status-icon status-icon-run {% if miner.is_running %}is-active{% else %}is-paused{% endif %}" title="Laufstatus">{{ inline_icon('play') if miner.is_running else inline_icon('pause') }}</span>
+                                        <span data-dashboard-miner-field="control_icon" class="status-dot {% if miner.control_enabled %}is-enabled{% else %}is-disabled{% endif %}" title="Freigabe"></span>
+                                        <span data-dashboard-miner-field="network_icon" class="status-icon status-icon-network {% if miner.reachable %}is-active{% else %}is-inactive{% endif %}" title="Erreichbarkeit">{{ inline_icon('network') }}</span>
+                                        <span data-dashboard-miner-field="run_icon" class="status-icon status-icon-run {% if miner.is_running %}is-active{% else %}is-paused{% endif %}" title="Laufstatus">{{ inline_icon('play') if miner.is_running else inline_icon('pause') }}</span>
                                     </span>
                                 </td>
-                                <td>{{ miner.name }}</td>
-                                <td>{{ miner.priority }}</td>
+                                <td data-dashboard-miner-field="name">{{ miner.name }}</td>
+                                <td data-dashboard-miner-field="priority">{{ miner.priority }}</td>
                                 <td>
                                     {% if miner.host_gui_url %}
                                     <a href="{{ miner.host_gui_url }}" target="_blank" rel="noopener">{{ miner.host }}</a>
@@ -183,15 +168,15 @@
                                     {{ miner.host or '—' }}
                                     {% endif %}
                                 </td>
-                                <td><span class="pill">{{ miner.profile }}</span></td>
-                                <td>{{ miner.power_text }}</td>
-                                <td>{{ miner.hashrate_text }}</td>
+                                <td><span class="pill" data-dashboard-miner-field="profile">{{ miner.profile }}</span></td>
+                                <td data-dashboard-miner-field="power">{{ miner.power_text }}</td>
+                                <td data-dashboard-miner-field="hashrate">{{ miner.hashrate_text }}</td>
                                 <td>
                                     <form method="post" action="/miners/set-control-enabled" class="inline-form">
                                         <input type="hidden" name="miner_id" value="{{ miner.id }}">
                                         <input type="hidden" name="control_enabled" value="{{ '0' if miner.control_enabled else '1' }}">
                                         <input type="hidden" name="next_url" value="/">
-                                        <button class="btn btn-secondary btn-small" type="submit">{{ miner.action_label }}</button>
+                                        <button class="btn btn-secondary btn-small" type="submit" data-dashboard-miner-field="control_action">{{ miner.action_label }}</button>
                                     </form>
                                 </td>
                             </tr>
