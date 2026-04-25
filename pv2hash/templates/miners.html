@@ -220,6 +220,10 @@
                             {% endfor %}
                         </div>
 
+                        <div class="actions-row">
+                            <button class="btn btn-primary" type="submit">Speichern</button>
+                        </div>
+
                         {% if miner.device_settings_fields %}
                         <h3 class="section-title">Geräte-Einstellungen</h3>
                         <div class="miner-field-grid">
@@ -282,10 +286,6 @@
 
                         <div data-miner-details-container>
                             {% include "partials/miner_details.html" %}
-                        </div>
-
-                        <div class="actions-row">
-                            <button class="btn btn-primary" type="submit">Speichern</button>
                         </div>
                     </form>
                     {% else %}
