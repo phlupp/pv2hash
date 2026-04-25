@@ -996,34 +996,42 @@
     const groups = Array.isArray(model?.detail_groups) ? model.detail_groups.filter((group) => Array.isArray(group?.fields) && group.fields.length) : [];
     if (!groups.length) return null;
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'top-gap';
+    const wrapper = document.createElement('section');
+    wrapper.className = 'type-subcard source-details-card top-gap';
 
     const title = document.createElement('h3');
     title.className = 'section-title';
     title.textContent = 'Details';
     wrapper.appendChild(title);
 
-    for (const group of groups) {
-      const section = document.createElement('section');
-      section.className = 'details-section';
+    const body = document.createElement('div');
+    body.className = 'source-detail-groups';
 
-      const groupTitle = document.createElement('strong');
-      groupTitle.textContent = group.title || 'Details';
-      section.appendChild(groupTitle);
+    for (const group of groups) {
+      const section = document.createElement('div');
+      section.className = 'source-detail-group';
+
+      const groupTitle = String(group.title || '').trim();
+      const showGroupTitle = groupTitle && groupTitle.toLowerCase() !== 'details';
+      if (showGroupTitle) {
+        const groupTitleEl = document.createElement('h4');
+        groupTitleEl.className = 'source-detail-group-title';
+        groupTitleEl.textContent = groupTitle;
+        section.appendChild(groupTitleEl);
+      }
 
       const grid = document.createElement('div');
-      grid.className = 'details-grid';
-      grid.style.marginTop = '.75rem';
+      grid.className = 'source-details-grid';
 
       for (const field of group.fields || []) {
         const item = document.createElement('div');
-        item.className = 'details-item';
+        item.className = 'source-details-item';
         item.dataset.sourceDetailField = sourceFieldKey(field);
         const label = document.createElement('span');
-        label.className = 'details-item-label';
+        label.className = 'source-details-label';
         label.textContent = field.label || '';
-        const value = document.createElement('span');
+        const value = document.createElement('strong');
+        value.className = 'source-details-value';
         value.dataset.sourceDetailValue = '';
         value.textContent = formatSourceValue(field);
         item.appendChild(label);
@@ -1032,9 +1040,10 @@
       }
 
       section.appendChild(grid);
-      wrapper.appendChild(section);
+      body.appendChild(section);
     }
 
+    wrapper.appendChild(body);
     return wrapper;
   }
 

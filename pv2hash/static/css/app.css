@@ -1616,3 +1616,53 @@ form.is-busy {
     display: grid;
     gap: 14px;
 }
+
+.source-details-card {
+    display: grid;
+    gap: 14px;
+}
+
+.source-detail-groups {
+    display: grid;
+    gap: 14px;
+}
+
+.source-detail-group {
+    display: grid;
+    gap: 10px;
+}
+
+.source-detail-group-title {
+    margin: 0;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.source-details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+.source-details-item {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.035);
+    display: grid;
+    gap: 4px;
+}
+
+.source-details-label {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.source-details-value {
+    color: var(--text);
+    font-size: 1rem;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
