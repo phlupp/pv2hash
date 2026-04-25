@@ -1566,3 +1566,53 @@ form.is-busy {
 .brand-version .badge-update-indicator[hidden] {
     display: none;
 }
+
+/* Sources GUI model cards */
+.source-card-head {
+    cursor: pointer;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.source-card-title-block {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+
+.source-header-badges {
+    margin-top: 4px;
+}
+
+.source-header-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.source-header-badge-label {
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.source-header-badge strong {
+    color: var(--text);
+}
+
+.source-card-affordance {
+    color: var(--muted);
+    font-size: 20px;
+    line-height: 1;
+    transform: rotate(-90deg);
+    transition: transform .16s ease, color .16s ease;
+}
+
+.source-model-card[data-source-expanded="true"] .source-card-affordance {
+    transform: rotate(0deg);
+    color: var(--text);
+}
+
+.source-detail-groups {
+    display: grid;
+    gap: 14px;
+}

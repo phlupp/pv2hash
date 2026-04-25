@@ -682,15 +682,54 @@
     update();
   }
 
+  function setPanelExpanded(target, expanded) {
+    if (!target) return;
+    target.hidden = !expanded;
+
+    const card = target.closest('[data-source-card]');
+    if (card) card.dataset.sourceExpanded = expanded ? 'true' : 'false';
+
+    document.querySelectorAll(`[data-toggle-target="${target.id}"]`).forEach((button) => {
+      button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      if (button.dataset.toggleTextClosed || button.dataset.toggleTextOpen) {
+        button.textContent = expanded
+          ? (button.dataset.toggleTextOpen || 'Konfiguration verbergen')
+          : (button.dataset.toggleTextClosed || 'Konfigurieren');
+      }
+    });
+
+    const header = card?.querySelector('[data-source-card-toggle]');
+    if (header) header.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  }
+
+  function togglePanelById(targetId) {
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    setPanelExpanded(target, target.hidden);
+  }
+
   function bindPanelToggles() {
     document.querySelectorAll('[data-toggle-target]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const target = document.getElementById(button.getAttribute('data-toggle-target'));
-        if (!target) return;
+      if (button.dataset.toggleBound === '1') return;
+      button.dataset.toggleBound = '1';
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        togglePanelById(button.getAttribute('data-toggle-target'));
+      });
+    });
 
-        const willShow = target.hidden;
-        target.hidden = !willShow;
-        button.textContent = willShow ? 'Konfiguration verbergen' : 'Konfigurieren';
+    document.querySelectorAll('[data-source-card-toggle]').forEach((head) => {
+      if (head.dataset.toggleBound === '1') return;
+      head.dataset.toggleBound = '1';
+      head.addEventListener('click', (event) => {
+        if (event.target.closest('a, button, input, select, textarea, label')) return;
+        togglePanelById(head.getAttribute('data-source-card-toggle'));
+      });
+      head.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        togglePanelById(head.getAttribute('data-source-card-toggle'));
       });
     });
   }
@@ -912,6 +951,47 @@
     return kv;
   }
 
+  function findSourceDetailValue(model, labels) {
+    const wanted = new Set((labels || []).map((label) => String(label).toLowerCase()));
+    for (const group of model?.detail_groups || []) {
+      for (const field of group.fields || []) {
+        if (wanted.has(String(field.label || '').toLowerCase())) return formatSourceValue(field);
+      }
+    }
+    return null;
+  }
+
+  function createSourceBadge(label, value) {
+    const badge = document.createElement('span');
+    badge.className = 'badge source-header-badge';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'source-header-badge-label';
+    labelEl.textContent = label;
+    const valueEl = document.createElement('strong');
+    valueEl.textContent = value === null || value === undefined || value === '' ? '—' : String(value);
+    badge.appendChild(labelEl);
+    badge.appendChild(valueEl);
+    return badge;
+  }
+
+  function createSourceHeaderBadges(model) {
+    const row = document.createElement('div');
+    row.className = 'badge-row compact source-header-badges';
+
+    const status = model.status || {};
+    const age = status.age_seconds === null || status.age_seconds === undefined
+      ? '—'
+      : `${Number(status.age_seconds).toFixed(1)} s`;
+    const device = findSourceDetailValue(model, ['Gerät', 'Host']) || model.driver_label || model.driver || '—';
+    const power = findSourceDetailValue(model, ['Netzleistung', 'Ladeleistung', 'Entladeleistung']) || '—';
+
+    row.appendChild(createSourceBadge('Status', status.text || '—'));
+    row.appendChild(createSourceBadge('Alter', age));
+    row.appendChild(createSourceBadge('Gerät', device));
+    row.appendChild(createSourceBadge('Leistung', power));
+    return row;
+  }
+
   function createSourceDetails(model) {
     const groups = Array.isArray(model?.detail_groups) ? model.detail_groups : [];
     const wrapper = document.createElement('div');
@@ -936,18 +1016,27 @@
     return wrapper;
   }
 
-  function createSourceCard(model) {
+  function createSourceCard(model, options = {}) {
     const card = document.createElement('article');
-    card.className = 'card measurement-summary-card';
+    card.className = 'card measurement-summary-card source-model-card';
     card.dataset.dirtyScope = model.id || model.role || 'source';
     card.dataset.sourceModelId = model.id || '';
+    card.dataset.sourceCard = '';
 
     const panelId = `source-config-panel-${model.id || model.role || Math.random().toString(16).slice(2)}`;
+    const expanded = Boolean(options.openIds?.has(model.id || model.role || panelId));
+    card.dataset.sourceExpanded = expanded ? 'true' : 'false';
 
     const head = document.createElement('div');
-    head.className = 'card-head';
+    head.className = 'card-head source-card-head';
+    head.dataset.sourceCardToggle = panelId;
+    head.tabIndex = 0;
+    head.setAttribute('role', 'button');
+    head.setAttribute('aria-controls', panelId);
+    head.setAttribute('aria-expanded', expanded ? 'true' : 'false');
 
     const titleBlock = document.createElement('div');
+    titleBlock.className = 'source-card-title-block';
     const title = document.createElement('h2');
     title.textContent = model.title || model.role || 'Source';
     const subtitle = document.createElement('p');
@@ -955,34 +1044,24 @@
     subtitle.textContent = model.driver_label || model.driver || '';
     titleBlock.appendChild(title);
     titleBlock.appendChild(subtitle);
+    titleBlock.appendChild(createSourceHeaderBadges(model));
 
-    const actions = document.createElement('div');
-    actions.className = 'topbar-actions';
-    const toggle = document.createElement('button');
-    toggle.className = 'btn btn-small';
-    toggle.type = 'button';
-    toggle.dataset.toggleTarget = panelId;
-    toggle.textContent = 'Konfigurieren';
-    actions.appendChild(toggle);
+    const affordance = document.createElement('span');
+    affordance.className = 'source-card-affordance';
+    affordance.setAttribute('aria-hidden', 'true');
+    affordance.textContent = '▾';
 
     head.appendChild(titleBlock);
-    head.appendChild(actions);
+    head.appendChild(affordance);
     card.appendChild(head);
-
-    const status = model.status || {};
-    card.appendChild(createSourceKvRows([
-      ...(model.summary || []),
-      { label: 'Rolle', value: model.role },
-      { label: 'Alter', value: status.age_seconds === null || status.age_seconds === undefined ? '—' : `${Number(status.age_seconds).toFixed(1)} s` },
-    ]));
-
-    const details = createSourceDetails(model);
-    if (details.childElementCount) card.appendChild(details);
 
     const panel = document.createElement('div');
     panel.className = 'measurement-config-panel top-gap';
     panel.id = panelId;
-    panel.hidden = true;
+    panel.hidden = !expanded;
+
+    const details = createSourceDetails(model);
+    if (details.childElementCount) panel.appendChild(details);
 
     const basic = document.createElement('section');
     basic.className = 'card type-subcard';
@@ -990,7 +1069,7 @@
     basicHead.className = 'card-head';
     const basicTitleBlock = document.createElement('div');
     const basicTitle = document.createElement('h2');
-    basicTitle.textContent = 'Grunddaten';
+    basicTitle.textContent = 'Konfiguration';
     const basicSubtitle = document.createElement('p');
     basicSubtitle.className = 'card-subtitle';
     basicSubtitle.textContent = 'Diese Felder werden vom Source-Modell geliefert.';
@@ -1018,11 +1097,8 @@
     const actionsRow = document.createElement('div');
     actionsRow.className = 'actions top-gap split';
 
-    const dirty = document.createElement('span');
-    dirty.className = 'dirty-indicator';
-    dirty.dataset.dirtyIndicator = '';
-    dirty.hidden = true;
-    dirty.textContent = 'Ungespeicherte Änderungen';
+    const spacer = document.createElement('span');
+    spacer.setAttribute('aria-hidden', 'true');
 
     const submit = document.createElement('button');
     submit.className = 'btn';
@@ -1030,7 +1106,7 @@
     submit.dataset.dirtySubmit = '';
     submit.textContent = `${model.title || 'Source'} speichern`;
 
-    actionsRow.appendChild(dirty);
+    actionsRow.appendChild(spacer);
     actionsRow.appendChild(submit);
     panel.appendChild(actionsRow);
 
@@ -1042,9 +1118,14 @@
     const container = document.querySelector('[data-sources-model-container]');
     if (!container) return;
 
+    const openIds = new Set();
+    container.querySelectorAll('[data-source-card][data-source-expanded="true"]').forEach((card) => {
+      if (card.dataset.sourceModelId) openIds.add(card.dataset.sourceModelId);
+    });
+
     container.innerHTML = '';
     for (const model of models || []) {
-      container.appendChild(createSourceCard(model));
+      container.appendChild(createSourceCard(model, { openIds }));
     }
 
     bindPanelToggles();
