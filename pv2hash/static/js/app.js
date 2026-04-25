@@ -90,54 +90,14 @@
 
   function setButtonBusy(button, busyText) {
     if (!button) return () => {};
-
     const oldText = button.textContent;
     const oldDisabled = button.disabled;
-    const oldAriaBusy = button.getAttribute('aria-busy');
-    const oldBusy = button.dataset.busy;
-
     button.disabled = true;
-    button.dataset.busy = '1';
-    button.setAttribute('aria-busy', 'true');
-    button.classList.add('is-loading');
     button.textContent = busyText;
-
     return () => {
       button.disabled = oldDisabled;
       button.textContent = oldText;
-      button.classList.remove('is-loading');
-
-      if (oldAriaBusy === null) {
-        button.removeAttribute('aria-busy');
-      } else {
-        button.setAttribute('aria-busy', oldAriaBusy);
-      }
-
-      if (oldBusy === undefined) {
-        delete button.dataset.busy;
-      } else {
-        button.dataset.busy = oldBusy;
-      }
     };
-  }
-
-  function setFormBusy(form, busy) {
-    if (!form) return;
-    form.dataset.busy = busy ? '1' : '0';
-    form.classList.toggle('is-busy', Boolean(busy));
-
-    for (const button of form.querySelectorAll('button[type="submit"], [data-submit-button]')) {
-      if (busy) {
-        button.dataset.wasDisabled = button.disabled ? '1' : '0';
-        button.disabled = true;
-      } else if (button.dataset.wasDisabled !== '1') {
-        button.disabled = false;
-      }
-
-      if (!busy) {
-        delete button.dataset.wasDisabled;
-      }
-    }
   }
 
   function boolFromDataset(value) {
@@ -174,7 +134,6 @@
   }
 
   window.runMinerAction = async function runMinerAction(button) {
-    if (button.dataset.busy === '1') return;
     const minerId = button.dataset.minerId;
     const actionName = button.dataset.actionName;
     const confirmText = button.dataset.confirmText;
@@ -195,28 +154,24 @@
   window.submitMinerDeviceSettings = async function submitMinerDeviceSettings(button) {
     const minerId = button.dataset.minerId;
     const form = button.closest('form');
-    if (!minerId || !form || form.dataset.busy === '1') return;
+    if (!minerId || !form) return;
 
     const restore = setButtonBusy(button, 'Speichert …');
-    setFormBusy(form, true);
     try {
       const data = await postForm(`/api/miner/${encodeURIComponent(minerId)}/device-settings`, form);
       window.showToast('success', data.message || 'Geräte-Einstellung erfolgreich angewendet.');
     } catch (error) {
       window.showToast('error', error.message || 'Geräte-Einstellung fehlgeschlagen.');
     } finally {
-      setFormBusy(form, false);
       restore();
     }
   };
 
   window.submitMinerConfig = async function submitMinerConfig(form, submitter) {
-    if (!form || form.dataset.busy === '1') return;
     const minerId = form.dataset.minerId || form.querySelector('input[name="miner_id"]')?.value;
     if (!minerId) return;
 
     const restore = setButtonBusy(submitter || form.querySelector('[type="submit"]'), 'Speichert …');
-    setFormBusy(form, true);
     try {
       const data = await postForm(`/api/miner/${encodeURIComponent(minerId)}/config`, form);
       window.showToast('success', data.message || 'Miner-Konfiguration gespeichert.');
@@ -234,7 +189,6 @@
     } catch (error) {
       window.showToast('error', error.message || 'Miner-Konfiguration konnte nicht gespeichert werden.');
     } finally {
-      setFormBusy(form, false);
       restore();
     }
   };
@@ -276,9 +230,7 @@
   }
 
   window.submitMinerCreate = async function submitMinerCreate(form, submitter) {
-    if (!form || form.dataset.busy === '1') return;
     const restore = setButtonBusy(submitter || form.querySelector('[type="submit"]'), 'Legt an …');
-    setFormBusy(form, true);
     try {
       const data = await postForm('/api/miners/add', form);
       window.showToast('success', data.message || 'Miner angelegt.');
@@ -291,13 +243,11 @@
     } catch (error) {
       window.showToast('error', error.message || 'Miner konnte nicht angelegt werden.');
     } finally {
-      setFormBusy(form, false);
       restore();
     }
   };
 
   window.deleteMiner = async function deleteMiner(button) {
-    if (button.dataset.busy === '1') return;
     const minerId = button.dataset.minerId;
     if (!minerId) return;
     if (!window.confirm('Miner wirklich löschen?')) return;
