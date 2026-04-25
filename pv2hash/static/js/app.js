@@ -961,13 +961,19 @@
     return null;
   }
 
-  function createSourceBadge(label, value) {
+  function sourceFieldKey(field, fallback = '') {
+    return String(field?.name || field?.key || field?.id || field?.label || fallback || '').toLowerCase();
+  }
+
+  function createSourceBadge(label, value, field = null, index = 0) {
     const badge = document.createElement('span');
     badge.className = 'badge source-header-badge';
+    badge.dataset.sourceHeaderField = sourceFieldKey(field, index);
     const labelEl = document.createElement('span');
     labelEl.className = 'source-header-badge-label';
     labelEl.textContent = label;
     const valueEl = document.createElement('strong');
+    valueEl.dataset.sourceHeaderValue = '';
     valueEl.textContent = value === null || value === undefined || value === '' ? '—' : String(value);
     badge.appendChild(labelEl);
     badge.appendChild(valueEl);
@@ -979,9 +985,9 @@
     row.className = 'badge-row compact source-header-badges';
 
     const fields = Array.isArray(model?.header_fields) ? model.header_fields : [];
-    for (const field of fields) {
-      row.appendChild(createSourceBadge(field.label || '', formatSourceValue(field)));
-    }
+    fields.forEach((field, index) => {
+      row.appendChild(createSourceBadge(field.label || '', formatSourceValue(field), field, index));
+    });
 
     return row;
   }
@@ -1013,10 +1019,12 @@
       for (const field of group.fields || []) {
         const item = document.createElement('div');
         item.className = 'details-item';
+        item.dataset.sourceDetailField = sourceFieldKey(field);
         const label = document.createElement('span');
         label.className = 'details-item-label';
         label.textContent = field.label || '';
         const value = document.createElement('span');
+        value.dataset.sourceDetailValue = '';
         value.textContent = formatSourceValue(field);
         item.appendChild(label);
         item.appendChild(value);
@@ -1147,13 +1155,50 @@
     syncBatteryEnabled();
   }
 
+  function updateSourceRuntimeViews(models) {
+    const container = document.querySelector('[data-sources-model-container]');
+    if (!container) return false;
+
+    let updated = false;
+    for (const model of models || []) {
+      const modelId = String(model.id || model.role || '');
+      if (!modelId) continue;
+      const card = container.querySelector(`[data-source-card][data-source-model-id="${cssEscape(modelId)}"]`);
+      if (!card) continue;
+
+      const subtitle = card.querySelector('.source-card-title-block .card-subtitle');
+      if (subtitle) subtitle.textContent = model.driver_label || model.driver || '';
+
+      const headerFields = Array.isArray(model.header_fields) ? model.header_fields : [];
+      headerFields.forEach((field, index) => {
+        const key = sourceFieldKey(field, index);
+        const value = card.querySelector(`[data-source-header-field="${cssEscape(key)}"] [data-source-header-value]`);
+        if (value) value.textContent = formatSourceValue(field);
+      });
+
+      const detailGroups = Array.isArray(model.detail_groups) ? model.detail_groups : [];
+      for (const group of detailGroups) {
+        for (const field of group.fields || []) {
+          const key = sourceFieldKey(field);
+          const value = card.querySelector(`[data-source-detail-field="${cssEscape(key)}"] [data-source-detail-value]`);
+          if (value) value.textContent = formatSourceValue(field);
+        }
+      }
+      updated = true;
+    }
+    return updated;
+  }
+
   function updateSourcesGuiModels(data, options = {}) {
     const models = sourceModelsFromPayload(data);
     window.pv2hashSourcesGuiModels = models;
 
-    const form = document.querySelector('[data-sources-config-form]');
-    const hasDirtyScope = Boolean(form && form.querySelector('[data-dirty-scope][data-dirty="true"]'));
-    if (options.forceRender || !hasDirtyScope) {
+    if (options.forceRender) {
+      renderSourcesGuiModels(models);
+      return;
+    }
+
+    if (!updateSourceRuntimeViews(models)) {
       renderSourcesGuiModels(models);
     }
   }
@@ -1270,7 +1315,7 @@
       if (document.hidden) {
         stopSourcesLiveRefresh();
       } else {
-        refreshSourcesLiveData({ forceRender: true });
+        refreshSourcesLiveData();
         startSourcesLiveRefresh();
       }
     });
