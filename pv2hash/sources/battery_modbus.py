@@ -195,12 +195,11 @@ class BatteryModbusSource(EnergySource):
         discharge = getattr(snapshot, "battery_discharge_power_w", None) if snapshot is not None else debug_info.get("battery_discharge_power_w")
         return [
             {
-                "title": "Batterie",
+                "title": "Messwerte",
                 "fields": [
-                    {"label": "SOC", "value": soc, "unit": "%", "precision": 1},
+                    {"label": "SOC", "value": soc, "unit": "%", "precision": 1, "show_in_header": True},
                     {"label": "Ladeleistung", "value": charge, "unit": "W", "precision": 0, "show_in_header": True},
                     {"label": "Entladeleistung", "value": discharge, "unit": "W", "precision": 0, "show_in_header": True},
-                    {"label": "Host", "value": self.host or None},
                 ],
             }
         ]
