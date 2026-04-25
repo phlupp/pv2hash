@@ -978,17 +978,11 @@
     const row = document.createElement('div');
     row.className = 'badge-row compact source-header-badges';
 
-    const status = model.status || {};
-    const age = status.age_seconds === null || status.age_seconds === undefined
-      ? '—'
-      : `${Number(status.age_seconds).toFixed(1)} s`;
-    const device = findSourceDetailValue(model, ['Gerät', 'Host']) || model.driver_label || model.driver || '—';
-    const power = findSourceDetailValue(model, ['Netzleistung', 'Ladeleistung', 'Entladeleistung']) || '—';
+    const fields = Array.isArray(model?.header_fields) ? model.header_fields : [];
+    for (const field of fields) {
+      row.appendChild(createSourceBadge(field.label || '', formatSourceValue(field)));
+    }
 
-    row.appendChild(createSourceBadge('Status', status.text || '—'));
-    row.appendChild(createSourceBadge('Alter', age));
-    row.appendChild(createSourceBadge('Gerät', device));
-    row.appendChild(createSourceBadge('Leistung', power));
     return row;
   }
 
@@ -1104,7 +1098,7 @@
     submit.className = 'btn';
     submit.type = 'submit';
     submit.dataset.dirtySubmit = '';
-    submit.textContent = `${model.title || 'Source'} speichern`;
+    submit.textContent = 'Speichern';
 
     actionsRow.appendChild(spacer);
     actionsRow.appendChild(submit);

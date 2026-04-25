@@ -109,7 +109,7 @@ class RuntimeServices:
                 title="Netz-Messung",
                 enabled=bool(source_cfg.get("enabled", True)),
                 config=source_cfg,
-                snapshot=snapshot,
+                snapshot=getattr(self.source, "last_snapshot", None) or snapshot,
                 debug_info=self.get_source_debug_info(),
             )
             source_model["summary"] = [
@@ -139,7 +139,7 @@ class RuntimeServices:
                 title="Batterie",
                 enabled=battery_enabled,
                 config=battery_cfg,
-                snapshot=snapshot,
+                snapshot=getattr(self.battery_source, "last_snapshot", None),
                 debug_info=self.get_battery_source_debug_info(),
             )
         else:
@@ -156,6 +156,9 @@ class RuntimeServices:
                     "age_seconds": None,
                     "updated_at": None,
                 },
+                "header_fields": [
+                    {"label": "Status", "value": "Deaktiviert"},
+                ],
                 "config_fields": [],
                 "detail_groups": [],
                 "capabilities": {},

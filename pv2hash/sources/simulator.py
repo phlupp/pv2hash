@@ -75,7 +75,7 @@ class SimulatorSource(EnergySource):
             {
                 "title": "Simulation",
                 "fields": [
-                    {"label": "Netzleistung", "value": grid_power_w, "unit": "W", "precision": 0},
+                    {"label": "Netzleistung", "header_label": "Leistung", "value": grid_power_w, "unit": "W", "precision": 0, "show_in_header": True},
                     {"label": "Basiswert", "value": self._base_grid_power_w, "unit": "W", "precision": 0},
                     {"label": "simulierte Minerlast", "value": self._simulated_miner_power_w, "unit": "W", "precision": 0},
                 ],

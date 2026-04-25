@@ -198,8 +198,8 @@ class BatteryModbusSource(EnergySource):
                 "title": "Batterie",
                 "fields": [
                     {"label": "SOC", "value": soc, "unit": "%", "precision": 1},
-                    {"label": "Ladeleistung", "value": charge, "unit": "W", "precision": 0},
-                    {"label": "Entladeleistung", "value": discharge, "unit": "W", "precision": 0},
+                    {"label": "Ladeleistung", "value": charge, "unit": "W", "precision": 0, "show_in_header": True},
+                    {"label": "Entladeleistung", "value": discharge, "unit": "W", "precision": 0, "show_in_header": True},
                     {"label": "Host", "value": self.host or None},
                 ],
             }

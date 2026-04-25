@@ -163,8 +163,8 @@ class SmaMeterProtocolSource(EnergySource):
             {
                 "title": "Gesamt",
                 "fields": [
-                    {"label": "Netzleistung", "value": grid_power_w, "unit": "W", "precision": 0},
-                    {"label": "Gerät", "value": debug_info.get("last_packet_device_name")},
+                    {"label": "Netzleistung", "header_label": "Leistung", "value": grid_power_w, "unit": "W", "precision": 0, "show_in_header": True},
+                    {"label": "Gerät", "value": debug_info.get("last_packet_device_name"), "show_in_header": True},
                     {"label": "Seriennummer", "value": debug_info.get("last_packet_serial_number")},
                     {"label": "SUSy-ID", "value": debug_info.get("last_packet_susy_id")},
                 ],

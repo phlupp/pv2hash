@@ -26,6 +26,33 @@ class EnergySource(ABC):
     ) -> list[dict[str, Any]]:
         return []
 
+
+
+    def get_header_fields(
+        self,
+        *,
+        snapshot: EnergySnapshot | None = None,
+        debug_info: dict[str, Any] | None = None,
+        status: dict[str, Any] | None = None,
+        detail_groups: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        fields: list[dict[str, Any]] = []
+        status = status or {}
+        fields.append({"label": "Status", "value": status.get("text") or "—"})
+        age_seconds = status.get("age_seconds")
+        fields.append({"label": "Alter", "value": age_seconds, "unit": "s", "precision": 1})
+
+        for group in detail_groups or []:
+            for field in group.get("fields", []) or []:
+                if not field.get("show_in_header"):
+                    continue
+                header_field = dict(field)
+                if header_field.get("header_label"):
+                    header_field["label"] = header_field["header_label"]
+                fields.append(header_field)
+
+        return fields
+
     def get_gui_model(
         self,
         *,
@@ -51,6 +78,14 @@ class EnergySource(ABC):
             except Exception:
                 age_seconds = None
 
+        status = {
+            "state": quality,
+            "text": self._format_quality_text(quality),
+            "age_seconds": age_seconds,
+            "updated_at": updated_at.isoformat() if updated_at is not None else None,
+        }
+        detail_groups = self.get_detail_groups(snapshot=snapshot, debug_info=debug_info)
+
         return {
             "id": source_id,
             "role": role,
@@ -58,14 +93,15 @@ class EnergySource(ABC):
             "enabled": bool(enabled),
             "driver": source_type,
             "driver_label": source_name,
-            "status": {
-                "state": quality,
-                "text": self._format_quality_text(quality),
-                "age_seconds": age_seconds,
-                "updated_at": updated_at.isoformat() if updated_at is not None else None,
-            },
+            "status": status,
+            "header_fields": self.get_header_fields(
+                snapshot=snapshot,
+                debug_info=debug_info,
+                status=status,
+                detail_groups=detail_groups,
+            ),
             "config_fields": self.get_config_fields(config=config),
-            "detail_groups": self.get_detail_groups(snapshot=snapshot, debug_info=debug_info),
+            "detail_groups": detail_groups,
             "capabilities": self.get_capabilities(),
         }
 
