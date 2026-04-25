@@ -668,20 +668,17 @@
 
     const updateAvailable = Boolean(data.update_available || data.status === 'update_available');
     const versionFull = data.version_full || data.local_version_full || '';
-    const releaseLabel = data.release_version_full || data.release_tag || '';
     const text = link.querySelector('[data-versionstatus-text]');
     const indicator = link.querySelector('[data-versionstatus-indicator]');
+    const updateLabel = link.querySelector('[data-versionstatus-update-label]');
 
     if (text) {
-      if (data.label) {
-        text.textContent = data.label;
-      } else if (updateAvailable && releaseLabel) {
-        text.textContent = `Version ${versionFull} · Update verfügbar: ${releaseLabel}`;
-      } else if (updateAvailable) {
-        text.textContent = `Version ${versionFull} · Update verfügbar`;
-      } else {
-        text.textContent = `Version ${versionFull}`;
-      }
+      text.textContent = versionFull ? `Version ${versionFull}` : 'Version unbekannt';
+    }
+
+    if (updateLabel) {
+      updateLabel.textContent = 'Update verfügbar';
+      updateLabel.hidden = !updateAvailable;
     }
 
     link.classList.toggle('brand-version-alert', updateAvailable);

@@ -13,8 +13,11 @@
                 data-versionstatus
                 data-versionstatus-state="{{ nav_update_status }}"
             >
-                <span data-versionstatus-text>Version {{ app_version_full }}{% if nav_update_status == "update_available" %} · Update verfügbar{% endif %}</span>
-                <span class="badge-update-indicator" data-versionstatus-indicator aria-label="Update verfügbar"{% if nav_update_status != "update_available" %} hidden{% endif %}></span>
+                <span class="brand-version-main">
+                    <span data-versionstatus-text>Version {{ app_version_full }}</span>
+                    <span class="badge-update-indicator" data-versionstatus-indicator aria-label="Update verfügbar"{% if nav_update_status != "update_available" %} hidden{% endif %}></span>
+                </span>
+                <span class="brand-version-update" data-versionstatus-update-label{% if nav_update_status != "update_available" %} hidden{% endif %}>Update verfügbar</span>
             </a>
             {% endif %}
         </div>

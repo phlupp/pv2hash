@@ -1523,17 +1523,32 @@ form.is-busy {
 .brand-version {
     margin-top: 5px;
     display: inline-flex;
-    align-items: center;
-    gap: 7px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     color: var(--muted);
     font-size: 11px;
     line-height: 1.2;
 }
 
-.brand-version-alert {
-    color: #f2f5ff;
+.brand-version-main {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
 }
 
+.brand-version-alert {
+    color: var(--muted);
+}
+
+.brand-version-update {
+    color: #ffb15c;
+    font-weight: 700;
+}
+
+.brand-version-update[hidden] {
+    display: none;
+}
 .badge-row.compact {
     gap: 7px;
 }
