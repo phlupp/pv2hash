@@ -261,7 +261,7 @@
 
   function openAndScrollToMiner(minerId) {
     if (!minerId) return;
-    const safeMinerId = window.CSS && window.CSS.escape ? window.CSS.escape(String(minerId)) : String(minerId).replace(/"/g, '\"');
+    const safeMinerId = window.CSS && window.CSS.escape ? window.CSS.escape(String(minerId)) : String(minerId).replace(/"/g, '"');
     const card = document.querySelector(`[data-miner-card][data-miner-id="${safeMinerId}"]`);
     if (!card) return;
 
@@ -366,7 +366,7 @@
 
   function cssEscape(value) {
     if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(String(value));
-    return String(value).replace(/"/g, '\\"');
+    return String(value).replace(/"/g, '\"');
   }
 
   function setPillState(element, text, stateClass) {
@@ -695,6 +695,12 @@
     labelElement.appendChild(marker);
   }
 
+  function guiFieldLabel(field, fallback = "") {
+    const label = String(field?.label || field?.title || field?.name || fallback || "");
+    const unit = field?.unit !== null && field?.unit !== undefined ? String(field.unit).trim() : "";
+    return unit ? `${label} (${unit})` : label;
+  }
+
   function formatSourceValue(field) {
     const value = field?.value;
     if (value === null || value === undefined || value === '') return '—';
@@ -714,7 +720,7 @@
       const header = document.createElement('div');
       header.className = 'card-head';
       const title = document.createElement('h3');
-      title.textContent = field.title || field.label || 'Einstellungen';
+      title.textContent = guiFieldLabel(field, 'Einstellungen');
       header.appendChild(title);
       section.appendChild(header);
 
@@ -749,7 +755,7 @@
 
     const caption = document.createElement('span');
     caption.className = 'field-label';
-    caption.textContent = field.label || field.name;
+    caption.textContent = guiFieldLabel(field, field.name);
     appendRequiredMarker(caption, field);
 
     let input;
@@ -805,10 +811,10 @@
       label.appendChild(input);
     }
 
-    if (field.help || field.unit) {
+    if (field.help) {
       const help = document.createElement('small');
       help.className = 'help';
-      help.textContent = field.help || field.unit || '';
+      help.textContent = field.help;
       label.appendChild(help);
     }
 

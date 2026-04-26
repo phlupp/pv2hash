@@ -153,7 +153,7 @@ class BatteryModbusSource(EnergySource):
     def get_config_fields(self, *, config: dict | None = None) -> list[dict]:
         settings = (config or {}).get("settings", {}) or {}
 
-        def modbus_fields(title: str, prefix: str, value_cfg: object, *, required: bool = True) -> dict:
+        def modbus_fields(title: str, prefix: str, value_cfg: object, *, required: bool = True, unit: str | None = None) -> dict:
             cfg = settings.get(prefix.replace("battery_", ""), None)
             if prefix == "battery_soc":
                 cfg = settings.get("soc", cfg)
@@ -181,6 +181,7 @@ class BatteryModbusSource(EnergySource):
             return {
                 "type": "fieldset",
                 "title": title,
+                "unit": unit,
                 "layout": {"width": "full"},
                 "fields": [
                     {"name": f"{prefix}_address", "label": "Adresse", "type": "number", "value": cfg.get("address", getattr(value_cfg, "address", "")), "step": 1, "required": required, "layout": {"width": "quarter"}},
@@ -242,16 +243,16 @@ class BatteryModbusSource(EnergySource):
             {"name": "battery_unit_id", "label": "Unit-ID", "type": "number", "value": settings.get("unit_id", self.unit_id), "step": 1, "required": True, "layout": {"width": "quarter"}},
             {"name": "battery_poll_interval_ms", "label": "Poll-Intervall", "type": "number", "value": settings.get("poll_interval_ms", self.poll_interval_ms), "unit": "ms", "step": 100, "required": True, "layout": {"width": "half"}},
             {"name": "battery_request_timeout_seconds", "label": "Request-Timeout", "type": "number", "value": settings.get("request_timeout_seconds", self.request_timeout_seconds), "unit": "s", "step": 0.1, "required": True, "layout": {"width": "half"}},
-            modbus_fields("SOC", "battery_soc", self.soc_cfg),
-            modbus_fields("Ladeleistung", "battery_charge_power", self.charge_power_cfg),
-            modbus_fields("Entladeleistung", "battery_discharge_power", self.discharge_power_cfg),
-            modbus_fields("Spannung (V)", "battery_voltage", self.voltage_cfg, required=False),
-            modbus_fields("Strom (A)", "battery_current", self.current_cfg, required=False),
-            modbus_fields("SOH", "battery_soh", self.soh_cfg, required=False),
-            modbus_fields("Temperatur (°C)", "battery_temperature", self.temperature_cfg, required=False),
-            modbus_fields("Nennkapazität (kWh)", "battery_capacity", self.capacity_cfg, required=False),
-            modbus_fields("Max. Ladestrom (A)", "battery_max_charge_current", self.max_charge_current_cfg, required=False),
-            modbus_fields("Max. Entladestrom (A)", "battery_max_discharge_current", self.max_discharge_current_cfg, required=False),
+            modbus_fields("SOC", "battery_soc", self.soc_cfg, unit="%"),
+            modbus_fields("Ladeleistung", "battery_charge_power", self.charge_power_cfg, unit="W"),
+            modbus_fields("Entladeleistung", "battery_discharge_power", self.discharge_power_cfg, unit="W"),
+            modbus_fields("Spannung", "battery_voltage", self.voltage_cfg, required=False, unit="V"),
+            modbus_fields("Strom", "battery_current", self.current_cfg, required=False, unit="A"),
+            modbus_fields("SOH", "battery_soh", self.soh_cfg, required=False, unit="%"),
+            modbus_fields("Temperatur", "battery_temperature", self.temperature_cfg, required=False, unit="°C"),
+            modbus_fields("Nennkapazität", "battery_capacity", self.capacity_cfg, required=False, unit="kWh"),
+            modbus_fields("Max. Ladestrom", "battery_max_charge_current", self.max_charge_current_cfg, required=False, unit="A"),
+            modbus_fields("Max. Entladestrom", "battery_max_discharge_current", self.max_discharge_current_cfg, required=False, unit="A"),
         ]
 
 
