@@ -100,6 +100,7 @@ def _core_identity_schema() -> list[DriverField]:
             default="Miner",
             create_phase="basic",
             placeholder="Miner",
+            layout={"width": "half"},
         ),
     ]
 
@@ -125,16 +126,16 @@ def _core_control_schema(driver: str | None = None) -> list[DriverField]:
         DriverField(name="control_enabled", label="In Regelung einbeziehen", type="checkbox", default=True, help="Der PV-Regler darf diesen Miner steuern. Erfordert Verbindung.", layout={"width": "half"}),
         DriverField(name="priority", label="Priorität", type="number", default=100, placeholder="100", layout={"width": "quarter"}),
         DriverField(name="min_regulated_profile", label="Min. Regelprofil", type="select", default="off", choices=min_profile_choices, layout={"width": "quarter"}),
-        DriverField(name="profiles.p1.power_w", label="Profil p1 (W)", type="number", default=900, read_only=fixed_power_profiles, layout={"width": "quarter"}),
-        DriverField(name="profiles.p2.power_w", label="Profil p2 (W)", type="number", default=1800, read_only=fixed_power_profiles, layout={"width": "quarter"}),
-        DriverField(name="profiles.p3.power_w", label="Profil p3 (W)", type="number", default=3000, read_only=fixed_power_profiles, layout={"width": "quarter"}),
-        DriverField(name="profiles.p4.power_w", label="Profil p4 (W)", type="number", default=4200, read_only=fixed_power_profiles, layout={"width": "quarter"}),
-        DriverField(name="use_battery_when_charging", label="Beim Laden Batterie nutzen", type="checkbox", default=False),
-        DriverField(name="battery_charge_soc_min", label="Mindest-SOC Laden (%)", type="number", default=95),
-        DriverField(name="battery_charge_profile", label="Profil bei Laden", type="select", default="p1", choices=battery_choices),
-        DriverField(name="use_battery_when_discharging", label="Beim Entladen Batterie nutzen", type="checkbox", default=False),
-        DriverField(name="battery_discharge_soc_min", label="Mindest-SOC Entladen (%)", type="number", default=80),
-        DriverField(name="battery_discharge_profile", label="Profil bei Entladen", type="select", default="p1", choices=battery_choices),
+        DriverField(name="profiles.p1.power_w", label="Profil p1", type="number", unit="W", default=900, read_only=fixed_power_profiles, layout={"width": "quarter"}),
+        DriverField(name="profiles.p2.power_w", label="Profil p2", type="number", unit="W", default=1800, read_only=fixed_power_profiles, layout={"width": "quarter"}),
+        DriverField(name="profiles.p3.power_w", label="Profil p3", type="number", unit="W", default=3000, read_only=fixed_power_profiles, layout={"width": "quarter"}),
+        DriverField(name="profiles.p4.power_w", label="Profil p4", type="number", unit="W", default=4200, read_only=fixed_power_profiles, layout={"width": "quarter"}),
+        DriverField(name="use_battery_when_charging", label="Beim Laden Batterie nutzen", type="checkbox", default=False, layout={"width": "half"}),
+        DriverField(name="battery_charge_soc_min", label="Mindest-SOC Laden", type="number", unit="%", default=95, layout={"width": "quarter"}),
+        DriverField(name="battery_charge_profile", label="Profil bei Laden", type="select", default="p1", choices=battery_choices, layout={"width": "quarter"}),
+        DriverField(name="use_battery_when_discharging", label="Beim Entladen Batterie nutzen", type="checkbox", default=False, layout={"width": "half"}),
+        DriverField(name="battery_discharge_soc_min", label="Mindest-SOC Entladen", type="number", unit="%", default=80, layout={"width": "quarter"}),
+        DriverField(name="battery_discharge_profile", label="Profil bei Entladen", type="select", default="p1", choices=battery_choices, layout={"width": "quarter"}),
     ]
 
 

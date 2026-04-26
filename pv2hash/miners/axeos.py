@@ -25,9 +25,9 @@ class AxeOsMiner(MinerAdapter):
     @classmethod
     def get_config_schema(cls) -> list[DriverField]:
         return [
-            DriverField(name="host", label="Host / IP", type="text", required=True, preset="192.168.x.x", default="", placeholder="192.168.x.x", help="IP-Adresse oder Hostname des axeOS / ESP-Miner Geräts.", create_phase="basic"),
-            DriverField(name="settings.port", label="HTTP-Port", type="number", required=True, preset=80, default=80, placeholder="80", help="HTTP-Port der axeOS API.", create_phase="basic"),
-            DriverField(name="settings.timeout_s", label="Timeout (s)", type="number", preset=3, default=3, min=1, max=30, step=1, help="HTTP-Timeout für API-Requests.", advanced=True),
+            DriverField(name="host", label="Host / IP", type="text", required=True, preset="192.168.x.x", default="", placeholder="192.168.x.x", help="IP-Adresse oder Hostname des axeOS / ESP-Miner Geräts.", create_phase="basic", layout={"width": "half"}),
+            DriverField(name="settings.port", label="HTTP-Port", type="number", required=True, preset=80, default=80, placeholder="80", help="HTTP-Port der axeOS API.", create_phase="basic", layout={"width": "quarter"}),
+            DriverField(name="settings.timeout_s", label="Timeout", type="number", unit="s", preset=3, default=3, min=1, max=30, step=1, help="HTTP-Timeout für API-Requests.", advanced=True, layout={"width": "quarter"}),
         ]
 
     @classmethod

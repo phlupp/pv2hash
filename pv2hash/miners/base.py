@@ -24,6 +24,7 @@ class DriverField:
     default: Any = None
     placeholder: str = ""
     help: str = ""
+    unit: str = ""
     min: Any = None
     max: Any = None
     step: Any = None

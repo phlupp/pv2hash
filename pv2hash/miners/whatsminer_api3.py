@@ -32,6 +32,7 @@ class WhatsminerApi3Miner(MinerAdapter):
                 placeholder="192.168.x.x",
                 help="IP-Adresse oder Hostname des WhatsMiner API 3 Geräts.",
                 create_phase="basic",
+                layout={"width": "half"},
             ),
             DriverField(
                 name="settings.port",
@@ -43,6 +44,7 @@ class WhatsminerApi3Miner(MinerAdapter):
                 placeholder="4433",
                 help="TCP-Port der WhatsMiner API 3.",
                 create_phase="basic",
+                layout={"width": "quarter"},
             ),
             DriverField(
                 name="settings.account",
@@ -54,6 +56,7 @@ class WhatsminerApi3Miner(MinerAdapter):
                 placeholder="super",
                 help="WhatsMiner API 3 Operator-Account (z. B. super).",
                 create_phase="basic",
+                layout={"width": "half"},
             ),
             DriverField(
                 name="settings.password",
@@ -64,18 +67,22 @@ class WhatsminerApi3Miner(MinerAdapter):
                 placeholder="Passwort",
                 help="Passwort des gewählten API-3-Accounts.",
                 create_phase="basic",
+                layout={"width": "half"},
             ),
             DriverField(
                 name="settings.timeout_s",
-                label="Timeout (s)",
+                label="Timeout",
                 type="number",
+                unit="s",
                 preset=5,
                 default=5,
                 placeholder="5",
                 help="Socket-Timeout für API 3 Requests.",
                 advanced=True,
+                layout={"width": "quarter"},
             ),
         ]
+
 
 
     @classmethod
@@ -87,16 +94,19 @@ class WhatsminerApi3Miner(MinerAdapter):
                 type="checkbox",
                 default=False,
                 help="Wenn aktiviert, kühlt der Miner nach dem Stoppen aktiv nach. Für PV2Hash meist deaktiviert.",
+                layout={"width": "half"},
             ),
             DriverField(
                 name="device_settings.power_limit_w",
-                label="Power Limit (W)",
+                label="Power Limit",
+                unit="W",
                 type="number",
                 default=None,
                 min=0,
                 max=99999,
                 step=1,
-                help="Maximale Leistungsaufnahme in Watt. Leer lassen, wenn kein Power-Limit gesetzt werden soll. Der Miner startet zur Übernahme neu.",
+                help="Leer lassen, wenn kein Power-Limit gesetzt werden soll. Der Miner startet zur Übernahme neu.",
+                layout={"width": "quarter"},
             ),
         ]
 

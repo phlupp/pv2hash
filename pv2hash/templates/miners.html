@@ -6,7 +6,6 @@
     <title>PV2Hash – Miner</title>
     <link rel="stylesheet" href="/static/css/app.css">
     <style>
-        .miner-create-grid,.miner-field-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem}
         .miner-card{border:1px solid rgba(255,255,255,.08);border-radius:18px;background:rgba(17,24,39,.92);margin-bottom:1rem;overflow:hidden}
         .miner-card summary{list-style:none;cursor:pointer;padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:flex-start;gap:1rem}
         .miner-card summary::-webkit-details-marker{display:none}
@@ -63,16 +62,16 @@
                     {% for field in core_identity_basic_fields %}
                     <div class="field gui-field gui-field-{{ field.layout.width|default('full') }} {% if field.type == 'checkbox' %}checkbox-field{% endif %}">
                         {% if field.type == 'checkbox' %}
-                        <label><input type="checkbox" name="{{ field.name }}" {% if field.value %}checked{% endif %} {% if field.read_only %}disabled{% endif %}> {{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
+                        <label><input type="checkbox" name="{{ field.name }}" {% if field.value %}checked{% endif %} {% if field.read_only %}disabled{% endif %}> {{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
                         {% elif field.type == 'select' %}
-                        <label for="create-core-{{ field.id }}">{{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
+                        <label for="create-core-{{ field.id }}">{{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
                         <select id="create-core-{{ field.id }}" name="{{ field.name }}">
                             {% for choice in field.choices %}
                             <option value="{{ choice.value }}" {% if choice.value == field.value %}selected{% endif %}>{{ choice.label }}</option>
                             {% endfor %}
                         </select>
                         {% else %}
-                        <label for="create-core-{{ field.id }}">{{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
+                        <label for="create-core-{{ field.id }}">{{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
                         <input id="create-core-{{ field.id }}" type="{{ 'password' if field.type == 'password' else ('number' if field.type == 'number' else 'text') }}" name="{{ field.name }}" value="{{ field.value if field.value is not none else '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %} {% if field.required %}required{% endif %}>
                         {% endif %}
                         {% if field.help %}<small class="field-help">{{ field.help }}</small>{% endif %}
@@ -96,9 +95,9 @@
                         {% for field in driver.basic_fields %}
                         <div class="field gui-field gui-field-{{ field.layout.width|default('full') }} {% if field.type == 'checkbox' %}checkbox-field{% endif %}">
                             {% if field.type == 'checkbox' %}
-                            <label><input type="checkbox" name="{{ field.name }}" {% if field.value %}checked{% endif %} {% if field.read_only %}disabled{% endif %}> {{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
+                            <label><input type="checkbox" name="{{ field.name }}" {% if field.value %}checked{% endif %} {% if field.read_only %}disabled{% endif %}> {{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
                             {% else %}
-                            <label for="create-{{ driver.key }}-{{ field.id }}">{{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
+                            <label for="create-{{ driver.key }}-{{ field.id }}">{{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
                             {% if field.type == 'select' %}
                             <select id="create-{{ driver.key }}-{{ field.id }}" name="{{ field.name }}">
                                 {% for choice in field.choices %}
@@ -152,16 +151,16 @@
                             {% for field in miner.identity_fields %}
                             <div class="field gui-field gui-field-{{ field.layout.width|default('full') }} {% if field.type == 'checkbox' %}checkbox-field{% endif %}">
                                 {% if field.type == 'checkbox' %}
-                                <label><input type="checkbox" name="{{ field.name }}" {% if field.value %}checked{% endif %} {% if field.read_only %}disabled{% endif %}> {{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
+                                <label><input type="checkbox" name="{{ field.name }}" {% if field.value %}checked{% endif %} {% if field.read_only %}disabled{% endif %}> {{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
                                 {% elif field.type == 'select' %}
-                                <label for="miner-{{ miner.id }}-{{ field.id }}">{{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
+                                <label for="miner-{{ miner.id }}-{{ field.id }}">{{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
                                 <select id="miner-{{ miner.id }}-{{ field.id }}" name="{{ field.name }}" {% if field.read_only %}disabled{% endif %}>
                                     {% for choice in field.choices %}
                                     <option value="{{ choice.value }}" {% if choice.value == field.value %}selected{% endif %}>{{ choice.label }}</option>
                                     {% endfor %}
                                 </select>
                                 {% else %}
-                                <label for="miner-{{ miner.id }}-{{ field.id }}">{{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
+                                <label for="miner-{{ miner.id }}-{{ field.id }}">{{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
                                 <input id="miner-{{ miner.id }}-{{ field.id }}" type="{{ 'number' if field.type == 'number' else 'text' }}" name="{{ field.name }}" value="{{ field.value if field.value is not none else '' }}" {% if field.read_only %}disabled{% endif %}>
                                 {% endif %}
                                 {% if field.help %}<small class="field-help">{{ field.help }}</small>{% endif %}
@@ -175,16 +174,16 @@
                             {% for field in miner.control_fields %}
                             <div class="field gui-field gui-field-{{ field.layout.width|default('full') }} {% if field.type == 'checkbox' %}checkbox-field{% endif %}">
                                 {% if field.type == 'checkbox' %}
-                                <label><input type="checkbox" name="{{ field.name }}" {% if field.value %}checked{% endif %} {% if field.read_only %}disabled{% endif %}> {{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
+                                <label><input type="checkbox" name="{{ field.name }}" {% if field.value %}checked{% endif %} {% if field.read_only %}disabled{% endif %}> {{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
                                 {% elif field.type == 'select' %}
-                                <label for="miner-{{ miner.id }}-{{ field.id }}">{{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
+                                <label for="miner-{{ miner.id }}-{{ field.id }}">{{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
                                 <select id="miner-{{ miner.id }}-{{ field.id }}" name="{{ field.name }}" {% if field.read_only %}disabled{% endif %}>
                                     {% for choice in field.choices %}
                                     <option value="{{ choice.value }}" {% if choice.value == field.value %}selected{% endif %}>{{ choice.label }}</option>
                                     {% endfor %}
                                 </select>
                                 {% else %}
-                                <label for="miner-{{ miner.id }}-{{ field.id }}">{{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
+                                <label for="miner-{{ miner.id }}-{{ field.id }}">{{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</label>
                                 <input id="miner-{{ miner.id }}-{{ field.id }}" type="{{ 'number' if field.type == 'number' else 'text' }}" name="{{ field.name }}" value="{{ field.value if field.value is not none else '' }}" {% if field.read_only %}disabled{% endif %}>
                                 {% endif %}
                                 {% if field.help %}<small class="field-help">{{ field.help }}</small>{% endif %}
@@ -196,7 +195,7 @@
                         <div class="miner-field-grid">
                             {% for field in miner.driver_fields %}
                             <label class="field-card gui-field gui-field-{{ field.layout.width|default('full') }} {% if field.required %}is-required{% endif %}">
-                                <span class="field-label">{{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</span>
+                                <span class="field-label">{{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</span>
                                 {% if field.type == "checkbox" %}
                                 <input type="checkbox" name="{{ field.name }}" value="1" {% if field.value %}checked{% endif %}>
                                 {% elif field.type == "password" %}
@@ -229,7 +228,7 @@
                         <div class="miner-field-grid">
                             {% for field in miner.device_settings_fields %}
                             <label class="field-card gui-field gui-field-{{ field.layout.width|default('full') }} {% if field.required %}is-required{% endif %}">
-                                <span class="field-label">{{ field.label }}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</span>
+                                <span class="field-label">{{ field.label }}{% if field.unit %} ({{ field.unit }}){% endif %}{% if field.required %} <span class="required-marker" aria-hidden="true">*</span>{% endif %}</span>
                                 {% if field.value_known is sameas true %}<input type="hidden" name="device__known__{{ field.name }}" value="1">{% endif %}
                                 {% if field.type == "checkbox" %}
                                 <input type="checkbox" name="device__{{ field.name }}" value="1" {% if field.value %}checked{% endif %} {% if field.value_known is sameas false %}disabled{% endif %}>

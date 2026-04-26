@@ -19,6 +19,7 @@ class SimulatorMiner(MinerAdapter):
                 placeholder="simulator.local",
                 help="Simulierter Hostname für den Referenztreiber.",
                 create_phase="basic",
+                layout={"width": "half"},
             ),
             DriverField(
                 name="settings.port",
@@ -30,6 +31,7 @@ class SimulatorMiner(MinerAdapter):
                 placeholder="4028",
                 help="Simulierter API-Port für die generische GUI.",
                 create_phase="basic",
+                layout={"width": "quarter"},
             ),
             DriverField(
                 name="settings.username",
@@ -41,6 +43,7 @@ class SimulatorMiner(MinerAdapter):
                 placeholder="sim",
                 help="Simulierter Benutzername für den Referenztreiber.",
                 create_phase="basic",
+                layout={"width": "half"},
             ),
             DriverField(
                 name="settings.password",
@@ -52,6 +55,7 @@ class SimulatorMiner(MinerAdapter):
                 placeholder="sim",
                 help="Simuliertes Passwort für den Referenztreiber.",
                 create_phase="basic",
+                layout={"width": "half"},
             ),
         ]
 
