@@ -102,6 +102,7 @@ class BatteryModbusSource(EnergySource):
         self.last_snapshot: EnergySnapshot | None = None
         self.last_live_packet_at: datetime | None = None
         self._last_logged_quality: str | None = None
+        self._last_logged_poll_error: str | None = None
 
         self.debug_info = {
             "host": self.host,
@@ -123,7 +124,7 @@ class BatteryModbusSource(EnergySource):
             "battery_current_a": None,
             "battery_soh_pct": None,
             "battery_temperature_c": None,
-            "battery_capacity_ah": None,
+            "battery_nominal_capacity_kwh": None,
             "battery_max_charge_current_a": None,
             "battery_max_discharge_current_a": None,
             "optional_errors": {},
@@ -240,13 +241,13 @@ class BatteryModbusSource(EnergySource):
             modbus_fields("SOC", "battery_soc", self.soc_cfg),
             modbus_fields("Ladeleistung", "battery_charge_power", self.charge_power_cfg),
             modbus_fields("Entladeleistung", "battery_discharge_power", self.discharge_power_cfg),
-            modbus_fields("Spannung", "battery_voltage", self.voltage_cfg, required=False),
-            modbus_fields("Strom", "battery_current", self.current_cfg, required=False),
+            modbus_fields("Spannung (V)", "battery_voltage", self.voltage_cfg, required=False),
+            modbus_fields("Strom (A)", "battery_current", self.current_cfg, required=False),
             modbus_fields("SOH", "battery_soh", self.soh_cfg, required=False),
-            modbus_fields("Temperatur", "battery_temperature", self.temperature_cfg, required=False),
-            modbus_fields("Gesamtkapazität", "battery_capacity", self.capacity_cfg, required=False),
-            modbus_fields("Max. Ladestrom", "battery_max_charge_current", self.max_charge_current_cfg, required=False),
-            modbus_fields("Max. Entladestrom", "battery_max_discharge_current", self.max_discharge_current_cfg, required=False),
+            modbus_fields("Temperatur (°C)", "battery_temperature", self.temperature_cfg, required=False),
+            modbus_fields("Nennkapazität (kWh)", "battery_capacity", self.capacity_cfg, required=False),
+            modbus_fields("Max. Ladestrom (A)", "battery_max_charge_current", self.max_charge_current_cfg, required=False),
+            modbus_fields("Max. Entladestrom (A)", "battery_max_discharge_current", self.max_discharge_current_cfg, required=False),
         ]
 
 
@@ -271,7 +272,7 @@ class BatteryModbusSource(EnergySource):
             ("Strom", debug_info.get("battery_current_a"), "A", 2),
             ("SOH", debug_info.get("battery_soh_pct"), "%", 1),
             ("Temperatur", debug_info.get("battery_temperature_c"), "°C", 1),
-            ("Gesamtkapazität", debug_info.get("battery_capacity_ah"), "Ah", 1),
+            ("Nennkapazität", debug_info.get("battery_nominal_capacity_kwh"), "kWh", 1),
             ("Max. Ladestrom", debug_info.get("battery_max_charge_current_a"), "A", 1),
             ("Max. Entladestrom", debug_info.get("battery_max_discharge_current_a"), "A", 1),
         ]
@@ -299,11 +300,22 @@ class BatteryModbusSource(EnergySource):
                 self.last_live_packet_at = snapshot.updated_at
                 self.debug_info["last_live_packet_at"] = snapshot.updated_at.isoformat()
                 self.debug_info["last_error"] = None
+                self._last_logged_poll_error = None
                 self._set_quality("live")
                 return snapshot
+            except RequiredModbusValueError as exc:
+                error_text = str(exc)
+                self.debug_info["last_error"] = error_text
+                if self._last_logged_poll_error != error_text:
+                    logger.warning("Battery Modbus required value unavailable: %s", error_text)
+                    self._last_logged_poll_error = error_text
+                return self._fallback_snapshot(force_quality="offline")
             except Exception as exc:
-                self.debug_info["last_error"] = str(exc)
-                logger.exception("Battery Modbus poll failed")
+                error_text = str(exc)
+                self.debug_info["last_error"] = error_text
+                if self._last_logged_poll_error != error_text:
+                    logger.warning("Battery Modbus poll failed: %s", error_text)
+                    self._last_logged_poll_error = error_text
                 return self._fallback_snapshot(force_quality="offline")
 
     def _poll_device(self) -> EnergySnapshot:
@@ -323,7 +335,7 @@ class BatteryModbusSource(EnergySource):
             current_a = self._read_optional_numeric_value(sock, self.current_cfg)
             soh_pct = self._read_optional_numeric_value(sock, self.soh_cfg)
             temperature_c = self._read_optional_numeric_value(sock, self.temperature_cfg)
-            capacity_ah = self._read_optional_numeric_value(sock, self.capacity_cfg)
+            nominal_capacity_kwh = self._read_optional_numeric_value(sock, self.capacity_cfg)
             max_charge_current_a = self._read_optional_numeric_value(sock, self.max_charge_current_cfg)
             max_discharge_current_a = self._read_optional_numeric_value(sock, self.max_discharge_current_cfg)
 
@@ -345,7 +357,7 @@ class BatteryModbusSource(EnergySource):
         self.debug_info["battery_current_a"] = current_a
         self.debug_info["battery_soh_pct"] = soh_pct
         self.debug_info["battery_temperature_c"] = temperature_c
-        self.debug_info["battery_capacity_ah"] = capacity_ah
+        self.debug_info["battery_nominal_capacity_kwh"] = nominal_capacity_kwh
         self.debug_info["battery_max_charge_current_a"] = max_charge_current_a
         self.debug_info["battery_max_discharge_current_a"] = max_discharge_current_a
 
