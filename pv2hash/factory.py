@@ -194,6 +194,10 @@ def build_battery_source(config: dict) -> EnergySource | None:
             voltage=_build_modbus_value_config("voltage", settings.get("voltage")),
             current=_build_modbus_value_config("current", settings.get("current")),
             soh=_build_modbus_value_config("soh", settings.get("soh")),
+            temperature=_build_modbus_value_config("temperature", settings.get("temperature")),
+            capacity=_build_modbus_value_config("capacity", settings.get("capacity")),
+            max_charge_current=_build_modbus_value_config("max_charge_current", settings.get("max_charge_current")),
+            max_discharge_current=_build_modbus_value_config("max_discharge_current", settings.get("max_discharge_current")),
         )
 
     raise ValueError(f"Unsupported battery source type: {battery_type}")

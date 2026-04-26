@@ -69,6 +69,10 @@ class BatteryModbusSource(EnergySource):
         voltage: ModbusValueConfig | None = None,
         current: ModbusValueConfig | None = None,
         soh: ModbusValueConfig | None = None,
+        temperature: ModbusValueConfig | None = None,
+        capacity: ModbusValueConfig | None = None,
+        max_charge_current: ModbusValueConfig | None = None,
+        max_discharge_current: ModbusValueConfig | None = None,
     ) -> None:
         self.host = host.strip()
         self.port = max(1, int(port))
@@ -82,6 +86,10 @@ class BatteryModbusSource(EnergySource):
         self.voltage_cfg = voltage or ModbusValueConfig(name="voltage")
         self.current_cfg = current or ModbusValueConfig(name="current")
         self.soh_cfg = soh or ModbusValueConfig(name="soh")
+        self.temperature_cfg = temperature or ModbusValueConfig(name="temperature")
+        self.capacity_cfg = capacity or ModbusValueConfig(name="capacity")
+        self.max_charge_current_cfg = max_charge_current or ModbusValueConfig(name="max_charge_current")
+        self.max_discharge_current_cfg = max_discharge_current or ModbusValueConfig(name="max_discharge_current")
 
         self._transaction_id = 0
         self._last_poll_monotonic = 0.0
@@ -109,6 +117,10 @@ class BatteryModbusSource(EnergySource):
             "battery_voltage_v": None,
             "battery_current_a": None,
             "battery_soh_pct": None,
+            "battery_temperature_c": None,
+            "battery_capacity_ah": None,
+            "battery_max_charge_current_a": None,
+            "battery_max_discharge_current_a": None,
             "configs": {
                 "soc": self._config_to_debug(self.soc_cfg),
                 "charge_power": self._config_to_debug(self.charge_power_cfg),
@@ -116,6 +128,10 @@ class BatteryModbusSource(EnergySource):
                 "voltage": self._config_to_debug(self.voltage_cfg),
                 "current": self._config_to_debug(self.current_cfg),
                 "soh": self._config_to_debug(self.soh_cfg),
+                "temperature": self._config_to_debug(self.temperature_cfg),
+                "capacity": self._config_to_debug(self.capacity_cfg),
+                "max_charge_current": self._config_to_debug(self.max_charge_current_cfg),
+                "max_discharge_current": self._config_to_debug(self.max_discharge_current_cfg),
             },
         }
 
@@ -144,6 +160,14 @@ class BatteryModbusSource(EnergySource):
                 cfg = settings.get("current", cfg)
             elif prefix == "battery_soh":
                 cfg = settings.get("soh", cfg)
+            elif prefix == "battery_temperature":
+                cfg = settings.get("temperature", cfg)
+            elif prefix == "battery_capacity":
+                cfg = settings.get("capacity", cfg)
+            elif prefix == "battery_max_charge_current":
+                cfg = settings.get("max_charge_current", cfg)
+            elif prefix == "battery_max_discharge_current":
+                cfg = settings.get("max_discharge_current", cfg)
 
             if not isinstance(cfg, dict):
                 cfg = {}
@@ -213,6 +237,10 @@ class BatteryModbusSource(EnergySource):
             modbus_fields("Spannung", "battery_voltage", self.voltage_cfg, required=False),
             modbus_fields("Strom", "battery_current", self.current_cfg, required=False),
             modbus_fields("SOH", "battery_soh", self.soh_cfg, required=False),
+            modbus_fields("Temperatur", "battery_temperature", self.temperature_cfg, required=False),
+            modbus_fields("Gesamtkapazität", "battery_capacity", self.capacity_cfg, required=False),
+            modbus_fields("Max. Ladestrom", "battery_max_charge_current", self.max_charge_current_cfg, required=False),
+            modbus_fields("Max. Entladestrom", "battery_max_discharge_current", self.max_discharge_current_cfg, required=False),
         ]
 
 
@@ -236,6 +264,10 @@ class BatteryModbusSource(EnergySource):
             ("Spannung", debug_info.get("battery_voltage_v"), "V", 1),
             ("Strom", debug_info.get("battery_current_a"), "A", 2),
             ("SOH", debug_info.get("battery_soh_pct"), "%", 1),
+            ("Temperatur", debug_info.get("battery_temperature_c"), "°C", 1),
+            ("Gesamtkapazität", debug_info.get("battery_capacity_ah"), "Ah", 1),
+            ("Max. Ladestrom", debug_info.get("battery_max_charge_current_a"), "A", 1),
+            ("Max. Entladestrom", debug_info.get("battery_max_discharge_current_a"), "A", 1),
         ]
         for label, value, unit, precision in optional_values:
             if value is not None:
@@ -284,6 +316,10 @@ class BatteryModbusSource(EnergySource):
             voltage_v = self._read_numeric_value(sock, self.voltage_cfg)
             current_a = self._read_numeric_value(sock, self.current_cfg)
             soh_pct = self._read_numeric_value(sock, self.soh_cfg)
+            temperature_c = self._read_numeric_value(sock, self.temperature_cfg)
+            capacity_ah = self._read_numeric_value(sock, self.capacity_cfg)
+            max_charge_current_a = self._read_numeric_value(sock, self.max_charge_current_cfg)
+            max_discharge_current_a = self._read_numeric_value(sock, self.max_discharge_current_cfg)
 
         is_charging = charge_power_w > 0 if charge_power_w is not None else None
         is_discharging = discharge_power_w > 0 if discharge_power_w is not None else None
@@ -302,6 +338,10 @@ class BatteryModbusSource(EnergySource):
         self.debug_info["battery_voltage_v"] = voltage_v
         self.debug_info["battery_current_a"] = current_a
         self.debug_info["battery_soh_pct"] = soh_pct
+        self.debug_info["battery_temperature_c"] = temperature_c
+        self.debug_info["battery_capacity_ah"] = capacity_ah
+        self.debug_info["battery_max_charge_current_a"] = max_charge_current_a
+        self.debug_info["battery_max_discharge_current_a"] = max_discharge_current_a
 
         return EnergySnapshot(
             grid_power_w=0.0,

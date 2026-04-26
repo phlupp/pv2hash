@@ -1156,6 +1156,10 @@ def _apply_source_config_form(target_config: dict[str, Any], form: Any) -> dict[
     target_config["battery"]["settings"]["voltage"] = _parse_modbus_value_form(form, "battery_voltage")
     target_config["battery"]["settings"]["current"] = _parse_modbus_value_form(form, "battery_current")
     target_config["battery"]["settings"]["soh"] = _parse_modbus_value_form(form, "battery_soh")
+    target_config["battery"]["settings"]["temperature"] = _parse_modbus_value_form(form, "battery_temperature")
+    target_config["battery"]["settings"]["capacity"] = _parse_modbus_value_form(form, "battery_capacity")
+    target_config["battery"]["settings"]["max_charge_current"] = _parse_modbus_value_form(form, "battery_max_charge_current")
+    target_config["battery"]["settings"]["max_discharge_current"] = _parse_modbus_value_form(form, "battery_max_discharge_current")
 
     return target_config
 
