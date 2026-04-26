@@ -376,6 +376,12 @@ tbody td {
 }
 
 
+.section-title-meta {
+    color: var(--muted);
+    font-size: 0.78em;
+    font-weight: 600;
+}
+
 /* Global driver-rendered field layout metadata */
 .gui-field-grid,
 .miner-create-grid,

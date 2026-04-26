@@ -100,6 +100,22 @@ def _core_identity_schema() -> list[DriverField]:
             default="Miner",
             create_phase="basic",
             placeholder="Miner",
+            layout={"width": "full"},
+        ),
+        DriverField(
+            name="monitor_enabled",
+            label="Verbindung",
+            type="checkbox",
+            default=True,
+            help="PV2Hash baut den Miner-Adapter auf, liest Status und erlaubt Geräte-Einstellungen.",
+            layout={"width": "half"},
+        ),
+        DriverField(
+            name="control_enabled",
+            label="In Regelung einbeziehen",
+            type="checkbox",
+            default=True,
+            help="Der PV-Regler darf diesen Miner steuern. Erfordert Verbindung.",
             layout={"width": "half"},
         ),
     ]
@@ -122,10 +138,8 @@ def _core_control_schema(driver: str | None = None) -> list[DriverField]:
         _choice("p4", "p4"),
     )
     return [
-        DriverField(name="monitor_enabled", label="Verbindung", type="checkbox", default=True, help="PV2Hash baut den Miner-Adapter auf, liest Status und erlaubt Geräte-Einstellungen.", layout={"width": "half"}),
-        DriverField(name="control_enabled", label="In Regelung einbeziehen", type="checkbox", default=True, help="Der PV-Regler darf diesen Miner steuern. Erfordert Verbindung.", layout={"width": "half"}),
-        DriverField(name="priority", label="Priorität", type="number", default=100, placeholder="100", layout={"width": "half"}),
-        DriverField(name="min_regulated_profile", label="Min. Regelprofil", type="select", default="off", choices=min_profile_choices, layout={"width": "half"}),
+        DriverField(name="priority", label="Priorität", type="number", default=100, placeholder="100", layout={"width": "quarter"}),
+        DriverField(name="min_regulated_profile", label="Min. Regelprofil", type="select", default="off", choices=min_profile_choices, layout={"width": "quarter"}),
         DriverField(name="profiles.p1.power_w", label="Profil p1", type="number", unit="W", default=900, read_only=fixed_power_profiles, layout={"width": "quarter"}),
         DriverField(name="profiles.p2.power_w", label="Profil p2", type="number", unit="W", default=1800, read_only=fixed_power_profiles, layout={"width": "quarter"}),
         DriverField(name="profiles.p3.power_w", label="Profil p3", type="number", unit="W", default=3000, read_only=fixed_power_profiles, layout={"width": "quarter"}),
@@ -137,7 +151,6 @@ def _core_control_schema(driver: str | None = None) -> list[DriverField]:
         DriverField(name="battery_discharge_soc_min", label="Mindest-SOC Entladen", type="number", unit="%", default=80, layout={"width": "quarter"}),
         DriverField(name="battery_discharge_profile", label="Profil bei Entladen", type="select", default="p1", choices=battery_choices, layout={"width": "quarter"}),
     ]
-
 
 def _get_nested_value(data: dict, path: str, fallback: Any = None) -> Any:
     current: Any = data
