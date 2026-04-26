@@ -402,3 +402,55 @@ Rules:
 - Required values may set the device/source state to error/offline if unavailable.
 - Live refresh should update runtime/header/detail values, not active form inputs.
 - New fields should prefer model metadata over custom frontend logic.
+
+## Modbus battery profiles
+
+The Modbus TCP battery source may offer optional device presets. These presets are not part of the global GUI model; they are a driver-specific convenience for the universal Modbus battery driver.
+
+Profiles are loaded from:
+
+```text
+pv2hash/modbus_profiles/battery/*.yaml
+/var/lib/pv2hash/modbus_profiles/battery/*.yaml
+```
+
+The first path is intended for profiles shipped with PV2Hash. The second path is intended for user-provided profiles that should survive updates.
+
+A profile only pre-fills configuration values. It does not define field labels, units, required state, layout, validation, or system behavior. Those remain owned by the driver.
+
+Example structure:
+
+```yaml
+id: example_battery
+name: Example Battery BMS
+vendor: ExampleVendor
+hidden: true
+
+values:
+  port: 502
+  unit_id: 1
+  poll_interval_ms: 1000
+  timeout_ms: 800
+
+  soc:
+    address: 100
+    register_type: holding
+    type: uint16
+    endian: big_endian
+    factor: 0.1
+
+  charge_power:
+    address: 101
+    register_type: holding
+    type: int32
+    endian: big_endian
+    factor: 1
+```
+
+Supported `register_type` values: `holding`, `input`, `coil`, `discrete_input`.
+
+Supported `type` values: `uint8`, `int8`, `uint16`, `int16`, `uint32`, `int32`, `float32`.
+
+Supported `endian` values: `big_endian`, `little_endian`.
+
+`timeout_ms` is converted to the driver's `request_timeout_seconds` field when a profile is applied. Optional register sections may be omitted.

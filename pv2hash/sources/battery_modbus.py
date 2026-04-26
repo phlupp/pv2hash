@@ -10,6 +10,7 @@ from time import monotonic
 from pv2hash.logging_ext.setup import get_logger
 from pv2hash.models.energy import EnergySnapshot
 from pv2hash.sources.base import EnergySource
+from pv2hash.sources.battery_modbus_profiles import battery_modbus_profile_choices
 
 
 logger = get_logger("pv2hash.source.battery_modbus")
@@ -238,6 +239,16 @@ class BatteryModbusSource(EnergySource):
             }
 
         return [
+            {
+                "name": "battery_modbus_profile",
+                "label": "Modbus-Profil",
+                "type": "select",
+                "value": settings.get("modbus_profile", ""),
+                "required": False,
+                "layout": {"width": "full"},
+                "options": battery_modbus_profile_choices(),
+                "help": "Optional: Profil wählen und per Aktion anwenden. Die Werte werden nur ins Formular übernommen und erst beim Speichern dauerhaft gesichert.",
+            },
             {"name": "battery_host", "label": "Host / IP", "type": "text", "value": settings.get("host", self.host), "required": True, "layout": {"width": "half"}},
             {"name": "battery_port", "label": "Port", "type": "number", "value": settings.get("port", self.port), "step": 1, "required": True, "layout": {"width": "quarter"}},
             {"name": "battery_unit_id", "label": "Unit-ID", "type": "number", "value": settings.get("unit_id", self.unit_id), "step": 1, "required": True, "layout": {"width": "quarter"}},
@@ -253,6 +264,16 @@ class BatteryModbusSource(EnergySource):
             modbus_fields("Nennkapazität", "battery_capacity", self.capacity_cfg, required=False, unit="kWh"),
             modbus_fields("Max. Ladestrom", "battery_max_charge_current", self.max_charge_current_cfg, required=False, unit="A"),
             modbus_fields("Max. Entladestrom", "battery_max_discharge_current", self.max_discharge_current_cfg, required=False, unit="A"),
+        ]
+
+
+    def get_actions(self, *, config: dict | None = None) -> list[dict]:
+        return [
+            {
+                "id": "battery_modbus_apply_profile",
+                "label": "Profil anwenden",
+                "help": "Übernimmt die Werte des gewählten Modbus-Profils in das Formular. Danach bitte prüfen und speichern.",
+            }
         ]
 
 

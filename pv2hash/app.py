@@ -1165,6 +1165,7 @@ def _apply_source_config_form(target_config: dict[str, Any], form: Any) -> dict[
     target_config["battery"]["name"] = _resolve_battery_profile_label(battery_type)
     target_config["battery"]["enabled"] = battery_enabled
     target_config["battery"].setdefault("settings", {})
+    target_config["battery"]["settings"]["modbus_profile"] = str(form.get("battery_modbus_profile", "")).strip()
     target_config["battery"]["settings"]["host"] = str(form.get("battery_host", "")).strip()
     target_config["battery"]["settings"]["port"] = _safe_int(form.get("battery_port", 502), 502)
     target_config["battery"]["settings"]["unit_id"] = _safe_int(form.get("battery_unit_id", 1), 1)
@@ -1735,6 +1736,37 @@ async def api_sources_action(request: Request):
     form = await request.form()
     source_id = str(form.get("source_id", "")).strip()
     action_id = str(form.get("action_id", "")).strip()
+    preview_config = _apply_source_config_form(deepcopy(state.config), form)
+
+    if source_id == "battery" and action_id == "battery_modbus_apply_profile":
+        battery_type = str(preview_config.get("battery", {}).get("type", "")).strip()
+        if battery_type != "battery_modbus":
+            return JSONResponse(
+                content={"status": "error", "message": "Modbus-Profile sind nur für die Modbus TCP Batterie verfügbar."},
+                status_code=400,
+            )
+        profile_id = str(form.get("battery_modbus_profile", "")).strip()
+        if not profile_id:
+            return JSONResponse(
+                content={"status": "error", "message": "Bitte zuerst ein Modbus-Profil auswählen."},
+                status_code=400,
+            )
+        try:
+            from pv2hash.sources.battery_modbus_profiles import apply_battery_modbus_profile
+
+            settings = preview_config.setdefault("battery", {}).setdefault("settings", {})
+            ok, message = apply_battery_modbus_profile(settings, profile_id)
+            return JSONResponse(content=jsonable_encoder({
+                "status": "ok" if ok else "error",
+                "message": message,
+                "sources": services.get_source_gui_models(config=preview_config),
+            }))
+        except Exception as exc:
+            logger.exception("Battery Modbus profile apply failed")
+            return JSONResponse(
+                content={"status": "error", "message": f"Modbus-Profil konnte nicht angewendet werden: {exc}"},
+                status_code=500,
+            )
 
     if source_id != "grid" or action_id != "sma_device_search":
         return JSONResponse(
@@ -1742,7 +1774,6 @@ async def api_sources_action(request: Request):
             status_code=400,
         )
 
-    preview_config = _apply_source_config_form(deepcopy(state.config), form)
     source_type = str(preview_config.get("source", {}).get("type", "")).strip()
     if source_type != "sma_meter_protocol":
         return JSONResponse(
