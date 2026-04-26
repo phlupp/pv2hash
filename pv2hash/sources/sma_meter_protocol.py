@@ -181,13 +181,13 @@ class SmaMeterProtocolSource(EnergySource):
             serial_help = "Bitte Geräte-Suche starten."
 
         return [
-            {"name": "multicast_ip", "label": "Multicast-IP", "type": "text", "value": settings.get("multicast_ip", defaults.get("multicast_ip", "239.12.255.254"))},
-            {"name": "bind_port", "label": "Bind-Port", "type": "number", "value": settings.get("bind_port", defaults.get("bind_port", 9522)), "step": 1},
-            {"name": "interface_ip", "label": "Lokale Interface-IP / Automatisch", "type": "select", "value": interface_value or "0.0.0.0", "options": interface_options},
-            {"name": "device_serial_number", "label": "SMA-Gerät / Seriennummer", "type": "select", "value": settings.get("device_serial_number", defaults.get("device_serial_number", "")), "options": device_options, "required": True, "help": serial_help},
-            {"name": "packet_timeout_seconds", "label": "Paket-Timeout", "type": "number", "value": settings.get("packet_timeout_seconds", defaults.get("packet_timeout_seconds", 1.0)), "unit": "s", "step": 0.1},
-            {"name": "stale_after_seconds", "label": "Veraltet nach", "type": "number", "value": settings.get("stale_after_seconds", defaults.get("stale_after_seconds", 8.0)), "unit": "s", "step": 0.1},
-            {"name": "offline_after_seconds", "label": "Offline nach", "type": "number", "value": settings.get("offline_after_seconds", defaults.get("offline_after_seconds", 30.0)), "unit": "s", "step": 0.1},
+            {"name": "multicast_ip", "label": "Multicast-IP", "type": "text", "value": settings.get("multicast_ip", defaults.get("multicast_ip", "239.12.255.254")), "layout": {"width": "half"}},
+            {"name": "bind_port", "label": "Bind-Port", "type": "number", "value": settings.get("bind_port", defaults.get("bind_port", 9522)), "step": 1, "layout": {"width": "quarter"}},
+            {"name": "interface_ip", "label": "Lokale Interface-IP / Automatisch", "type": "select", "value": interface_value or "0.0.0.0", "options": interface_options, "layout": {"width": "half"}},
+            {"name": "device_serial_number", "label": "SMA-Gerät / Seriennummer", "type": "select", "value": settings.get("device_serial_number", defaults.get("device_serial_number", "")), "options": device_options, "required": True, "help": serial_help, "layout": {"width": "half"}},
+            {"name": "packet_timeout_seconds", "label": "Paket-Timeout", "type": "number", "value": settings.get("packet_timeout_seconds", defaults.get("packet_timeout_seconds", 1.0)), "unit": "s", "step": 0.1, "layout": {"width": "third"}},
+            {"name": "stale_after_seconds", "label": "Veraltet nach", "type": "number", "value": settings.get("stale_after_seconds", defaults.get("stale_after_seconds", 8.0)), "unit": "s", "step": 0.1, "layout": {"width": "third"}},
+            {"name": "offline_after_seconds", "label": "Offline nach", "type": "number", "value": settings.get("offline_after_seconds", defaults.get("offline_after_seconds", 30.0)), "unit": "s", "step": 0.1, "layout": {"width": "third"}},
         ]
 
     def get_config_fields(self, *, config: dict | None = None) -> list[dict]:

@@ -121,14 +121,14 @@ def _core_control_schema(driver: str | None = None) -> list[DriverField]:
         _choice("p4", "p4"),
     )
     return [
-        DriverField(name="monitor_enabled", label="Verbindung", type="checkbox", default=True, help="PV2Hash baut den Miner-Adapter auf, liest Status und erlaubt Geräte-Einstellungen."),
-        DriverField(name="control_enabled", label="In Regelung einbeziehen", type="checkbox", default=True, help="Der PV-Regler darf diesen Miner steuern. Erfordert Verbindung."),
-        DriverField(name="priority", label="Priorität", type="number", default=100, placeholder="100"),
-        DriverField(name="min_regulated_profile", label="Min. Regelprofil", type="select", default="off", choices=min_profile_choices),
-        DriverField(name="profiles.p1.power_w", label="Profil p1 (W)", type="number", default=900, read_only=fixed_power_profiles),
-        DriverField(name="profiles.p2.power_w", label="Profil p2 (W)", type="number", default=1800, read_only=fixed_power_profiles),
-        DriverField(name="profiles.p3.power_w", label="Profil p3 (W)", type="number", default=3000, read_only=fixed_power_profiles),
-        DriverField(name="profiles.p4.power_w", label="Profil p4 (W)", type="number", default=4200, read_only=fixed_power_profiles),
+        DriverField(name="monitor_enabled", label="Verbindung", type="checkbox", default=True, help="PV2Hash baut den Miner-Adapter auf, liest Status und erlaubt Geräte-Einstellungen.", layout={"width": "half"}),
+        DriverField(name="control_enabled", label="In Regelung einbeziehen", type="checkbox", default=True, help="Der PV-Regler darf diesen Miner steuern. Erfordert Verbindung.", layout={"width": "half"}),
+        DriverField(name="priority", label="Priorität", type="number", default=100, placeholder="100", layout={"width": "quarter"}),
+        DriverField(name="min_regulated_profile", label="Min. Regelprofil", type="select", default="off", choices=min_profile_choices, layout={"width": "quarter"}),
+        DriverField(name="profiles.p1.power_w", label="Profil p1 (W)", type="number", default=900, read_only=fixed_power_profiles, layout={"width": "quarter"}),
+        DriverField(name="profiles.p2.power_w", label="Profil p2 (W)", type="number", default=1800, read_only=fixed_power_profiles, layout={"width": "quarter"}),
+        DriverField(name="profiles.p3.power_w", label="Profil p3 (W)", type="number", default=3000, read_only=fixed_power_profiles, layout={"width": "quarter"}),
+        DriverField(name="profiles.p4.power_w", label="Profil p4 (W)", type="number", default=4200, read_only=fixed_power_profiles, layout={"width": "quarter"}),
         DriverField(name="use_battery_when_charging", label="Beim Laden Batterie nutzen", type="checkbox", default=False),
         DriverField(name="battery_charge_soc_min", label="Mindest-SOC Laden (%)", type="number", default=95),
         DriverField(name="battery_charge_profile", label="Profil bei Laden", type="select", default="p1", choices=battery_choices),
@@ -191,12 +191,22 @@ def _coerce_field_value(field: DriverField, raw: Any, fallback: Any = None) -> A
     return str(raw).strip()
 
 
+def _normalize_field_layout(layout: dict | None) -> dict:
+    layout = layout or {}
+    width = str(layout.get("width") or "full").strip().lower()
+    if width not in {"full", "half", "third", "quarter", "auto"}:
+        width = "full"
+    return {**layout, "width": width}
+
+
 def _render_field(field: DriverField, value: Any) -> dict:
-    return {
+    rendered = {
         **asdict(field),
         "value": value,
         "id": field.name.replace('.', '-'),
     }
+    rendered["layout"] = _normalize_field_layout(rendered.get("layout"))
+    return rendered
 
 
 def _driver_schema(driver: str | None) -> list[DriverField]:

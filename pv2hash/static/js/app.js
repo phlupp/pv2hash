@@ -671,6 +671,30 @@
         : [];
   }
 
+
+  function normalizeGuiFieldWidth(field) {
+    const width = String(field?.layout?.width || field?.width || 'full').toLowerCase();
+    return ['full', 'half', 'third', 'quarter', 'auto'].includes(width) ? width : 'full';
+  }
+
+  function guiFieldClass(field, base = 'gui-field') {
+    const width = normalizeGuiFieldWidth(field);
+    const classes = [base, `${base}-${width}`, `gui-field-${width}`];
+    if (field?.required) classes.push('is-required');
+    if (field?.type === 'checkbox') classes.push('checkbox-field');
+    return classes.join(' ');
+  }
+
+  function appendRequiredMarker(labelElement, field) {
+    if (!field?.required || !labelElement) return;
+    const marker = document.createElement('span');
+    marker.className = 'required-marker';
+    marker.setAttribute('aria-hidden', 'true');
+    marker.textContent = '*';
+    labelElement.appendChild(document.createTextNode(' '));
+    labelElement.appendChild(marker);
+  }
+
   function formatSourceValue(field) {
     const value = field?.value;
     if (value === null || value === undefined || value === '') return '—';
@@ -686,7 +710,7 @@
 
     if (field.type === 'fieldset') {
       const section = document.createElement('section');
-      section.className = 'card type-subcard top-gap';
+      section.className = `card type-subcard top-gap gui-fieldset ${guiFieldClass(field, 'gui-fieldset')}`;
       const header = document.createElement('div');
       header.className = 'card-head';
       const title = document.createElement('h3');
@@ -695,7 +719,7 @@
       section.appendChild(header);
 
       const grid = document.createElement('div');
-      grid.className = 'form-grid';
+      grid.className = 'form-grid gui-field-grid';
       for (const child of field.fields || []) {
         const childElement = createSourceField(child, model);
         if (childElement) grid.appendChild(childElement);
@@ -714,8 +738,9 @@
     if (!field.name) return null;
 
     const label = document.createElement('label');
+    label.className = guiFieldClass(field);
     if (field.type === 'checkbox') {
-      label.className = 'checkbox-row';
+      label.classList.add('checkbox-row');
     }
 
     if (field.disabled_when_driver && model?.driver === field.disabled_when_driver) {
@@ -723,7 +748,9 @@
     }
 
     const caption = document.createElement('span');
+    caption.className = 'field-label';
     caption.textContent = field.label || field.name;
+    appendRequiredMarker(caption, field);
 
     let input;
     if (field.type === 'select') {
@@ -974,7 +1001,7 @@
     basic.appendChild(basicHead);
 
     const grid = document.createElement('div');
-    grid.className = 'form-grid';
+    grid.className = 'form-grid gui-field-grid';
 
     if (model.driver_field) {
       const field = createSourceField({ ...model.driver_field, refresh_on_change: true }, model);

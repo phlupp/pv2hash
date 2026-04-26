@@ -181,14 +181,16 @@ class BatteryModbusSource(EnergySource):
             return {
                 "type": "fieldset",
                 "title": title,
+                "layout": {"width": "full"},
                 "fields": [
-                    {"name": f"{prefix}_address", "label": "Adresse", "type": "number", "value": cfg.get("address", getattr(value_cfg, "address", "")), "step": 1, "required": required},
+                    {"name": f"{prefix}_address", "label": "Adresse", "type": "number", "value": cfg.get("address", getattr(value_cfg, "address", "")), "step": 1, "required": required, "layout": {"width": "quarter"}},
                     {
                         "name": f"{prefix}_register_type",
                         "label": "Registerart",
                         "type": "select",
                         "value": cfg.get("register_type", getattr(value_cfg, "register_type", "holding")),
                         "required": required,
+                        "layout": {"width": "quarter"},
                         "options": [
                             {"value": "holding", "label": "holding"},
                             {"value": "input", "label": "input"},
@@ -202,6 +204,7 @@ class BatteryModbusSource(EnergySource):
                         "type": "select",
                         "value": cfg.get("value_type", getattr(value_cfg, "value_type", "uint16")),
                         "required": required,
+                        "layout": {"width": "quarter"},
                         "options": [
                             {"value": "uint8", "label": "uint8"},
                             {"value": "int8", "label": "int8"},
@@ -218,12 +221,13 @@ class BatteryModbusSource(EnergySource):
                         "type": "select",
                         "value": cfg.get("endian", getattr(value_cfg, "endian", "big_endian")),
                         "required": required,
+                        "layout": {"width": "quarter"},
                         "options": [
                             {"value": "big_endian", "label": "big_endian"},
                             {"value": "little_endian", "label": "little_endian"},
                         ],
                     },
-                    {"name": f"{prefix}_factor", "label": "Faktor", "type": "number", "value": cfg.get("factor", getattr(value_cfg, "factor", 1.0)), "step": "any", "required": required},
+                    {"name": f"{prefix}_factor", "label": "Faktor", "type": "number", "value": cfg.get("factor", getattr(value_cfg, "factor", 1.0)), "step": "any", "required": required, "layout": {"width": "quarter"}},
                 ],
                 "help": (
                     "Alle Felder sind erforderlich. Der Messwert wird mit dem Faktor multipliziert."
@@ -233,11 +237,11 @@ class BatteryModbusSource(EnergySource):
             }
 
         return [
-            {"name": "battery_host", "label": "Host / IP", "type": "text", "value": settings.get("host", self.host), "required": True},
-            {"name": "battery_port", "label": "Port", "type": "number", "value": settings.get("port", self.port), "step": 1, "required": True},
-            {"name": "battery_unit_id", "label": "Unit-ID", "type": "number", "value": settings.get("unit_id", self.unit_id), "step": 1, "required": True},
-            {"name": "battery_poll_interval_ms", "label": "Poll-Intervall", "type": "number", "value": settings.get("poll_interval_ms", self.poll_interval_ms), "unit": "ms", "step": 100, "required": True},
-            {"name": "battery_request_timeout_seconds", "label": "Request-Timeout", "type": "number", "value": settings.get("request_timeout_seconds", self.request_timeout_seconds), "unit": "s", "step": 0.1, "required": True},
+            {"name": "battery_host", "label": "Host / IP", "type": "text", "value": settings.get("host", self.host), "required": True, "layout": {"width": "half"}},
+            {"name": "battery_port", "label": "Port", "type": "number", "value": settings.get("port", self.port), "step": 1, "required": True, "layout": {"width": "quarter"}},
+            {"name": "battery_unit_id", "label": "Unit-ID", "type": "number", "value": settings.get("unit_id", self.unit_id), "step": 1, "required": True, "layout": {"width": "quarter"}},
+            {"name": "battery_poll_interval_ms", "label": "Poll-Intervall", "type": "number", "value": settings.get("poll_interval_ms", self.poll_interval_ms), "unit": "ms", "step": 100, "required": True, "layout": {"width": "half"}},
+            {"name": "battery_request_timeout_seconds", "label": "Request-Timeout", "type": "number", "value": settings.get("request_timeout_seconds", self.request_timeout_seconds), "unit": "s", "step": 0.1, "required": True, "layout": {"width": "half"}},
             modbus_fields("SOC", "battery_soc", self.soc_cfg),
             modbus_fields("Ladeleistung", "battery_charge_power", self.charge_power_cfg),
             modbus_fields("Entladeleistung", "battery_discharge_power", self.discharge_power_cfg),

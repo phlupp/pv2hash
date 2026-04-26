@@ -375,6 +375,71 @@ tbody td {
     gap: 14px;
 }
 
+
+/* Global driver-rendered field layout metadata */
+.gui-field-grid,
+.miner-create-grid,
+.miner-field-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 14px;
+    align-items: start;
+}
+
+.gui-field,
+.field.gui-field,
+.field-card.gui-field,
+.gui-fieldset {
+    grid-column: span 12;
+    min-width: 0;
+}
+
+.gui-field-full,
+.gui-fieldset-full { grid-column: span 12; }
+.gui-field-half,
+.gui-fieldset-half { grid-column: span 6; }
+.gui-field-third,
+.gui-fieldset-third { grid-column: span 4; }
+.gui-field-quarter,
+.gui-fieldset-quarter { grid-column: span 3; }
+.gui-field-auto,
+.gui-fieldset-auto { grid-column: auto; }
+
+.field-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.required-marker {
+    color: #ff7b91;
+    font-weight: 900;
+}
+
+@media (max-width: 1100px) {
+    .gui-field-quarter,
+    .gui-field-third,
+    .gui-fieldset-quarter,
+    .gui-fieldset-third { grid-column: span 6; }
+}
+
+@media (max-width: 760px) {
+    .gui-field,
+    .field.gui-field,
+    .field-card.gui-field,
+    .gui-fieldset,
+    .gui-field-full,
+    .gui-field-half,
+    .gui-field-third,
+    .gui-field-quarter,
+    .gui-field-auto,
+    .gui-fieldset-full,
+    .gui-fieldset-half,
+    .gui-fieldset-third,
+    .gui-fieldset-quarter,
+    .gui-fieldset-auto { grid-column: span 12; }
+}
+
 .form-section {
     margin: 0;
     padding: 14px;

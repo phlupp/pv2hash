@@ -30,6 +30,7 @@ class DriverField:
     create_phase: str = "full"
     advanced: bool = False
     read_only: bool = False
+    layout: dict[str, Any] = field(default_factory=dict)
     choices: tuple[DriverFieldChoice, ...] = field(default_factory=tuple)
 
 
