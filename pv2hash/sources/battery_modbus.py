@@ -66,6 +66,9 @@ class BatteryModbusSource(EnergySource):
         soc: ModbusValueConfig | None = None,
         charge_power: ModbusValueConfig | None = None,
         discharge_power: ModbusValueConfig | None = None,
+        voltage: ModbusValueConfig | None = None,
+        current: ModbusValueConfig | None = None,
+        soh: ModbusValueConfig | None = None,
     ) -> None:
         self.host = host.strip()
         self.port = max(1, int(port))
@@ -76,6 +79,9 @@ class BatteryModbusSource(EnergySource):
         self.soc_cfg = soc or ModbusValueConfig(name="soc")
         self.charge_power_cfg = charge_power or ModbusValueConfig(name="charge_power")
         self.discharge_power_cfg = discharge_power or ModbusValueConfig(name="discharge_power")
+        self.voltage_cfg = voltage or ModbusValueConfig(name="voltage")
+        self.current_cfg = current or ModbusValueConfig(name="current")
+        self.soh_cfg = soh or ModbusValueConfig(name="soh")
 
         self._transaction_id = 0
         self._last_poll_monotonic = 0.0
@@ -100,10 +106,16 @@ class BatteryModbusSource(EnergySource):
             "battery_is_charging": None,
             "battery_is_discharging": None,
             "battery_is_active": None,
+            "battery_voltage_v": None,
+            "battery_current_a": None,
+            "battery_soh_pct": None,
             "configs": {
                 "soc": self._config_to_debug(self.soc_cfg),
                 "charge_power": self._config_to_debug(self.charge_power_cfg),
                 "discharge_power": self._config_to_debug(self.discharge_power_cfg),
+                "voltage": self._config_to_debug(self.voltage_cfg),
+                "current": self._config_to_debug(self.current_cfg),
+                "soh": self._config_to_debug(self.soh_cfg),
             },
         }
 
@@ -118,7 +130,7 @@ class BatteryModbusSource(EnergySource):
     def get_config_fields(self, *, config: dict | None = None) -> list[dict]:
         settings = (config or {}).get("settings", {}) or {}
 
-        def modbus_fields(title: str, prefix: str, value_cfg: object) -> dict:
+        def modbus_fields(title: str, prefix: str, value_cfg: object, *, required: bool = True) -> dict:
             cfg = settings.get(prefix.replace("battery_", ""), None)
             if prefix == "battery_soc":
                 cfg = settings.get("soc", cfg)
@@ -126,6 +138,12 @@ class BatteryModbusSource(EnergySource):
                 cfg = settings.get("charge_power", cfg)
             elif prefix == "battery_discharge_power":
                 cfg = settings.get("discharge_power", cfg)
+            elif prefix == "battery_voltage":
+                cfg = settings.get("voltage", cfg)
+            elif prefix == "battery_current":
+                cfg = settings.get("current", cfg)
+            elif prefix == "battery_soh":
+                cfg = settings.get("soh", cfg)
 
             if not isinstance(cfg, dict):
                 cfg = {}
@@ -133,13 +151,13 @@ class BatteryModbusSource(EnergySource):
                 "type": "fieldset",
                 "title": title,
                 "fields": [
-                    {"name": f"{prefix}_address", "label": "Adresse", "type": "number", "value": cfg.get("address", getattr(value_cfg, "address", "")), "step": 1, "required": True},
+                    {"name": f"{prefix}_address", "label": "Adresse", "type": "number", "value": cfg.get("address", getattr(value_cfg, "address", "")), "step": 1, "required": required},
                     {
                         "name": f"{prefix}_register_type",
                         "label": "Registerart",
                         "type": "select",
                         "value": cfg.get("register_type", getattr(value_cfg, "register_type", "holding")),
-                        "required": True,
+                        "required": required,
                         "options": [
                             {"value": "holding", "label": "holding"},
                             {"value": "input", "label": "input"},
@@ -152,7 +170,7 @@ class BatteryModbusSource(EnergySource):
                         "label": "Wertetyp",
                         "type": "select",
                         "value": cfg.get("value_type", getattr(value_cfg, "value_type", "uint16")),
-                        "required": True,
+                        "required": required,
                         "options": [
                             {"value": "uint8", "label": "uint8"},
                             {"value": "int8", "label": "int8"},
@@ -168,15 +186,19 @@ class BatteryModbusSource(EnergySource):
                         "label": "Endian",
                         "type": "select",
                         "value": cfg.get("endian", getattr(value_cfg, "endian", "big_endian")),
-                        "required": True,
+                        "required": required,
                         "options": [
                             {"value": "big_endian", "label": "big_endian"},
                             {"value": "little_endian", "label": "little_endian"},
                         ],
                     },
-                    {"name": f"{prefix}_factor", "label": "Faktor", "type": "number", "value": cfg.get("factor", getattr(value_cfg, "factor", 1.0)), "step": "any", "required": True},
+                    {"name": f"{prefix}_factor", "label": "Faktor", "type": "number", "value": cfg.get("factor", getattr(value_cfg, "factor", 1.0)), "step": "any", "required": required},
                 ],
-                "help": "Alle Felder sind erforderlich. Der Messwert wird mit dem Faktor multipliziert.",
+                "help": (
+                    "Alle Felder sind erforderlich. Der Messwert wird mit dem Faktor multipliziert."
+                    if required
+                    else "Optional: leer lassen, wenn dieser Wert nicht abgefragt werden soll."
+                ),
             }
 
         return [
@@ -188,6 +210,9 @@ class BatteryModbusSource(EnergySource):
             modbus_fields("SOC", "battery_soc", self.soc_cfg),
             modbus_fields("Ladeleistung", "battery_charge_power", self.charge_power_cfg),
             modbus_fields("Entladeleistung", "battery_discharge_power", self.discharge_power_cfg),
+            modbus_fields("Spannung", "battery_voltage", self.voltage_cfg, required=False),
+            modbus_fields("Strom", "battery_current", self.current_cfg, required=False),
+            modbus_fields("SOH", "battery_soh", self.soh_cfg, required=False),
         ]
 
 
@@ -204,7 +229,22 @@ class BatteryModbusSource(EnergySource):
         return fields
 
     def get_detail_groups(self, *, snapshot=None, debug_info: dict | None = None) -> list[dict]:
-        return []
+        debug_info = debug_info or self.debug_info
+
+        fields: list[dict] = []
+        optional_values = [
+            ("Spannung", debug_info.get("battery_voltage_v"), "V", 1),
+            ("Strom", debug_info.get("battery_current_a"), "A", 2),
+            ("SOH", debug_info.get("battery_soh_pct"), "%", 1),
+        ]
+        for label, value, unit, precision in optional_values:
+            if value is not None:
+                fields.append({"label": label, "value": value, "unit": unit, "precision": precision})
+
+        if not fields:
+            return []
+
+        return [{"title": "Details", "fields": fields}]
 
     async def read(self) -> EnergySnapshot:
         async with self._read_lock:
@@ -241,6 +281,9 @@ class BatteryModbusSource(EnergySource):
             soc_pct = self._read_numeric_value(sock, self.soc_cfg)
             charge_power_w = self._read_numeric_value(sock, self.charge_power_cfg)
             discharge_power_w = self._read_numeric_value(sock, self.discharge_power_cfg)
+            voltage_v = self._read_numeric_value(sock, self.voltage_cfg)
+            current_a = self._read_numeric_value(sock, self.current_cfg)
+            soh_pct = self._read_numeric_value(sock, self.soh_cfg)
 
         is_charging = charge_power_w > 0 if charge_power_w is not None else None
         is_discharging = discharge_power_w > 0 if discharge_power_w is not None else None
@@ -256,6 +299,9 @@ class BatteryModbusSource(EnergySource):
         self.debug_info["battery_is_charging"] = is_charging
         self.debug_info["battery_is_discharging"] = is_discharging
         self.debug_info["battery_is_active"] = is_active
+        self.debug_info["battery_voltage_v"] = voltage_v
+        self.debug_info["battery_current_a"] = current_a
+        self.debug_info["battery_soh_pct"] = soh_pct
 
         return EnergySnapshot(
             grid_power_w=0.0,
