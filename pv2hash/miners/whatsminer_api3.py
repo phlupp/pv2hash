@@ -47,6 +47,18 @@ class WhatsminerApi3Miner(MinerAdapter):
                 layout={"width": "quarter"},
             ),
             DriverField(
+                name="settings.timeout_s",
+                label="Timeout",
+                type="number",
+                unit="s",
+                preset=5,
+                default=5,
+                placeholder="5",
+                help="Socket-Timeout für API 3 Requests.",
+                advanced=True,
+                layout={"width": "quarter"},
+            ),
+            DriverField(
                 name="settings.account",
                 label="Account",
                 type="text",
@@ -68,18 +80,6 @@ class WhatsminerApi3Miner(MinerAdapter):
                 help="Passwort des gewählten API-3-Accounts.",
                 create_phase="basic",
                 layout={"width": "half"},
-            ),
-            DriverField(
-                name="settings.timeout_s",
-                label="Timeout",
-                type="number",
-                unit="s",
-                preset=5,
-                default=5,
-                placeholder="5",
-                help="Socket-Timeout für API 3 Requests.",
-                advanced=True,
-                layout={"width": "quarter"},
             ),
         ]
 

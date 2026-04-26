@@ -41,9 +41,9 @@ class BraiinsMiner(MinerAdapter):
         return [
             DriverField(name="host", label="Host / IP", type="text", required=True, placeholder="192.168.x.x", help="IP-Adresse oder Hostname des Braiins OS+ Miners.", create_phase="basic", layout={"width": "half"}),
             DriverField(name="settings.port", label="gRPC-Port", type="number", required=True, preset=50051, default=50051, placeholder="50051", help="gRPC-Port der Braiins OS+ API.", create_phase="basic", layout={"width": "quarter"}),
+            DriverField(name="settings.timeout_s", label="Timeout", type="number", unit="s", preset=2, default=2, placeholder="2", help="gRPC-Timeout für Braiins API-Requests.", advanced=True, layout={"width": "quarter"}),
             DriverField(name="settings.username", label="Benutzer", type="text", required=True, preset="root", default="root", placeholder="root", help="Braiins OS+ API-Benutzer.", create_phase="basic", layout={"width": "half"}),
             DriverField(name="settings.password", label="Passwort", type="password", required=True, default="", placeholder="Passwort", help="Passwort des Braiins OS+ API-Benutzers.", create_phase="basic", layout={"width": "half"}),
-            DriverField(name="settings.timeout_s", label="Timeout", type="number", unit="s", preset=2, default=2, placeholder="2", help="gRPC-Timeout für Braiins API-Requests.", advanced=True, layout={"width": "quarter"}),
         ]
 
     @classmethod
