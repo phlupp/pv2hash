@@ -411,6 +411,28 @@ tbody td {
 .gui-field-auto,
 .gui-fieldset-auto { grid-column: auto; }
 
+/* Scoped rules for server-rendered miner/source forms. These keep layout metadata
+   effective even when a form uses older field markup such as .field.gui-field. */
+.gui-field-grid > .gui-field-full,
+.miner-create-grid > .gui-field-full,
+.miner-field-grid > .gui-field-full { grid-column: span 12; }
+
+.gui-field-grid > .gui-field-half,
+.miner-create-grid > .gui-field-half,
+.miner-field-grid > .gui-field-half { grid-column: span 6; }
+
+.gui-field-grid > .gui-field-third,
+.miner-create-grid > .gui-field-third,
+.miner-field-grid > .gui-field-third { grid-column: span 4; }
+
+.gui-field-grid > .gui-field-quarter,
+.miner-create-grid > .gui-field-quarter,
+.miner-field-grid > .gui-field-quarter { grid-column: span 3; }
+
+.gui-field-grid > .gui-field-auto,
+.miner-create-grid > .gui-field-auto,
+.miner-field-grid > .gui-field-auto { grid-column: auto; }
+
 .field-label {
     display: inline-flex;
     align-items: center;
@@ -443,7 +465,25 @@ tbody td {
     .gui-fieldset-half,
     .gui-fieldset-third,
     .gui-fieldset-quarter,
-    .gui-fieldset-auto { grid-column: span 12; }
+    .gui-fieldset-auto,
+    .gui-field-grid > .gui-field,
+    .gui-field-grid > .gui-field-full,
+    .gui-field-grid > .gui-field-half,
+    .gui-field-grid > .gui-field-third,
+    .gui-field-grid > .gui-field-quarter,
+    .gui-field-grid > .gui-field-auto,
+    .miner-create-grid > .gui-field,
+    .miner-create-grid > .gui-field-full,
+    .miner-create-grid > .gui-field-half,
+    .miner-create-grid > .gui-field-third,
+    .miner-create-grid > .gui-field-quarter,
+    .miner-create-grid > .gui-field-auto,
+    .miner-field-grid > .gui-field,
+    .miner-field-grid > .gui-field-full,
+    .miner-field-grid > .gui-field-half,
+    .miner-field-grid > .gui-field-third,
+    .miner-field-grid > .gui-field-quarter,
+    .miner-field-grid > .gui-field-auto { grid-column: span 12; }
 }
 
 .form-section {
