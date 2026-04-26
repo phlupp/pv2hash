@@ -14,6 +14,11 @@ from pv2hash.sources.base import EnergySource
 
 logger = get_logger("pv2hash.source.battery_modbus")
 
+
+class RequiredModbusValueError(RuntimeError):
+    pass
+
+
 REGISTER_TYPE_TO_FUNCTION = {
     "holding": 0x03,
     "input": 0x04,
@@ -121,6 +126,7 @@ class BatteryModbusSource(EnergySource):
             "battery_capacity_ah": None,
             "battery_max_charge_current_a": None,
             "battery_max_discharge_current_a": None,
+            "optional_errors": {},
             "configs": {
                 "soc": self._config_to_debug(self.soc_cfg),
                 "charge_power": self._config_to_debug(self.charge_power_cfg),
@@ -298,7 +304,7 @@ class BatteryModbusSource(EnergySource):
             except Exception as exc:
                 self.debug_info["last_error"] = str(exc)
                 logger.exception("Battery Modbus poll failed")
-                return self._fallback_snapshot()
+                return self._fallback_snapshot(force_quality="offline")
 
     def _poll_device(self) -> EnergySnapshot:
         if not self.host:
@@ -310,16 +316,16 @@ class BatteryModbusSource(EnergySource):
         ) as sock:
             sock.settimeout(self.request_timeout_seconds)
 
-            soc_pct = self._read_numeric_value(sock, self.soc_cfg)
-            charge_power_w = self._read_numeric_value(sock, self.charge_power_cfg)
-            discharge_power_w = self._read_numeric_value(sock, self.discharge_power_cfg)
-            voltage_v = self._read_numeric_value(sock, self.voltage_cfg)
-            current_a = self._read_numeric_value(sock, self.current_cfg)
-            soh_pct = self._read_numeric_value(sock, self.soh_cfg)
-            temperature_c = self._read_numeric_value(sock, self.temperature_cfg)
-            capacity_ah = self._read_numeric_value(sock, self.capacity_cfg)
-            max_charge_current_a = self._read_numeric_value(sock, self.max_charge_current_cfg)
-            max_discharge_current_a = self._read_numeric_value(sock, self.max_discharge_current_cfg)
+            soc_pct = self._read_required_numeric_value(sock, self.soc_cfg)
+            charge_power_w = self._read_required_numeric_value(sock, self.charge_power_cfg)
+            discharge_power_w = self._read_required_numeric_value(sock, self.discharge_power_cfg)
+            voltage_v = self._read_optional_numeric_value(sock, self.voltage_cfg)
+            current_a = self._read_optional_numeric_value(sock, self.current_cfg)
+            soh_pct = self._read_optional_numeric_value(sock, self.soh_cfg)
+            temperature_c = self._read_optional_numeric_value(sock, self.temperature_cfg)
+            capacity_ah = self._read_optional_numeric_value(sock, self.capacity_cfg)
+            max_charge_current_a = self._read_optional_numeric_value(sock, self.max_charge_current_cfg)
+            max_discharge_current_a = self._read_optional_numeric_value(sock, self.max_discharge_current_cfg)
 
         is_charging = charge_power_w > 0 if charge_power_w is not None else None
         is_discharging = discharge_power_w > 0 if discharge_power_w is not None else None
@@ -356,7 +362,7 @@ class BatteryModbusSource(EnergySource):
             quality="live",
         )
 
-    def _fallback_snapshot(self) -> EnergySnapshot:
+    def _fallback_snapshot(self, *, force_quality: str | None = None) -> EnergySnapshot:
         now = datetime.now(UTC)
 
         if self.last_snapshot is not None and self.last_live_packet_at is not None:
@@ -364,9 +370,11 @@ class BatteryModbusSource(EnergySource):
             stale_after_seconds = max(self.poll_interval_seconds * 3.0, 3.0)
             offline_after_seconds = max(self.poll_interval_seconds * 10.0, 15.0)
 
-            quality = "stale" if age < offline_after_seconds else "offline"
-            if age < stale_after_seconds:
-                quality = "live"
+            quality = force_quality
+            if quality is None:
+                quality = "stale" if age < offline_after_seconds else "offline"
+                if age < stale_after_seconds:
+                    quality = "live"
 
             self._set_quality(quality)
 
@@ -383,7 +391,8 @@ class BatteryModbusSource(EnergySource):
                 quality=quality,
             )
 
-        self._set_quality("no_data")
+        quality = force_quality or "no_data"
+        self._set_quality(quality)
         return EnergySnapshot(
             grid_power_w=0.0,
             battery_charge_power_w=None,
@@ -394,8 +403,29 @@ class BatteryModbusSource(EnergySource):
             battery_is_active=None,
             updated_at=now,
             source="battery_modbus",
-            quality="no_data",
+            quality=quality,
         )
+
+    def _read_required_numeric_value(self, sock: socket.socket, cfg: ModbusValueConfig) -> float | None:
+        try:
+            return self._read_numeric_value(sock, cfg)
+        except Exception as exc:
+            raise RequiredModbusValueError(f"Required battery Modbus value '{cfg.name}' failed: {exc}") from exc
+
+    def _read_optional_numeric_value(self, sock: socket.socket, cfg: ModbusValueConfig) -> float | None:
+        errors = self.debug_info.setdefault("optional_errors", {})
+        if not cfg.enabled:
+            errors.pop(cfg.name, None)
+            return None
+
+        try:
+            value = self._read_numeric_value(sock, cfg)
+        except Exception as exc:
+            errors[cfg.name] = str(exc)
+            return None
+
+        errors.pop(cfg.name, None)
+        return value
 
     def _read_numeric_value(self, sock: socket.socket, cfg: ModbusValueConfig) -> float | None:
         if not cfg.enabled:
@@ -517,6 +547,12 @@ class BatteryModbusSource(EnergySource):
             chunks.append(chunk)
             received += len(chunk)
         return b"".join(chunks)
+
+    @staticmethod
+    def _format_quality_text(quality: str) -> str:
+        if str(quality or "") == "offline":
+            return "Batterie getrennt"
+        return EnergySource._format_quality_text(quality)
 
     def _set_quality(self, quality: str) -> None:
         self.debug_info["current_quality"] = quality
