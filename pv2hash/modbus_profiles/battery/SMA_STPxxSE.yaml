@@ -1,0 +1,97 @@
+# PV2Hash Modbus TCP Batterie-Profil
+#
+# Diese Datei ist ein Beispiel und wird in der GUI nicht als auswählbares Profil angezeigt.
+# Für eigene Profile eine neue YAML-Datei in diesem Ordner oder später unter
+# /var/lib/pv2hash/modbus_profiles/battery/ ablegen und hidden entfernen/auf false setzen.
+#
+# Unterstützte register_type Werte:
+#   holding         -> Modbus function 0x03
+#   input           -> Modbus function 0x04
+#   coil            -> Modbus function 0x01
+#   discrete_input  -> Modbus function 0x02
+#
+# Unterstützte type Werte:
+#   uint8, int8, uint16, int16, uint32, int32, float32
+#
+# Unterstützte endian Werte:
+#   big_endian, little_endian
+#
+# Hinweise:
+# - Das Profil belegt nur Formularwerte vor.
+# - Pflichtfelder, Einheiten, Layout und Hilfetexte definiert weiterhin der Treiber.
+# - Optional konfigurierte Werte dürfen weggelassen werden.
+# - timeout_ms wird beim Anwenden in request_timeout_seconds umgerechnet.
+
+id: SMA_STPxxSE
+name: SMA STP 10.0 / 8.0 / 6.0 SE
+vendor: SMA Solar Technology AG
+description: Batteriewerte aus den SMA STP SmartEnergy Geräten lesen
+
+values:
+  port: 502
+  unit_id: 3
+  poll_interval_ms: 1000
+  timeout_ms: 1000
+
+  soc:
+    address: 30845
+    register_type: input
+    type: uint32
+    endian: big_endian
+    factor: 1
+
+  charge_power:
+    address: 31393
+    register_type: input
+    type: uint32
+    endian: big_endian
+    factor: 1
+
+  discharge_power:
+    address: 31395
+    register_type: input
+    type: uint32
+    endian: big_endian
+    factor: 1
+
+  voltage:
+    address: 30851
+    register_type: input
+    type: uint32
+    endian: big_endian
+    factor: 1
+
+  current:
+    address: 30843
+    register_type: input
+    type: int32
+    endian: big_endian
+    factor: 0.001
+
+  temperature:
+    address: 30849
+    register_type: input
+    type: int32
+    endian: big_endian
+    factor: 0.1
+
+  capacity:
+    address: 40187
+    register_type: input
+    type: uint32
+    endian: big_endian
+    factor: 0.001
+
+  max_charge_current:
+    address: 32251
+    register_type: input
+    type: uint32
+    endian: big_endian
+    factor: 0.001
+
+  max_discharge_current:
+    address: 32257
+    register_type: input
+    type: uint32
+    endian: big_endian
+    factor: 0.001

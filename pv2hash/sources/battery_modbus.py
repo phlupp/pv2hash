@@ -10,7 +10,11 @@ from time import monotonic
 from pv2hash.logging_ext.setup import get_logger
 from pv2hash.models.energy import EnergySnapshot
 from pv2hash.sources.base import EnergySource
-from pv2hash.sources.battery_modbus_profiles import battery_modbus_profile_choices
+from pv2hash.sources.battery_modbus_profiles import (
+    battery_modbus_profile_choices,
+    battery_modbus_profile_warnings,
+    get_battery_modbus_profile,
+)
 
 
 logger = get_logger("pv2hash.source.battery_modbus")
@@ -237,13 +241,19 @@ class BatteryModbusSource(EnergySource):
                     else "Optional: leer lassen, wenn dieser Wert nicht abgefragt werden soll."
                 ),
             }
+        selected_profile = str(settings.get("modbus_profile", "") or "")
+        if selected_profile:
+            selected = get_battery_modbus_profile(selected_profile)
+            if selected is not None:
+                selected_profile = selected.key
+
 
         return [
             {
                 "name": "battery_modbus_profile",
                 "label": "Modbus-Profil",
                 "type": "select",
-                "value": settings.get("modbus_profile", ""),
+                "value": selected_profile,
                 "required": False,
                 "layout": {"width": "full"},
                 "options": battery_modbus_profile_choices(),
@@ -277,6 +287,9 @@ class BatteryModbusSource(EnergySource):
         ]
 
 
+
+    def get_warnings(self, *, config: dict | None = None) -> list[str]:
+        return battery_modbus_profile_warnings()
 
     def get_header_fields(self, *, snapshot=None, debug_info: dict | None = None, status: dict | None = None, detail_groups=None) -> list[dict]:
         debug_info = debug_info or self.debug_info

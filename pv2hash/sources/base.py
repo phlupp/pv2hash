@@ -29,6 +29,9 @@ class EnergySource(ABC):
     def get_actions(self, *, config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         return []
 
+    def get_warnings(self, *, config: dict[str, Any] | None = None) -> list[str]:
+        return []
+
     async def run_action(self, action: str, *, config: dict[str, Any] | None = None) -> dict[str, Any]:
         return {"status": "error", "message": f"Unbekannte Source-Aktion: {action}"}
 
@@ -102,6 +105,7 @@ class EnergySource(ABC):
             "detail_groups": detail_groups,
             "capabilities": self.get_capabilities(),
             "actions": self.get_actions(config=config),
+            "warnings": self.get_warnings(config=config),
         }
 
     def get_capabilities(self) -> dict[str, Any]:

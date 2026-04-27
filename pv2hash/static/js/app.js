@@ -671,6 +671,21 @@
         : [];
   }
 
+  const sourceWarningToastKeys = new Set();
+
+  function displaySourceModelWarnings(models) {
+    if (!window.showToast) return;
+    for (const model of models || []) {
+      const warnings = Array.isArray(model?.warnings) ? model.warnings : [];
+      for (const warning of warnings) {
+        const message = String(warning || "").trim();
+        if (!message || sourceWarningToastKeys.has(message)) continue;
+        sourceWarningToastKeys.add(message);
+        window.showToast("warning", message);
+      }
+    }
+  }
+
 
   function normalizeGuiFieldWidth(field) {
     const width = String(field?.layout?.width || field?.width || 'full').toLowerCase();
@@ -1097,6 +1112,7 @@
   function updateSourcesGuiModels(data, options = {}) {
     const models = sourceModelsFromPayload(data);
     window.pv2hashSourcesGuiModels = models;
+    displaySourceModelWarnings(models);
 
     if (options.forceRender) {
       renderSourcesGuiModels(models);

@@ -454,3 +454,13 @@ Supported `type` values: `uint8`, `int8`, `uint16`, `int16`, `uint32`, `int32`, 
 Supported `endian` values: `big_endian`, `little_endian`.
 
 `timeout_ms` is converted to the driver's `request_timeout_seconds` field when a profile is applied. Optional register sections may be omitted.
+
+Profile loading rules:
+
+- Built-in profiles are read from `pv2hash/modbus_profiles/battery/`.
+- User profiles are read from `/var/lib/pv2hash/modbus_profiles/battery/`.
+- User profiles are shown with the suffix `(Custom)`.
+- Profiles are sorted alphabetically by display label.
+- Duplicate profile IDs are not hidden; entries with duplicate IDs include the ID in the label so the conflict is visible.
+- Invalid YAML/profile files are ignored, logged as a warning, and exposed to the GUI as a warning toast.
+- The profile list is loaded on demand for GUI rendering and profile actions, not during normal Modbus polling.
