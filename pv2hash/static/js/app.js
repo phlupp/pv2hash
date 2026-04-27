@@ -816,6 +816,12 @@
 
 
     if (field.refresh_on_change) input.dataset.sourceRefreshConfig = '1';
+    if (field.action_on_change) {
+      input.dataset.sourceActionOnChange = String(field.action_on_change);
+      input.dataset.sourceActionOnChangeBusyText = field.action_on_change_busy_text || 'Wird angewendet …';
+      input.dataset.sourceActionOnChangeEmpty = field.action_on_change_empty || '';
+      input.dataset.sourceId = model?.id || model?.role || '';
+    }
     if (field.disabled) input.disabled = true;
 
     if (field.type === 'checkbox') {
@@ -1144,14 +1150,30 @@
     }
   }
 
-  async function runSourceAction(form, button) {
-    if (!form || !button || form.dataset.busy === '1') return;
+  async function runSourceAction(form, element) {
+    if (!form || !element || form.dataset.busy === '1') return;
+
+    const actionId = element.dataset.sourceAction || element.dataset.sourceActionOnChange || '';
+    const sourceId = element.dataset.sourceId || '';
+    if (!actionId || !sourceId) return;
+
+    if (element instanceof HTMLSelectElement && !element.value && element.dataset.sourceActionOnChangeEmpty !== 'run') {
+      if (element.dataset.sourceActionOnChangeEmpty === 'preview') {
+        await previewSourcesConfig(form);
+      }
+      return;
+    }
 
     const payload = new FormData(form);
-    payload.set('source_id', button.dataset.sourceId || '');
-    payload.set('action_id', button.dataset.sourceAction || '');
+    payload.set('source_id', sourceId);
+    payload.set('action_id', actionId);
 
-    const restore = setButtonBusy(button, 'Suche …');
+    const busyText = element.dataset.sourceActionOnChangeBusyText || (element.dataset.sourceActionOnChange ? 'Wird angewendet …' : 'Suche …');
+    const restore = element instanceof HTMLButtonElement ? setButtonBusy(element, busyText) : (() => {});
+    if (!(element instanceof HTMLButtonElement)) {
+      element.disabled = true;
+      element.setAttribute('aria-busy', 'true');
+    }
     setFormBusy(form, true);
     try {
       const response = await fetch('/api/sources/action', {
@@ -1166,6 +1188,10 @@
       window.showToast('error', error.message || 'Source-Aktion fehlgeschlagen.');
     } finally {
       setFormBusy(form, false);
+      if (!(element instanceof HTMLButtonElement)) {
+        element.disabled = false;
+        element.removeAttribute('aria-busy');
+      }
       restore();
     }
   }
@@ -1244,6 +1270,10 @@
       form.addEventListener('change', (event) => {
         const target = event.target;
         if (!(target instanceof HTMLSelectElement)) return;
+        if (target.dataset.sourceActionOnChange) {
+          runSourceAction(form, target);
+          return;
+        }
         if (target.dataset.sourceRefreshConfig !== '1') return;
         previewSourcesConfig(form);
       });

@@ -257,7 +257,10 @@ class BatteryModbusSource(EnergySource):
                 "required": False,
                 "layout": {"width": "full"},
                 "options": battery_modbus_profile_choices(),
-                "help": "Optional: Profil wählen und per Aktion anwenden. Die Werte werden nur ins Formular übernommen und erst beim Speichern dauerhaft gesichert.",
+                "action_on_change": "battery_modbus_apply_profile",
+                "action_on_change_busy_text": "Profil wird geladen …",
+                "action_on_change_empty": "preview",
+                "help": "Optional: Profil wählen. Die Werte werden direkt ins Formular übernommen und erst beim Speichern dauerhaft gesichert.",
             },
             {"name": "battery_host", "label": "Host / IP", "type": "text", "value": settings.get("host", self.host), "required": True, "layout": {"width": "half"}},
             {"name": "battery_port", "label": "Port", "type": "number", "value": settings.get("port", self.port), "step": 1, "required": True, "layout": {"width": "quarter"}},
@@ -278,13 +281,9 @@ class BatteryModbusSource(EnergySource):
 
 
     def get_actions(self, *, config: dict | None = None) -> list[dict]:
-        return [
-            {
-                "id": "battery_modbus_apply_profile",
-                "label": "Profil anwenden",
-                "help": "Übernimmt die Werte des gewählten Modbus-Profils in das Formular. Danach bitte prüfen und speichern.",
-            }
-        ]
+        # Modbus profiles are applied automatically when the profile select field changes.
+        # The action remains available via /api/sources/action, but no separate button is rendered.
+        return []
 
 
 

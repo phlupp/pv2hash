@@ -70,6 +70,30 @@ Additional field types may be added later, but must be handled globally by the r
 }
 ```
 
+### Field-triggered actions
+
+Fields may trigger a driver/source action on change without adding static page logic.
+
+```json
+{
+  "name": "battery_modbus_profile",
+  "label": "Modbus-Profil",
+  "type": "select",
+  "action_on_change": "battery_modbus_apply_profile",
+  "action_on_change_busy_text": "Profil wird geladen …",
+  "action_on_change_empty": "preview"
+}
+```
+
+Rules:
+
+- `action_on_change` names the existing generic source/miner action to run.
+- The renderer submits the current form through the generic action endpoint.
+- The returned model is rendered immediately, but values are only persisted after the normal Save action.
+- `action_on_change_empty: preview` is useful for resetting a select field to Manual without running the action.
+- Do not add source-specific JavaScript for these interactions.
+
+
 ### Layout metadata
 
 ```json
