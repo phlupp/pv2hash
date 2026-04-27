@@ -1306,6 +1306,118 @@
   }
 
 
+  function settingsModelFromPayload(data) {
+    return data?.model && typeof data.model === 'object' ? data.model : { sections: [] };
+  }
+
+  function createSettingsField(field) {
+    // Settings fields use the same global GUI field model as Sources/Miners.
+    return createSourceField(field, null);
+  }
+
+  function createSettingsSection(section) {
+    const card = document.createElement('article');
+    card.className = 'card';
+    card.dataset.settingsSection = section?.id || '';
+
+    const head = document.createElement('div');
+    head.className = 'card-head';
+    const titleBlock = document.createElement('div');
+    const title = document.createElement('h2');
+    title.textContent = section?.title || 'Einstellungen';
+    titleBlock.appendChild(title);
+    if (section?.subtitle || section?.description) {
+      const subtitle = document.createElement('p');
+      subtitle.className = 'card-subtitle';
+      subtitle.textContent = section.subtitle || section.description;
+      titleBlock.appendChild(subtitle);
+    }
+    head.appendChild(titleBlock);
+    card.appendChild(head);
+
+    const grid = document.createElement('div');
+    grid.className = 'form-grid gui-field-grid';
+    for (const field of section?.fields || []) {
+      const element = createSettingsField(field);
+      if (element) grid.appendChild(element);
+    }
+    card.appendChild(grid);
+    return card;
+  }
+
+  function renderSettingsModel(model) {
+    const container = document.querySelector('[data-settings-model-container]');
+    if (!container) return;
+    container.innerHTML = '';
+    for (const section of model?.sections || []) {
+      container.appendChild(createSettingsSection(section));
+    }
+  }
+
+  async function loadSettingsModel() {
+    const root = document.querySelector('[data-settings-root]');
+    if (!root) return;
+    try {
+      const response = await fetch('/api/settings/model', { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+      const data = await readJsonResponse(response, 'Einstellungen konnten nicht geladen werden.');
+      renderSettingsModel(settingsModelFromPayload(data));
+    } catch (error) {
+      window.showToast('error', error.message || 'Einstellungen konnten nicht geladen werden.');
+    }
+  }
+
+  function collectSettingsValues(form) {
+    const values = {};
+    for (const element of form.querySelectorAll('input[name], select[name], textarea[name]')) {
+      if (element.disabled) continue;
+      if (element instanceof HTMLInputElement && element.type === 'checkbox') {
+        values[element.name] = element.checked;
+      } else {
+        values[element.name] = element.value;
+      }
+    }
+    return values;
+  }
+
+  async function submitSettingsForm(form, submitter) {
+    if (!form || form.dataset.busy === '1') return;
+    const restore = setButtonBusy(submitter || form.querySelector('[type="submit"]'), 'Speichert …');
+    setFormBusy(form, true);
+    try {
+      const data = await postJson('/api/settings/config', collectSettingsValues(form));
+      renderSettingsModel(settingsModelFromPayload(data));
+      window.showToast('success', data.message || 'Einstellungen gespeichert.');
+      const navSubtitle = document.querySelector('[data-nav-subtitle]');
+      if (navSubtitle && data.instance_name) navSubtitle.textContent = data.instance_name;
+    } catch (error) {
+      window.showToast('error', error.message || 'Einstellungen konnten nicht gespeichert werden.');
+    } finally {
+      setFormBusy(form, false);
+      restore();
+    }
+  }
+
+  function setupSettingsPage() {
+    const root = document.querySelector('[data-settings-root]');
+    if (!root) return;
+    const form = document.querySelector('[data-settings-form]');
+    if (form) {
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        submitSettingsForm(form, event.submitter);
+      });
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('saved') === '1') {
+      window.showToast('success', 'Einstellungen gespeichert.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    loadSettingsModel();
+  }
+
+
   let versionStatusTimer = null;
   let versionStatusRunning = false;
   let versionStatusFailureCount = 0;
@@ -1406,6 +1518,7 @@
     setupMinerLiveRefresh();
     setupDashboardLiveRefresh();
     setupSourcesPage();
+    setupSettingsPage();
     setupVersionStatusRefresh();
   });
 })();

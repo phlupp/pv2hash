@@ -8,8 +8,8 @@
 </head>
 <body>
     <div class="layout">
-                {% set nav_active = 'settings' %}
-        {% set nav_subtitle = config.system.instance_name %}
+        {% set nav_active = 'settings' %}
+        {% set nav_subtitle = instance_name %}
         {% include "partials/nav.html" %}
 
         <main class="content">
@@ -19,187 +19,29 @@
                     <p>Basis-Konfiguration für Instanz und Regelung</p>
                 </div>
             </header>
-            <form method="post" action="/settings">
-                <section class="grid grid-2">
-                    <article class="card">
-                        <div class="card-head">
-                            <h2>Allgemein</h2>
+
+            <section data-settings-root data-refresh-seconds="{{ refresh_seconds }}">
+                <form data-settings-form>
+                    <section class="grid grid-2" data-settings-model-container>
+                        <article class="card">
+                            <div class="card-head">
+                                <div>
+                                    <h2>Einstellungen werden geladen …</h2>
+                                    <p class="card-subtitle">Das GUI-Modell wird vom Server geladen.</p>
+                                </div>
+                            </div>
+                        </article>
+                    </section>
+
+                    <section class="card top-gap">
+                        <div class="actions">
+                            <button class="btn" type="submit">Einstellungen speichern</button>
                         </div>
-
-                        <div class="form-grid">
-                            <label>
-                                <span>Instanzname</span>
-                                <input type="text" name="instance_name" value="{{ config.system.instance_name }}">
-                            </label>
-
-                            <label>
-                                <span>Refresh-Intervall (Sekunden)</span>
-                                <input type="number" name="refresh_seconds" value="{{ config.app.refresh_seconds }}" min="1" max="60" step="1" inputmode="numeric">
-                            </label>
-
-                            <label>
-                                <span>Policy-Modus</span>
-                                <select name="policy_mode">
-                                    <option value="coarse" {% if config.control.policy_mode == "coarse" %}selected{% endif %}>coarse</option>
-                                    <option value="fine" {% if config.control.policy_mode == "fine" %}selected{% endif %}>fine</option>
-                                </select>
-                            </label>
-
-                            <label>
-                                <span>Verteilstrategie</span>
-                                <select name="distribution_mode">
-                                    <option value="equal" {% if config.control.distribution_mode == "equal" %}selected{% endif %}>equal</option>
-                                    <option value="cascade" {% if config.control.distribution_mode == "cascade" %}selected{% endif %}>cascade</option>
-                                </select>
-                            </label>
-                        </div>
-                    </article>
-
-
-                    <article class="card">
-                        <div class="card-head">
-                            <h2>Regelung</h2>
-                        </div>
-
-                        <div class="form-grid">
-                            <label>
-                                <span>Hysterese (W)</span>
-                                <input
-                                    type="number"
-                                    name="switch_hysteresis_w"
-                                    value="{{ config.control.switch_hysteresis_w if config.control.switch_hysteresis_w is defined else 100 }}"
-                                    min="0"
-                                    step="1"
-                                    inputmode="numeric"
-                                >
-                                <small class="help">Zusätzliche Reserve vor dem nächsten Zuschalten bzw. Rücksetzen der Import-Erkennung.</small>
-                            </label>
-
-                            <label>
-                                <span>Mindest-Schaltintervall (Sekunden)</span>
-                                <input
-                                    type="number"
-                                    name="min_switch_interval_seconds"
-                                    value="{{ config.control.min_switch_interval_seconds if config.control.min_switch_interval_seconds is defined else 60 }}"
-                                    min="0"
-                                    step="1"
-                                    inputmode="numeric"
-                                >
-                                <small class="help">Minimale Zeit zwischen zwei Profil-/Verteiländerungen.</small>
-                            </label>
-
-                            <label>
-                                <span>Grenzwert Netzbezug (W)</span>
-                                <input
-                                    type="number"
-                                    name="max_import_w"
-                                    value="{{ config.control.max_import_w if config.control.max_import_w is defined else 200 }}"
-                                    min="0"
-                                    step="1"
-                                    inputmode="numeric"
-                                >
-                                <small class="help">Erlaubter Netzbezug in Watt. 0 = kein Bezug erlaubt.</small>
-                            </label>
-
-                            <label>
-                                <span>Import halten / Verzögerung (Sekunden)</span>
-                                <input
-                                    type="number"
-                                    name="import_hold_seconds"
-                                    value="{{ config.control.import_hold_seconds if config.control.import_hold_seconds is defined else 15 }}"
-                                    min="0"
-                                    step="1"
-                                    inputmode="numeric"
-                                >
-                                <small class="help">Wie lange zu hoher Bezug anstehen muss, bevor heruntergeregelt wird.</small>
-                            </label>
-                        </div>
-                    </article>
-
-                    <article class="card">
-                        <div class="card-head">
-                            <h2>Messungs-Fallback</h2>
-                        </div>
-
-                        <div class="form-grid">
-                            <label>
-                                <span>Bei stale</span>
-                                <select name="stale_mode">
-                                    <option value="hold_current" {% if config.control.source_loss.stale.mode == "hold_current" %}selected{% endif %}>hold_current</option>
-                                    <option value="off_all" {% if config.control.source_loss.stale.mode == "off_all" %}selected{% endif %}>off_all</option>
-                                    <option value="force_profile" {% if config.control.source_loss.stale.mode == "force_profile" %}selected{% endif %}>force_profile</option>
-                                </select>
-                            </label>
-
-                            <label>
-                                <span>Stale Fallback-Profil</span>
-                                <select name="stale_fallback_profile">
-                                    <option value="off" {% if config.control.source_loss.stale.fallback_profile == "off" %}selected{% endif %}>off</option>
-                                    <option value="p1" {% if config.control.source_loss.stale.fallback_profile == "p1" %}selected{% endif %}>p1</option>
-                                    <option value="p2" {% if config.control.source_loss.stale.fallback_profile == "p2" %}selected{% endif %}>p2</option>
-                                    <option value="p3" {% if config.control.source_loss.stale.fallback_profile == "p3" %}selected{% endif %}>p3</option>
-                                    <option value="p4" {% if config.control.source_loss.stale.fallback_profile == "p4" %}selected{% endif %}>p4</option>
-                                </select>
-                                <small class="help">off_all bleibt echter Aus-Fallback. force_profile=p1 ist die kleinste echte Leistungsstufe.</small>
-                            </label>
-
-                            <label>
-                                <span>Stale halten (Sekunden)</span>
-                                <input
-                                    type="number"
-                                    name="stale_hold_seconds"
-                                    value="{{ config.control.source_loss.stale.hold_seconds if config.control.source_loss.stale.hold_seconds is defined else 0 }}"
-                                    min="0"
-                                    step="1"
-                                    inputmode="numeric"
-                                >
-                                <small class="help">0 = unbegrenzt halten bis Verbindung zurückkehrt.</small>
-                            </label>
-
-                            <label>
-                                <span>Bei offline</span>
-                                <select name="offline_mode">
-                                    <option value="hold_current" {% if config.control.source_loss.offline.mode == "hold_current" %}selected{% endif %}>hold_current</option>
-                                    <option value="off_all" {% if config.control.source_loss.offline.mode == "off_all" %}selected{% endif %}>off_all</option>
-                                    <option value="force_profile" {% if config.control.source_loss.offline.mode == "force_profile" %}selected{% endif %}>force_profile</option>
-                                </select>
-                            </label>
-
-                            <label>
-                                <span>Offline Fallback-Profil</span>
-                                <select name="offline_fallback_profile">
-                                    <option value="off" {% if config.control.source_loss.offline.fallback_profile == "off" %}selected{% endif %}>off</option>
-                                    <option value="p1" {% if config.control.source_loss.offline.fallback_profile == "p1" %}selected{% endif %}>p1</option>
-                                    <option value="p2" {% if config.control.source_loss.offline.fallback_profile == "p2" %}selected{% endif %}>p2</option>
-                                    <option value="p3" {% if config.control.source_loss.offline.fallback_profile == "p3" %}selected{% endif %}>p3</option>
-                                    <option value="p4" {% if config.control.source_loss.offline.fallback_profile == "p4" %}selected{% endif %}>p4</option>
-                                </select>
-                                <small class="help">off_all bleibt echter Aus-Fallback. force_profile=p1 ist die kleinste echte Leistungsstufe.</small>
-                            </label>
-
-                            <label>
-                                <span>Offline halten (Sekunden)</span>
-                                <input
-                                    type="number"
-                                    name="offline_hold_seconds"
-                                    value="{{ config.control.source_loss.offline.hold_seconds if config.control.source_loss.offline.hold_seconds is defined else 0 }}"
-                                    min="0"
-                                    step="1"
-                                    inputmode="numeric"
-                                >
-                                <small class="help">0 = unbegrenzt halten bis Verbindung zurückkehrt.</small>
-                            </label>
-                        </div>
-                    </article>
-                </section>
-
-                <section class="card">
-                    <div class="actions">
-                        <button class="btn" type="submit">Einstellungen speichern</button>
-                    </div>
-                </section>
-            </form>
+                    </section>
+                </form>
+            </section>
         </main>
     </div>
+
 </body>
 </html>
