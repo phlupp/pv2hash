@@ -1489,6 +1489,734 @@
     }
   }
 
+
+  let systemModelTimer = null;
+  let systemLogTimer = null;
+  let systemModelLoading = false;
+  let systemLogLines = [];
+  let systemAutoScroll = true;
+  let systemLogsVisible = true;
+  let systemLastUpdateStatus = null;
+
+  function systemEscapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text ?? '';
+    return div.innerHTML;
+  }
+
+  function systemFormatDate(value) {
+    if (!value) return '—';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    return parsed.toLocaleString('de-DE');
+  }
+
+  function systemSetProgress(fill, percentElement, value) {
+    const percent = Number(value);
+    if (!Number.isFinite(percent)) {
+      if (fill) fill.style.width = '0%';
+      if (percentElement) percentElement.textContent = '—';
+      return false;
+    }
+
+    const bounded = Math.max(0, Math.min(100, Math.round(percent)));
+    if (fill) {
+      fill.style.width = `${bounded}%`;
+      const bar = fill.closest('.update-progress-bar');
+      if (bar) bar.setAttribute('aria-valuenow', String(bounded));
+    }
+    if (percentElement) percentElement.textContent = `${bounded}%`;
+    return true;
+  }
+
+  function systemUpdateBadge(status) {
+    const map = {
+      disabled: { label: 'Deaktiviert', className: 'status-neutral' },
+      checking: { label: 'Prüft …', className: 'status-info' },
+      update_available: { label: 'Update verfügbar', className: 'status-warn' },
+      up_to_date: { label: 'Aktuell', className: 'status-good' },
+      ahead_of_release: { label: 'Lokaler Stand neuer', className: 'status-info' },
+      error: { label: 'Fehler', className: 'status-bad' },
+    };
+    return map[status] || { label: status || 'Unbekannt', className: 'status-neutral' };
+  }
+
+  function systemUpdateMessage(status, data) {
+    if (status === 'disabled') return 'Update-Prüfung ist in der Konfiguration deaktiviert.';
+    if (status === 'checking') return 'GitHub Releases werden gerade geprüft …';
+    if (status === 'update_available') return `Es ist ein neueres Release verfügbar: ${data.release_version_full || data.release_tag || '—'}.`;
+    if (status === 'up_to_date') return 'Die lokale Installation entspricht dem aktuellen Latest Release.';
+    if (status === 'ahead_of_release') return 'Der lokale Stand ist neuer als das aktuelle Latest Release auf GitHub.';
+    if (status === 'error') return data.error || 'Die Update-Prüfung ist fehlgeschlagen.';
+    return 'Kein Update-Status vorhanden.';
+  }
+
+  function createSystemCard(title, subtitle = '') {
+    const card = document.createElement('article');
+    card.className = 'card';
+    const head = document.createElement('div');
+    head.className = 'card-head';
+    const titleBlock = document.createElement('div');
+    const h2 = document.createElement('h2');
+    h2.textContent = title || 'System';
+    titleBlock.appendChild(h2);
+    if (subtitle) {
+      const p = document.createElement('p');
+      p.className = 'card-subtitle';
+      p.textContent = subtitle;
+      titleBlock.appendChild(p);
+    }
+    head.appendChild(titleBlock);
+    card.appendChild(head);
+    return card;
+  }
+
+  function createSystemKv(rows) {
+    const kv = document.createElement('div');
+    kv.className = 'kv';
+    for (const row of rows || []) {
+      const item = document.createElement('div');
+      item.className = 'kv-row';
+      const label = document.createElement('span');
+      label.textContent = row.label || '';
+      const value = document.createElement('strong');
+      value.textContent = row.value ?? '—';
+      item.appendChild(label);
+      item.appendChild(value);
+      kv.appendChild(item);
+    }
+    return kv;
+  }
+
+  function renderSystemBackupCard(cardModel) {
+    const card = createSystemCard(cardModel.title, cardModel.description);
+    const actions = document.createElement('div');
+    actions.className = 'actions start wrap top-gap';
+
+    const exportLink = document.createElement('a');
+    exportLink.className = 'btn btn-secondary';
+    exportLink.href = cardModel.export_url || '/system/config/export';
+    exportLink.textContent = 'Konfiguration herunterladen';
+    actions.appendChild(exportLink);
+    card.appendChild(actions);
+
+    const form = document.createElement('form');
+    form.className = 'top-gap';
+    form.dataset.systemConfigImportForm = '1';
+
+    const grid = document.createElement('div');
+    grid.className = 'form-grid gui-field-grid';
+    const label = document.createElement('label');
+    label.className = 'gui-field gui-field-full is-required';
+    const span = document.createElement('span');
+    span.className = 'field-label';
+    span.textContent = 'Konfigurationsdatei';
+    appendRequiredMarker(span, { required: true });
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.name = 'config_file';
+    input.accept = 'application/json,.json';
+    input.required = true;
+    const help = document.createElement('small');
+    help.className = 'help';
+    help.textContent = 'Erwartet eine PV2Hash-Konfiguration im JSON-Format.';
+    label.appendChild(span);
+    label.appendChild(input);
+    label.appendChild(help);
+    grid.appendChild(label);
+    form.appendChild(grid);
+
+    const submitActions = document.createElement('div');
+    submitActions.className = 'actions end top-gap';
+    const submit = document.createElement('button');
+    submit.className = 'btn btn-warning';
+    submit.type = 'submit';
+    submit.dataset.submitButton = '1';
+    submit.textContent = 'Konfiguration importieren';
+    submitActions.appendChild(submit);
+    form.appendChild(submitActions);
+    card.appendChild(form);
+
+    return card;
+  }
+
+  function renderSystemDetailsCard(cardModel) {
+    const card = createSystemCard(cardModel.title, cardModel.description || '');
+    card.appendChild(createSystemKv(cardModel.rows || []));
+
+    if (Array.isArray(cardModel.actions) && cardModel.actions.length) {
+      const actions = document.createElement('div');
+      actions.className = 'actions start wrap top-gap';
+      for (const action of cardModel.actions) {
+        const button = document.createElement('button');
+        button.className = action.style === 'warning' ? 'btn btn-warning' : 'btn';
+        button.type = 'button';
+        button.dataset.systemAction = action.id || '';
+        button.textContent = action.label || action.id || 'Aktion';
+        actions.appendChild(button);
+      }
+      card.appendChild(actions);
+    }
+
+    return card;
+  }
+
+  function renderSystemUpdateCard(cardModel) {
+    const update = cardModel.model || {};
+    const updateStatus = update.update_status || {};
+    const runner = update.runner_status || {};
+    const details = update.release_details || {};
+    systemLastUpdateStatus = updateStatus;
+
+    const card = createSystemCard(cardModel.title || 'Updates');
+    const head = card.querySelector('.card-head');
+
+    const actions = document.createElement('div');
+    actions.className = 'system-update-head-actions';
+    const badgeInfo = systemUpdateBadge(updateStatus.status);
+    const badge = document.createElement('span');
+    badge.className = `status-pill ${badgeInfo.className}`;
+    badge.textContent = badgeInfo.label;
+    actions.appendChild(badge);
+
+    const checkButton = document.createElement('button');
+    checkButton.className = 'btn btn-secondary';
+    checkButton.type = 'button';
+    checkButton.dataset.systemUpdateCheck = '1';
+    checkButton.textContent = 'Jetzt auf Updates prüfen';
+    actions.appendChild(checkButton);
+    head.appendChild(actions);
+
+    const kvRows = [
+      { label: 'Lokale Version', value: updateStatus.local_version_full || '—' },
+      { label: 'Release-Version', value: updateStatus.release_version_full || '—' },
+      { label: 'Release-Tag', value: updateStatus.release_tag || '—' },
+      { label: 'Geprüft am', value: systemFormatDate(updateStatus.checked_at) },
+      { label: 'Veröffentlicht am', value: systemFormatDate(updateStatus.release_published_at) },
+    ];
+    card.appendChild(createSystemKv(kvRows));
+
+    const message = document.createElement('div');
+    message.className = updateStatus.status === 'error' ? 'update-error top-gap' : 'update-message top-gap';
+    message.textContent = systemUpdateMessage(updateStatus.status, updateStatus);
+    card.appendChild(message);
+
+    if (runner && runner.progress_percent !== null && runner.progress_percent !== undefined) {
+      const progressWrap = document.createElement('div');
+      progressWrap.className = 'update-progress-inline top-gap';
+      progressWrap.innerHTML = `
+        <div class="update-progress-inline-head">
+          <span>Fortschritt</span>
+          <strong data-system-update-progress-percent>—</strong>
+        </div>
+        <div class="update-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="update-progress-fill" data-system-update-progress-fill></div>
+        </div>
+      `;
+      systemSetProgress(
+        progressWrap.querySelector('[data-system-update-progress-fill]'),
+        progressWrap.querySelector('[data-system-update-progress-percent]'),
+        runner.progress_percent,
+      );
+      card.appendChild(progressWrap);
+    }
+
+    if (updateStatus.release_url) {
+      const links = document.createElement('div');
+      links.className = 'update-links';
+      const link = document.createElement('a');
+      link.className = 'link-muted';
+      link.href = updateStatus.release_url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = 'Release auf GitHub öffnen';
+      links.appendChild(link);
+      card.appendChild(links);
+    }
+
+    const hasDetails = !!(details.name || details.body || details.asset_name || details.asset_size_text);
+    if (hasDetails) {
+      const detailBlock = document.createElement('details');
+      detailBlock.className = 'update-release-details';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Release-Details anzeigen';
+      detailBlock.appendChild(summary);
+      detailBlock.appendChild(createSystemKv([
+        { label: 'Release-Name', value: details.name || '—' },
+        { label: 'Paket', value: details.asset_name || '—' },
+        { label: 'Paketgröße', value: details.asset_size_text || '—' },
+      ]));
+      const notes = document.createElement('pre');
+      notes.className = 'update-release-notes';
+      notes.textContent = details.body || 'Keine Release Notes vorhanden.';
+      detailBlock.appendChild(notes);
+      card.appendChild(detailBlock);
+    }
+
+    if (updateStatus.release_tag) {
+      const commandWrap = document.createElement('div');
+      commandWrap.className = 'update-command-wrap';
+      const label = document.createElement('div');
+      label.className = 'update-command-label';
+      label.textContent = 'Installationsbefehl für dieses Release';
+      const command = document.createElement('code');
+      command.className = 'update-command';
+      command.textContent = `curl -fsSL https://raw.githubusercontent.com/phlupp/pv2hash/main/scripts/install_release.sh | sudo env TAG=${updateStatus.release_tag} bash`;
+      commandWrap.appendChild(label);
+      commandWrap.appendChild(command);
+      card.appendChild(commandWrap);
+    }
+
+    const footer = document.createElement('div');
+    footer.className = 'actions end wrap top-gap system-update-footer';
+    const install = document.createElement('button');
+    install.className = 'btn btn-warning';
+    install.type = 'button';
+    install.dataset.systemUpdateStart = '1';
+
+    const updateAvailable = updateStatus.status === 'update_available';
+    const running = !!runner.running;
+    if (running) {
+      install.disabled = true;
+      install.textContent = 'Update läuft …';
+    } else if (runner.can_start && updateAvailable) {
+      install.disabled = false;
+      install.textContent = `Jetzt auf ${updateStatus.release_version_full || updateStatus.release_tag || 'Latest'} aktualisieren`;
+    } else {
+      install.disabled = true;
+      install.textContent = 'Update starten';
+    }
+    footer.appendChild(install);
+    card.appendChild(footer);
+
+    if (window.applyPv2HashVersionStatus) {
+      window.applyPv2HashVersionStatus({
+        status: updateStatus.status,
+        update_status: updateStatus.status,
+        version_full: updateStatus.local_version_full,
+        update_available: updateAvailable,
+        release_version_full: updateStatus.release_version_full,
+        release_tag: updateStatus.release_tag,
+        href: '/system',
+      });
+    }
+
+    renderSystemUpdateOverlay(runner);
+
+    return card;
+  }
+
+  function renderSystemLogsCard(cardModel) {
+    const card = createSystemCard(cardModel.title, cardModel.description || '');
+    card.classList.add('system-logs-card');
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'console-toolbar';
+    toolbar.innerHTML = `
+      <div class="console-toolbar-controls">
+        <div class="console-control-row console-control-row-primary">
+          <label class="console-filter-label" for="systemLogLevel">Log-Level</label>
+          <select id="systemLogLevel" data-system-log-level></select>
+          <button class="btn btn-secondary" type="button" data-system-log-level-save>Log-Level setzen</button>
+          <a class="btn btn-info" href="${cardModel.download_url || '/api/logs/download'}">Log herunterladen</a>
+        </div>
+        <div class="console-control-row console-control-row-filter">
+          <label class="console-filter-label" for="systemLogFilter">Filter</label>
+          <input id="systemLogFilter" class="console-filter-input" type="text" placeholder="Suche in Logzeilen …" data-system-log-filter>
+          <button class="btn btn-secondary" type="button" data-system-log-filter-clear>Filter löschen</button>
+        </div>
+        <div class="console-control-row console-control-row-actions">
+          <button class="btn btn-secondary" type="button" data-system-log-scroll-toggle>STOPPEN SCROLLING</button>
+          <button class="btn btn-secondary" type="button" data-system-log-visibility-toggle>AUSBLENDEN LOGS</button>
+        </div>
+      </div>
+    `;
+    card.appendChild(toolbar);
+
+    const select = toolbar.querySelector('[data-system-log-level]');
+    for (const item of cardModel.allowed_log_levels || ['INFO', 'DEBUG']) {
+      const option = document.createElement('option');
+      option.value = item;
+      option.textContent = item;
+      option.selected = item === cardModel.log_level;
+      select.appendChild(option);
+    }
+
+    const wrap = document.createElement('div');
+    wrap.className = 'console-wrap';
+    wrap.dataset.systemConsoleWrap = '1';
+    const output = document.createElement('div');
+    output.className = 'console-output';
+    output.dataset.systemLogConsole = '1';
+    output.innerHTML = '<div class="log-row"><div class="log-message-full">Lade Logs...</div></div>';
+    wrap.appendChild(output);
+    card.appendChild(wrap);
+
+    return card;
+  }
+
+  function renderSystemModel(model) {
+    const container = document.querySelector('[data-system-model-container]');
+    if (!container) return;
+
+    const previousLogFilter = document.querySelector('[data-system-log-filter]')?.value || '';
+    const previousReleaseDetailsOpen = Boolean(document.querySelector('.update-release-details')?.open);
+    container.innerHTML = '';
+
+    const topGrid = document.createElement('section');
+    topGrid.className = 'grid grid-2';
+    const midGrid = document.createElement('section');
+    midGrid.className = 'grid grid-2 top-gap';
+    const standaloneCards = [];
+
+    for (const card of model?.cards || []) {
+      let element;
+      if (card.type === 'backup') element = renderSystemBackupCard(card);
+      else if (card.type === 'update') element = renderSystemUpdateCard(card);
+      else if (card.type === 'logs') element = renderSystemLogsCard(card);
+      else element = renderSystemDetailsCard(card);
+
+      if (card.id === 'backup' || card.id === 'update') {
+        topGrid.appendChild(element);
+      } else if (card.id === 'instance' || card.id === 'host') {
+        midGrid.appendChild(element);
+      } else {
+        element.classList.add('top-gap');
+        standaloneCards.push(element);
+      }
+    }
+
+    if (topGrid.children.length) container.appendChild(topGrid);
+    if (midGrid.children.length) container.appendChild(midGrid);
+    for (const element of standaloneCards) container.appendChild(element);
+
+    const logFilter = document.querySelector('[data-system-log-filter]');
+    if (logFilter) logFilter.value = previousLogFilter;
+
+    const releaseDetails = document.querySelector('.update-release-details');
+    if (releaseDetails) releaseDetails.open = previousReleaseDetailsOpen;
+
+    renderSystemLogs();
+  }
+
+  function renderSystemUpdateOverlay(runner) {
+    const overlay = document.getElementById('updateOverlay');
+    if (!overlay) return;
+
+    const badge = document.getElementById('updateOverlayBadge');
+    const title = document.getElementById('updateOverlayTitle');
+    const subtitle = document.getElementById('updateOverlaySubtitle');
+    const percent = document.getElementById('updateOverlayProgressPercent');
+    const fill = document.getElementById('updateOverlayProgressFill');
+    const message = document.getElementById('updateOverlayMessage');
+
+    const running = !!runner?.running;
+    if (running) {
+      overlay.hidden = false;
+      if (badge) {
+        badge.textContent = runner.status === 'starting' ? 'Startet …' : 'Läuft';
+        badge.className = runner.status === 'starting' ? 'status-pill status-info' : 'status-pill status-warn';
+      }
+      if (title) title.textContent = runner.status === 'starting' ? 'Update startet' : 'Update wird installiert';
+      if (subtitle) subtitle.textContent = 'Der Dienst kann dabei kurzzeitig nicht erreichbar sein.';
+      if (message) message.textContent = runner.message || 'Update läuft …';
+      systemSetProgress(fill, percent, runner.progress_percent);
+    } else if (runner?.status === 'success' || runner?.status === 'error') {
+      if (message) message.textContent = runner.message || '—';
+      systemSetProgress(fill, percent, runner.progress_percent);
+    }
+  }
+
+  function systemUserIsEditingImportForm() {
+    const form = document.querySelector('[data-system-config-import-form]');
+    if (!form) return false;
+    const fileInput = form.querySelector('input[type="file"]');
+    return Boolean((fileInput && fileInput.files && fileInput.files.length) || document.activeElement?.closest('[data-system-config-import-form]'));
+  }
+
+  async function loadSystemModel(options = {}) {
+    const root = document.querySelector('[data-system-root]');
+    if (!root || systemModelLoading || document.hidden) return;
+    if (!options.force && systemUserIsEditingImportForm()) return;
+    systemModelLoading = true;
+    try {
+      const response = await fetch('/api/system/model', { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+      const model = await readJsonResponse(response, 'Systemdaten konnten nicht geladen werden.');
+      renderSystemModel(model);
+    } catch (error) {
+      const container = document.querySelector('[data-system-model-container]');
+      if (container) {
+        container.innerHTML = '<section class="card"><div class="card-head"><h2>System</h2></div><p class="update-error">Systemdaten konnten nicht geladen werden.</p></section>';
+      }
+      if (window.showToast) window.showToast('error', error.message || 'Systemdaten konnten nicht geladen werden.');
+    } finally {
+      systemModelLoading = false;
+    }
+  }
+
+  function systemRenderLogLine(line) {
+    const parts = String(line || '').split(' | ');
+    if (parts.length < 4) {
+      return `<div class="log-row"><div class="log-message-full">${systemEscapeHtml(line)}</div></div>`;
+    }
+
+    const timestamp = parts[0];
+    const level = parts[1].trim();
+    const logger = parts[2];
+    const message = parts.slice(3).join(' | ');
+    const levelClass = {
+      ERROR: 'log-level-error',
+      WARNING: 'log-level-warning',
+      INFO: 'log-level-info',
+      DEBUG: 'log-level-debug',
+    }[level] || '';
+
+    return `
+      <div class="log-row">
+        <div class="log-col-time">${systemEscapeHtml(timestamp)}</div>
+        <div class="log-col-level"><span class="log-level ${levelClass}">${systemEscapeHtml(level)}</span></div>
+        <div class="log-col-logger">${systemEscapeHtml(logger)}</div>
+        <div class="log-col-message">${systemEscapeHtml(message)}</div>
+      </div>
+    `;
+  }
+
+  function renderSystemLogs() {
+    const consoleEl = document.querySelector('[data-system-log-console]');
+    if (!consoleEl) return;
+
+    const filterInput = document.querySelector('[data-system-log-filter]');
+    const filter = String(filterInput?.value || '').trim().toLowerCase();
+    const lines = filter
+      ? systemLogLines.filter((line) => String(line).toLowerCase().includes(filter))
+      : systemLogLines;
+
+    consoleEl.innerHTML = lines.length
+      ? lines.map(systemRenderLogLine).join('')
+      : '<div class="log-row"><div class="log-message-full">Keine Logzeilen vorhanden.</div></div>';
+
+    const wrap = document.querySelector('[data-system-console-wrap]');
+    if (wrap && systemAutoScroll) {
+      wrap.scrollTop = wrap.scrollHeight;
+    }
+  }
+
+  async function loadSystemLogs() {
+    const root = document.querySelector('[data-system-root]');
+    if (!root || document.hidden) return;
+    try {
+      const response = await fetch('/api/logs', { cache: 'no-store' });
+      const data = await readJsonResponse(response, 'Logs konnten nicht geladen werden.');
+      systemLogLines = Array.isArray(data.lines) ? data.lines : [];
+      renderSystemLogs();
+    } catch (error) {
+      const consoleEl = document.querySelector('[data-system-log-console]');
+      if (consoleEl) {
+        consoleEl.innerHTML = '<div class="log-row"><div class="log-message-full">Fehler beim Laden der Logs.</div></div>';
+      }
+    }
+  }
+
+  function startSystemRefresh() {
+    const root = document.querySelector('[data-system-root]');
+    if (!root || document.hidden) return;
+    stopSystemRefresh();
+    systemModelTimer = window.setInterval(loadSystemModel, 5000);
+    systemLogTimer = window.setInterval(loadSystemLogs, 2000);
+  }
+
+  function stopSystemRefresh() {
+    if (systemModelTimer) {
+      window.clearInterval(systemModelTimer);
+      systemModelTimer = null;
+    }
+    if (systemLogTimer) {
+      window.clearInterval(systemLogTimer);
+      systemLogTimer = null;
+    }
+  }
+
+  async function systemRunUpdateCheck(button) {
+    const restore = setButtonBusy(button, 'Prüft …');
+    try {
+      const response = await fetch('/api/system/update-check', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+      });
+      await readJsonResponse(response, 'Update-Prüfung fehlgeschlagen.');
+      await loadSystemModel({ force: true });
+      if (window.showToast) window.showToast('success', 'Update-Prüfung abgeschlossen.');
+    } catch (error) {
+      if (window.showToast) window.showToast('error', error.message || 'Update-Prüfung fehlgeschlagen.');
+    } finally {
+      restore();
+    }
+  }
+
+  async function systemStartUpdate(button) {
+    const release = systemLastUpdateStatus && (systemLastUpdateStatus.release_version_full || systemLastUpdateStatus.release_tag)
+      ? (systemLastUpdateStatus.release_version_full || systemLastUpdateStatus.release_tag)
+      : 'das aktuelle Release';
+
+    if (!window.confirm(`PV2Hash wirklich auf ${release} aktualisieren? Der Dienst wird dabei neu gestartet.`)) {
+      return;
+    }
+
+    const restore = setButtonBusy(button, 'Startet …');
+    try {
+      const response = await fetch('/api/system/self-update', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+      });
+      await readJsonResponse(response, 'Update konnte nicht gestartet werden.');
+      const overlay = document.getElementById('updateOverlay');
+      if (overlay) overlay.hidden = false;
+      await loadSystemModel({ force: true });
+      if (window.showToast) window.showToast('success', 'Update wurde gestartet.');
+    } catch (error) {
+      if (window.showToast) window.showToast('error', error.message || 'Update konnte nicht gestartet werden.');
+    } finally {
+      restore();
+    }
+  }
+
+  async function systemReloadRuntime(button) {
+    const restore = setButtonBusy(button, 'Lädt …');
+    try {
+      const data = await postJson('/api/system/reload', {});
+      if (data.model) renderSystemModel(data.model);
+      if (window.showToast) window.showToast('success', data.message || 'Runtime wurde neu geladen.');
+    } catch (error) {
+      if (window.showToast) window.showToast('error', error.message || 'Runtime konnte nicht neu geladen werden.');
+    } finally {
+      restore();
+    }
+  }
+
+  async function systemSaveLogLevel(button) {
+    const select = document.querySelector('[data-system-log-level]');
+    const restore = setButtonBusy(button, 'Speichert …');
+    try {
+      const data = await postJson('/api/system/logging', { log_level: select?.value || 'INFO' });
+      if (data.model) renderSystemModel(data.model);
+      if (window.showToast) window.showToast('success', data.message || 'Log-Level gespeichert.');
+    } catch (error) {
+      if (window.showToast) window.showToast('error', error.message || 'Log-Level konnte nicht gespeichert werden.');
+    } finally {
+      restore();
+    }
+  }
+
+  async function systemImportConfig(form) {
+    if (!form || form.dataset.busy === '1') return;
+    const button = form.querySelector('[data-submit-button]');
+    const restore = setButtonBusy(button, 'Importiert …');
+    setFormBusy(form, true);
+    try {
+      const data = await postForm('/api/system/config/import', form);
+      if (data.model) renderSystemModel(data.model);
+      if (window.showToast) window.showToast('success', data.message || 'Konfiguration importiert.');
+    } catch (error) {
+      if (window.showToast) window.showToast('error', error.message || 'Konfiguration konnte nicht importiert werden.');
+    } finally {
+      setFormBusy(form, false);
+      restore();
+    }
+  }
+
+  function setupSystemPage() {
+    const root = document.querySelector('[data-system-root]');
+    if (!root) return;
+
+    root.addEventListener('click', (event) => {
+      const updateCheck = event.target.closest('[data-system-update-check]');
+      if (updateCheck) {
+        event.preventDefault();
+        systemRunUpdateCheck(updateCheck);
+        return;
+      }
+
+      const updateStart = event.target.closest('[data-system-update-start]');
+      if (updateStart) {
+        event.preventDefault();
+        systemStartUpdate(updateStart);
+        return;
+      }
+
+      const action = event.target.closest('[data-system-action]');
+      if (action) {
+        event.preventDefault();
+        if (action.dataset.systemAction === 'reload_runtime') systemReloadRuntime(action);
+        return;
+      }
+
+      const logLevelSave = event.target.closest('[data-system-log-level-save]');
+      if (logLevelSave) {
+        event.preventDefault();
+        systemSaveLogLevel(logLevelSave);
+        return;
+      }
+
+      const clearFilter = event.target.closest('[data-system-log-filter-clear]');
+      if (clearFilter) {
+        event.preventDefault();
+        const input = document.querySelector('[data-system-log-filter]');
+        if (input) input.value = '';
+        renderSystemLogs();
+        return;
+      }
+
+      const scrollToggle = event.target.closest('[data-system-log-scroll-toggle]');
+      if (scrollToggle) {
+        event.preventDefault();
+        systemAutoScroll = !systemAutoScroll;
+        scrollToggle.textContent = systemAutoScroll ? 'STOPPEN SCROLLING' : 'STARTEN SCROLLING';
+        if (systemAutoScroll) {
+          const wrap = document.querySelector('[data-system-console-wrap]');
+          if (wrap) wrap.scrollTop = wrap.scrollHeight;
+        }
+        return;
+      }
+
+      const visibilityToggle = event.target.closest('[data-system-log-visibility-toggle]');
+      if (visibilityToggle) {
+        event.preventDefault();
+        systemLogsVisible = !systemLogsVisible;
+        const wrap = document.querySelector('[data-system-console-wrap]');
+        if (wrap) wrap.style.display = systemLogsVisible ? 'block' : 'none';
+        visibilityToggle.textContent = systemLogsVisible ? 'AUSBLENDEN LOGS' : 'EINBLENDEN LOGS';
+      }
+    });
+
+    root.addEventListener('input', (event) => {
+      if (event.target.closest('[data-system-log-filter]')) {
+        renderSystemLogs();
+      }
+    });
+
+    root.addEventListener('submit', (event) => {
+      const form = event.target.closest('[data-system-config-import-form]');
+      if (!form) return;
+      event.preventDefault();
+      systemImportConfig(form);
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopSystemRefresh();
+      } else {
+        loadSystemModel({ force: true });
+        loadSystemLogs();
+        startSystemRefresh();
+      }
+    });
+
+    loadSystemModel({ force: true });
+    loadSystemLogs();
+    startSystemRefresh();
+  }
+
+
   function setupVersionStatusRefresh() {
     const link = document.querySelector('[data-versionstatus]');
     if (!link) return;
@@ -1521,6 +2249,7 @@
     setupDashboardLiveRefresh();
     setupSourcesPage();
     setupSettingsPage();
+    setupSystemPage();
     setupVersionStatusRefresh();
   });
 })();

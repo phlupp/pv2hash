@@ -531,6 +531,90 @@ def _build_system_update_model() -> dict[str, Any]:
     }
 
 
+def _system_row(label: str, value: Any, *, key: str | None = None) -> dict[str, Any]:
+    return {
+        "key": key or label.lower().replace(" ", "_"),
+        "label": label,
+        "value": value if value not in (None, "") else "—",
+    }
+
+
+def _build_system_model() -> dict[str, Any]:
+    host_status = _get_host_status()
+    source_type = state.config.get("source", {}).get("type", "unknown")
+    battery_type = state.config.get("battery", {}).get("type")
+    storage = host_status.get("storage", {}) or {}
+    storage_text = storage.get("text") or "—"
+    if storage.get("percent_text") and storage.get("percent_text") != "—":
+        storage_text = f"{storage_text} · {storage.get('percent_text')}"
+
+    ram_text = "—"
+    if host_status.get("ram_text") and host_status.get("ram_text") != "—":
+        ram_text = host_status.get("ram_text")
+        if host_status.get("ram_percent_text") and host_status.get("ram_percent_text") != "—":
+            ram_text = f"{ram_text} ({host_status.get('ram_percent_text')})"
+
+    return {
+        "instance_name": state.config["system"].get("instance_name", "PV2Hash Node"),
+        "app_version_full": APP_VERSION_FULL,
+        "cards": [
+            {
+                "id": "backup",
+                "title": "Sicherung & Wiederherstellung",
+                "description": "Komplette PV2Hash-Konfiguration als JSON sichern oder wiederherstellen.",
+                "type": "backup",
+                "export_url": "/system/config/export",
+            },
+            {
+                "id": "update",
+                "title": "Updates",
+                "type": "update",
+                "model": _build_system_update_model(),
+            },
+            {
+                "id": "instance",
+                "title": "Instanz",
+                "type": "details",
+                "rows": [
+                    _system_row("Instanz", state.config["system"].get("instance_name", "PV2Hash Node"), key="instance_name"),
+                    _system_row("Messung", _resolve_measurement_profile_label(source_type), key="source_profile"),
+                    _system_row("Batterie", _resolve_battery_profile_label(battery_type), key="battery_profile"),
+                    _system_row("Miner aktiv", len(state.miners), key="miner_count"),
+                    _system_row("Gestartet", state.started_at, key="started_at"),
+                    _system_row("Letzter Reload", state.last_reload_at, key="last_reload_at"),
+                ],
+                "actions": [
+                    {"id": "reload_runtime", "label": "Runtime neu laden", "style": "primary"},
+                ],
+            },
+            {
+                "id": "host",
+                "title": "Host-System",
+                "type": "details",
+                "rows": [
+                    _system_row("Hostname", host_status.get("hostname"), key="hostname"),
+                    _system_row("CPU-Auslastung", host_status.get("cpu_percent_text"), key="cpu"),
+                    _system_row("RAM", ram_text, key="ram"),
+                    _system_row("Load Average", host_status.get("load_text"), key="load"),
+                    _system_row("Uptime", host_status.get("uptime_text"), key="uptime"),
+                    _system_row("Plattform", host_status.get("platform_text"), key="platform"),
+                    _system_row("Python", host_status.get("python_text"), key="python"),
+                    _system_row("Speicher", storage_text, key="storage"),
+                ],
+            },
+            {
+                "id": "logging",
+                "title": "Live-Konsole",
+                "type": "logs",
+                "description": "Aktuelle Log-Ausgabe aus dem Ringbuffer der Anwendung",
+                "log_level": state.config["system"].get("log_level", "INFO"),
+                "allowed_log_levels": ["INFO", "DEBUG"],
+                "download_url": "/api/logs/download",
+            },
+        ],
+    }
+
+
 def _optional_int(value) -> int | None:
     if value is None:
         return None
@@ -811,16 +895,6 @@ def _get_host_status() -> dict:
         'python_text': sys.version.split()[0],
         'storage': _build_storage_summary(),
     }
-
-
-def _redirect_with_system_message(*, notice: str | None = None, error: str | None = None) -> RedirectResponse:
-    params = []
-    if notice:
-        params.append(f"config_import_notice={quote_plus(notice)}")
-    if error:
-        params.append(f"config_import_error={quote_plus(error)}")
-    suffix = f"?{'&'.join(params)}" if params else ''
-    return RedirectResponse(url=f"/system{suffix}", status_code=303)
 
 
 def _redirect_to_miners(
@@ -2159,33 +2233,13 @@ async def api_delete_miner(miner_id: str):
 
 @app.get("/system")
 async def system_page(request: Request):
-    update_status = update_checker.snapshot()
-    host_status = _get_host_status()
-
-    context = {
-        "request": request,
-        "instance_name": state.config["system"]["instance_name"],
-        "log_level": state.config["system"].get("log_level", "INFO"),
-        "started_at": state.started_at,
-        "last_reload_at": state.last_reload_at,
-        "last_live_packet_at": state.last_live_packet_at,
-        "source_type": state.config["source"].get("type", "unknown"),
-        "source_profile_label": _resolve_measurement_profile_label(state.config["source"].get("type")),
-        "battery_profile_label": _resolve_battery_profile_label(state.config.get("battery", {}).get("type")),
-        "miner_count": len(state.miners),
-        "app_version": APP_VERSION,
-        "app_version_full": APP_VERSION_FULL,
-        "update_status": update_status,
-        "update_runner_status": _update_runner_snapshot(update_status),
-        "allowed_log_levels": ("INFO", "DEBUG"),
-        "host_status": host_status,
-        "config_import_notice": request.query_params.get("config_import_notice"),
-        "config_import_error": request.query_params.get("config_import_error"),
-    }
     return templates.TemplateResponse(
         request=request,
         name="system.html",
-        context=context,
+        context={
+            "request": request,
+            "instance_name": state.config["system"].get("instance_name", "PV2Hash Node"),
+        },
     )
 
 
@@ -2207,23 +2261,22 @@ async def system_update_progress_page(request: Request):
     )
 
 
-@app.post("/system/reload")
-async def system_reload():
+@app.post("/api/system/reload")
+async def api_system_reload():
     logger.info("Manual system reload triggered from UI")
     reload_runtime()
-    return RedirectResponse(url="/", status_code=303)
+    return JSONResponse(content=jsonable_encoder({"status": "ok", "message": "Runtime wurde neu geladen.", "model": _build_system_model()}))
 
 
-@app.post("/system/logging")
-async def system_logging(request: Request):
-    form = await request.form()
-    log_level = _normalize_log_level(form.get("log_level", state.config["system"].get("log_level", "INFO")))
+@app.post("/api/system/logging")
+async def api_system_logging(request: Request):
+    payload = await request.json()
+    log_level = _normalize_log_level(payload.get("log_level"), state.config["system"].get("log_level", "INFO"))
     state.config["system"]["log_level"] = log_level
     save_config(state.config)
     setup_logging(log_level)
     logger.info("Log level changed to %s", log_level)
-    return RedirectResponse(url="/system", status_code=303)
-
+    return JSONResponse(content=jsonable_encoder({"status": "ok", "message": f"Log-Level auf {log_level} gesetzt.", "model": _build_system_model()}))
 
 
 @app.get("/api/dashboard/status")
@@ -2287,25 +2340,25 @@ async def system_config_export():
     )
 
 
-@app.post("/system/config/import")
-async def system_config_import(request: Request):
+@app.post("/api/system/config/import")
+async def api_system_config_import(request: Request):
     try:
         form = await request.form()
         upload = form.get("config_file")
         if upload is None:
-            return _redirect_with_system_message(error="Keine Konfigurationsdatei ausgewählt.")
+            return JSONResponse(content={"status": "error", "message": "Keine Konfigurationsdatei ausgewählt."}, status_code=400)
 
         raw_bytes = await upload.read()
         if not raw_bytes:
-            return _redirect_with_system_message(error="Die ausgewählte Datei ist leer.")
+            return JSONResponse(content={"status": "error", "message": "Die ausgewählte Datei ist leer."}, status_code=400)
 
         try:
             imported_config = json.loads(raw_bytes.decode("utf-8"))
         except Exception:
-            return _redirect_with_system_message(error="Die Konfigurationsdatei ist kein gültiges JSON.")
+            return JSONResponse(content={"status": "error", "message": "Die Konfigurationsdatei ist kein gültiges JSON."}, status_code=400)
 
         if not isinstance(imported_config, dict):
-            return _redirect_with_system_message(error="Die Konfigurationsdatei muss ein JSON-Objekt enthalten.")
+            return JSONResponse(content={"status": "error", "message": "Die Konfigurationsdatei muss ein JSON-Objekt enthalten."}, status_code=400)
 
         if CONFIG_PATH.exists():
             backup_path = CONFIG_PATH.with_name(
@@ -2319,10 +2372,15 @@ async def system_config_import(request: Request):
         setup_logging(reloaded_config.get("system", {}).get("log_level", "INFO"))
         reload_runtime()
         logger.info("Configuration restored from uploaded JSON")
-        return _redirect_with_system_message(notice="Konfiguration wurde importiert und Runtime neu geladen.")
+        return JSONResponse(content=jsonable_encoder({"status": "ok", "message": "Konfiguration wurde importiert und Runtime neu geladen.", "model": _build_system_model()}))
     except Exception:
         logger.exception("Failed to import configuration")
-        return _redirect_with_system_message(error="Konfiguration konnte nicht importiert werden.")
+        return JSONResponse(content={"status": "error", "message": "Konfiguration konnte nicht importiert werden."}, status_code=500)
+
+
+@app.get("/api/system/model")
+async def api_system_model():
+    return JSONResponse(content=jsonable_encoder(_build_system_model()))
 
 
 @app.get("/api/system/update-model")
