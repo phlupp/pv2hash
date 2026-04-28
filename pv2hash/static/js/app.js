@@ -1404,8 +1404,16 @@
     if (form) {
       form.addEventListener('submit', (event) => {
         event.preventDefault();
-        submitSettingsForm(form, event.submitter);
+        submitSettingsForm(form, event.submitter || form.querySelector('[data-settings-save]'));
       });
+
+      const saveButton = form.querySelector('[data-settings-save]');
+      if (saveButton) {
+        saveButton.addEventListener('click', (event) => {
+          event.preventDefault();
+          submitSettingsForm(form, saveButton);
+        });
+      }
     }
 
     const params = new URLSearchParams(window.location.search);

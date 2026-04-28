@@ -21,7 +21,7 @@
             </header>
 
             <section data-settings-root data-refresh-seconds="{{ refresh_seconds }}">
-                <form data-settings-form>
+                <form data-settings-form method="post" action="/settings">
                     <section class="grid grid-2" data-settings-model-container>
                         <article class="card">
                             <div class="card-head">
@@ -35,7 +35,7 @@
 
                     <section class="card top-gap">
                         <div class="actions">
-                            <button class="btn" type="submit">Einstellungen speichern</button>
+                            <button class="btn" type="button" data-settings-save>Einstellungen speichern</button>
                         </div>
                     </section>
                 </form>
