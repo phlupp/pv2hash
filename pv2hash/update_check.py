@@ -83,6 +83,10 @@ def _serialize_update_check(status: UpdateCheckState) -> dict[str, Any]:
         "release_published_at": (
             status.release_published_at.isoformat() if status.release_published_at else None
         ),
+        "release_body": status.release_body,
+        "release_asset_name": status.release_asset_name,
+        "release_asset_size_bytes": status.release_asset_size_bytes,
+        "release_asset_count": status.release_asset_count,
         "error": status.error,
     }
 
@@ -127,6 +131,10 @@ class UpdateChecker:
             release_build=current.release_build,
             release_version_full=current.release_version_full,
             release_published_at=current.release_published_at,
+            release_body=current.release_body,
+            release_asset_name=current.release_asset_name,
+            release_asset_size_bytes=current.release_asset_size_bytes,
+            release_asset_count=current.release_asset_count,
             error=None,
         )
 
@@ -210,6 +218,18 @@ class UpdateChecker:
                 else:
                     status_value = "ahead_of_release"
 
+                assets = release.get("assets") if isinstance(release.get("assets"), list) else []
+                selected_asset = None
+                for asset in assets:
+                    if not isinstance(asset, dict):
+                        continue
+                    name = str(asset.get("name") or "").strip()
+                    if name.endswith(".zip"):
+                        selected_asset = asset
+                        break
+                if selected_asset is None and assets:
+                    selected_asset = next((asset for asset in assets if isinstance(asset, dict)), None)
+
                 self.state.update_check = UpdateCheckState(
                     enabled=True,
                     checking=False,
@@ -224,6 +244,10 @@ class UpdateChecker:
                     release_build=release_info["build"],
                     release_version_full=release_info["version_full"],
                     release_published_at=_parse_timestamp(release.get("published_at")),
+                    release_body=str(release.get("body") or "").strip() or None,
+                    release_asset_name=(str(selected_asset.get("name") or "").strip() if selected_asset else None),
+                    release_asset_size_bytes=(int(selected_asset.get("size")) if selected_asset and selected_asset.get("size") is not None else None),
+                    release_asset_count=len(assets),
                     error=None,
                 )
 
@@ -250,6 +274,10 @@ class UpdateChecker:
                     release_build=current.release_build,
                     release_version_full=current.release_version_full,
                     release_published_at=current.release_published_at,
+                    release_body=current.release_body,
+                    release_asset_name=current.release_asset_name,
+                    release_asset_size_bytes=current.release_asset_size_bytes,
+                    release_asset_count=current.release_asset_count,
                     error=str(exc),
                 )
 

@@ -152,154 +152,6 @@ def _core_control_schema(driver: str | None = None) -> list[DriverField]:
         DriverField(name="battery_discharge_profile", label="Profil bei Entladen", type="select", default="p1", choices=battery_choices, layout={"width": "half"}),
     ]
 
-
-SETTINGS_PROFILE_CHOICES = tuple(_choice(profile, profile) for profile in ALL_PROFILE_NAMES)
-SETTINGS_SOURCE_LOSS_MODE_CHOICES = (
-    _choice("hold_current", "hold_current"),
-    _choice("off_all", "off_all"),
-    _choice("force_profile", "force_profile"),
-)
-SETTINGS_POLICY_MODE_CHOICES = (
-    _choice("coarse", "coarse"),
-    _choice("fine", "fine"),
-)
-SETTINGS_DISTRIBUTION_MODE_CHOICES = (
-    _choice("equal", "equal"),
-    _choice("cascade", "cascade"),
-)
-
-
-def _settings_field(
-    name: str,
-    label: str,
-    field_type: str,
-    value: Any,
-    *,
-    required: bool = False,
-    unit: str | None = None,
-    help: str | None = None,
-    options: tuple[DriverFieldChoice, ...] | list[DriverFieldChoice] | None = None,
-    layout: dict | None = None,
-    min_value: int | float | None = None,
-    max_value: int | float | None = None,
-    step: int | float | str | None = None,
-) -> dict[str, Any]:
-    field = {
-        "name": name,
-        "label": label,
-        "type": field_type,
-        "value": value,
-        "required": required,
-        "layout": _normalize_field_layout(layout),
-    }
-    if unit:
-        field["unit"] = unit
-    if help:
-        field["help"] = help
-    if options is not None:
-        field["options"] = [asdict(choice) for choice in options]
-    if min_value is not None:
-        field["min"] = min_value
-    if max_value is not None:
-        field["max"] = max_value
-    if step is not None:
-        field["step"] = step
-    return field
-
-
-def _build_settings_gui_model() -> dict[str, Any]:
-    config = state.config
-    app_cfg = config.get("app", {}) or {}
-    system_cfg = config.get("system", {}) or {}
-    control_cfg = config.get("control", {}) or {}
-    source_loss = control_cfg.get("source_loss", {}) or {}
-    stale_cfg = source_loss.get("stale", {}) or {}
-    offline_cfg = source_loss.get("offline", {}) or {}
-
-    return {
-        "sections": [
-            {
-                "id": "general",
-                "title": "Allgemein",
-                "fields": [
-                    _settings_field("instance_name", "Instanzname", "text", system_cfg.get("instance_name", "PV2Hash Node"), required=True, layout={"width": "full"}),
-                    _settings_field("refresh_seconds", "Refresh-Intervall", "number", app_cfg.get("refresh_seconds", 5), required=True, unit="s", layout={"width": "half"}, min_value=1, max_value=60, step=1),
-                    _settings_field("policy_mode", "Policy-Modus", "select", control_cfg.get("policy_mode", "coarse"), required=True, options=SETTINGS_POLICY_MODE_CHOICES, layout={"width": "half"}),
-                    _settings_field("distribution_mode", "Verteilstrategie", "select", control_cfg.get("distribution_mode", "equal"), required=True, options=SETTINGS_DISTRIBUTION_MODE_CHOICES, layout={"width": "half"}),
-                ],
-            },
-            {
-                "id": "control",
-                "title": "Regelung",
-                "fields": [
-                    _settings_field("switch_hysteresis_w", "Hysterese", "number", control_cfg.get("switch_hysteresis_w", 100), required=True, unit="W", help="Zusätzliche Reserve vor dem nächsten Zuschalten bzw. Rücksetzen der Import-Erkennung.", layout={"width": "half"}, min_value=0, step=1),
-                    _settings_field("min_switch_interval_seconds", "Mindest-Schaltintervall", "number", control_cfg.get("min_switch_interval_seconds", 60), required=True, unit="s", help="Minimale Zeit zwischen zwei Profil-/Verteiländerungen.", layout={"width": "half"}, min_value=0, step=1),
-                    _settings_field("max_import_w", "Grenzwert Netzbezug", "number", control_cfg.get("max_import_w", 200), required=True, unit="W", help="Erlaubter Netzbezug. 0 = kein Bezug erlaubt.", layout={"width": "half"}, min_value=0, step=1),
-                    _settings_field("import_hold_seconds", "Import halten / Verzögerung", "number", control_cfg.get("import_hold_seconds", 15), required=True, unit="s", help="Wie lange zu hoher Bezug anstehen muss, bevor heruntergeregelt wird.", layout={"width": "half"}, min_value=0, step=1),
-                ],
-            },
-            {
-                "id": "source_loss",
-                "title": "Messungs-Fallback",
-                "fields": [
-                    _settings_field("stale_mode", "Bei stale", "select", stale_cfg.get("mode", "hold_current"), required=True, options=SETTINGS_SOURCE_LOSS_MODE_CHOICES, layout={"width": "third"}),
-                    _settings_field("stale_fallback_profile", "Stale Fallback-Profil", "select", stale_cfg.get("fallback_profile", "p1"), required=True, options=SETTINGS_PROFILE_CHOICES, help="off_all bleibt echter Aus-Fallback. force_profile=p1 ist die kleinste echte Leistungsstufe.", layout={"width": "third"}),
-                    _settings_field("stale_hold_seconds", "Stale halten", "number", stale_cfg.get("hold_seconds", 0), required=True, unit="s", help="0 = unbegrenzt halten bis Verbindung zurückkehrt.", layout={"width": "third"}, min_value=0, step=1),
-                    _settings_field("offline_mode", "Bei offline", "select", offline_cfg.get("mode", "off_all"), required=True, options=SETTINGS_SOURCE_LOSS_MODE_CHOICES, layout={"width": "third"}),
-                    _settings_field("offline_fallback_profile", "Offline Fallback-Profil", "select", offline_cfg.get("fallback_profile", "p1"), required=True, options=SETTINGS_PROFILE_CHOICES, help="off_all bleibt echter Aus-Fallback. force_profile=p1 ist die kleinste echte Leistungsstufe.", layout={"width": "third"}),
-                    _settings_field("offline_hold_seconds", "Offline halten", "number", offline_cfg.get("hold_seconds", 0), required=True, unit="s", help="0 = unbegrenzt halten bis Verbindung zurückkehrt.", layout={"width": "third"}, min_value=0, step=1),
-                ],
-            },
-        ]
-    }
-
-
-def _update_settings_from_values(values: dict[str, Any]) -> None:
-    state.config.setdefault("system", {})
-    state.config.setdefault("app", {})
-    state.config.setdefault("control", {})
-    instance_name = str(values.get("instance_name") or "PV2Hash Node").strip() or "PV2Hash Node"
-    state.config["system"]["instance_name"] = instance_name
-    state.config["app"]["refresh_seconds"] = _safe_int(values.get("refresh_seconds", 5), 5)
-    state.config["control"]["policy_mode"] = str(values.get("policy_mode") or "coarse")
-    state.config["control"]["distribution_mode"] = str(values.get("distribution_mode") or "equal")
-    state.config["control"]["switch_hysteresis_w"] = _safe_int(values.get("switch_hysteresis_w", 100), 100)
-    state.config["control"]["min_switch_interval_seconds"] = _safe_int(values.get("min_switch_interval_seconds", 60), 60)
-    state.config["control"]["max_import_w"] = max(0, _safe_int(values.get("max_import_w", 200), 200))
-    state.config["control"]["import_hold_seconds"] = _safe_int(values.get("import_hold_seconds", 15), 15)
-    state.config["control"].setdefault("source_loss", {})
-    state.config["control"]["source_loss"]["stale"] = {
-        "mode": str(values.get("stale_mode") or "hold_current"),
-        "fallback_profile": _normalize_fallback_profile(values.get("stale_fallback_profile", "p1")),
-        "hold_seconds": _safe_int(values.get("stale_hold_seconds", 0), 0),
-    }
-    state.config["control"]["source_loss"]["offline"] = {
-        "mode": str(values.get("offline_mode") or "off_all"),
-        "fallback_profile": _normalize_fallback_profile(values.get("offline_fallback_profile", "p1")),
-        "hold_seconds": _safe_int(values.get("offline_hold_seconds", 0), 0),
-    }
-
-
-def _save_settings_from_values(values: dict[str, Any]) -> dict[str, Any]:
-    _update_settings_from_values(values)
-    save_config(state.config)
-    setup_logging(state.config["system"].get("log_level", "INFO"))
-    logger.info(
-        "Settings saved: instance=%s refresh_seconds=%s policy_mode=%s distribution_mode=%s",
-        state.config["system"].get("instance_name", "PV2Hash Node"),
-        state.config["app"].get("refresh_seconds", 5),
-        state.config["control"].get("policy_mode", "coarse"),
-        state.config["control"].get("distribution_mode", "equal"),
-    )
-    reload_runtime()
-    return {
-        "status": "ok",
-        "message": "Einstellungen gespeichert.",
-        "model": _build_settings_gui_model(),
-        "instance_name": state.config["system"].get("instance_name", "PV2Hash Node"),
-        "refresh_seconds": _safe_int(state.config.get("app", {}).get("refresh_seconds", 5), 5),
-    }
-
 def _get_nested_value(data: dict, path: str, fallback: Any = None) -> Any:
     current: Any = data
     for part in path.split('.'):
@@ -639,6 +491,44 @@ def _update_runner_snapshot(update_status: dict | None = None) -> dict:
 
 def _update_runner_start_latest(update_status: dict) -> tuple[dict, int]:
     return self_update_manager.start_latest(update_status=update_status)
+
+
+def _update_progress_value(runner_status: dict | None) -> int | None:
+    status = str((runner_status or {}).get("status") or "idle")
+    if status == "starting":
+        return 10
+    if status == "running":
+        return 65
+    if status == "success":
+        return 100
+    if status == "error":
+        return 100
+    return None
+
+
+def _build_system_update_model() -> dict[str, Any]:
+    update_status = update_checker.snapshot()
+    runner_status = _update_runner_snapshot(update_status)
+    asset_size = update_status.get("release_asset_size_bytes")
+
+    return {
+        "update_status": update_status,
+        "runner_status": {
+            **runner_status,
+            "progress_percent": _update_progress_value(runner_status),
+        },
+        "release_details": {
+            "name": update_status.get("release_name"),
+            "tag": update_status.get("release_tag"),
+            "url": update_status.get("release_url"),
+            "published_at": update_status.get("release_published_at"),
+            "body": update_status.get("release_body"),
+            "asset_name": update_status.get("release_asset_name"),
+            "asset_size_bytes": asset_size,
+            "asset_size_text": _format_bytes(asset_size),
+            "asset_count": update_status.get("release_asset_count"),
+        },
+    }
 
 
 def _optional_int(value) -> int | None:
@@ -1774,27 +1664,60 @@ async def dashboard(request: Request):
 
 @app.get("/settings")
 async def settings_page(request: Request):
+    context = {
+        "request": request,
+        "config": state.config,
+        "saved": request.query_params.get("saved") == "1",
+    }
     return templates.TemplateResponse(
         request=request,
         name="settings.html",
-        context={
-            "request": request,
-            "instance_name": state.config.get("system", {}).get("instance_name", "PV2Hash Node"),
-        },
+        context=context,
     )
 
 
-@app.get("/api/settings/model")
-async def api_settings_model():
-    return JSONResponse({"status": "ok", "model": _build_settings_gui_model()})
+@app.post("/settings")
+async def save_settings(request: Request):
+    form = await request.form()
 
+    state.config["system"]["instance_name"] = form.get("instance_name", "PV2Hash Node")
+    state.config["app"]["refresh_seconds"] = _safe_int(form.get("refresh_seconds", 5), 5)
+    state.config["control"]["policy_mode"] = form.get("policy_mode", "coarse")
+    state.config["control"]["distribution_mode"] = form.get("distribution_mode", "equal")
+    state.config["control"]["switch_hysteresis_w"] = _safe_int(form.get("switch_hysteresis_w", 100), 100)
+    state.config["control"]["min_switch_interval_seconds"] = _safe_int(
+        form.get("min_switch_interval_seconds", 60), 60
+    )
+    state.config["control"]["max_import_w"] = max(0, _safe_int(form.get("max_import_w", 200), 200))
+    state.config["control"]["import_hold_seconds"] = _safe_int(form.get("import_hold_seconds", 15), 15)
 
-@app.post("/api/settings/config")
-async def api_save_settings(request: Request):
-    values = await request.json()
-    result = _save_settings_from_values(values if isinstance(values, dict) else {})
-    return JSONResponse(result)
+    state.config["control"].setdefault("source_loss", {})
+    state.config["control"]["source_loss"]["stale"] = {
+        "mode": form.get("stale_mode", "hold_current"),
+        "fallback_profile": _normalize_fallback_profile(
+            form.get("stale_fallback_profile", "p1")
+        ),
+        "hold_seconds": _safe_int(form.get("stale_hold_seconds", 0), 0),
+    }
+    state.config["control"]["source_loss"]["offline"] = {
+        "mode": form.get("offline_mode", "off_all"),
+        "fallback_profile": _normalize_fallback_profile(
+            form.get("offline_fallback_profile", "p1")
+        ),
+        "hold_seconds": _safe_int(form.get("offline_hold_seconds", 0), 0),
+    }
 
+    save_config(state.config)
+    setup_logging(state.config["system"].get("log_level", "INFO"))
+    logger.info(
+        "Settings saved: instance=%s refresh_seconds=%s policy_mode=%s distribution_mode=%s",
+        state.config["system"].get("instance_name", "PV2Hash Node"),
+        state.config["app"].get("refresh_seconds", 5),
+        state.config["control"].get("policy_mode", "coarse"),
+        state.config["control"].get("distribution_mode", "equal"),
+    )
+    reload_runtime()
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 
 @app.get("/sources")
@@ -2400,6 +2323,11 @@ async def system_config_import(request: Request):
     except Exception:
         logger.exception("Failed to import configuration")
         return _redirect_with_system_message(error="Konfiguration konnte nicht importiert werden.")
+
+
+@app.get("/api/system/update-model")
+async def api_system_update_model():
+    return JSONResponse(content=jsonable_encoder(_build_system_update_model()))
 
 
 @app.get("/api/system/update-status")

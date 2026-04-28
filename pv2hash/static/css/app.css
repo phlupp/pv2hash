@@ -1830,3 +1830,85 @@ form.is-busy {
 .source-details-section {
     margin-bottom: 1.25rem;
 }
+
+.update-progress-inline {
+    display: grid;
+    gap: 8px;
+}
+
+.update-progress-inline-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.update-progress-bar {
+    width: 100%;
+    height: 10px;
+    overflow: hidden;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.06);
+}
+
+.update-progress-fill {
+    width: 0%;
+    height: 100%;
+    border-radius: inherit;
+    background: rgba(78, 161, 255, .65);
+    transition: width .25s ease;
+}
+
+.update-release-details {
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,.03);
+}
+
+.update-release-details summary {
+    cursor: pointer;
+    font-weight: 800;
+}
+
+.update-release-notes {
+    max-height: 260px;
+    overflow: auto;
+    margin: 12px 0 0;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: rgba(0,0,0,.18);
+    color: var(--text);
+    white-space: pre-wrap;
+    font-family: inherit;
+}
+
+.update-overlay[hidden] {
+    display: none;
+}
+
+.update-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+}
+
+.update-overlay-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(5, 8, 18, .68);
+    backdrop-filter: blur(6px);
+}
+
+.update-overlay-card {
+    position: relative;
+    width: min(680px, 100%);
+    box-shadow: 0 24px 80px rgba(0,0,0,.38);
+}

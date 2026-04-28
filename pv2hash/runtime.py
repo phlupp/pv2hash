@@ -21,6 +21,10 @@ class UpdateCheckState:
     release_build: str | None = None
     release_version_full: str | None = None
     release_published_at: datetime | None = None
+    release_body: str | None = None
+    release_asset_name: str | None = None
+    release_asset_size_bytes: int | None = None
+    release_asset_count: int = 0
     error: str | None = None
 
 

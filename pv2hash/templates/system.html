@@ -84,11 +84,39 @@
                         </div>
 
                         <div id="updateMessage" class="update-message">Lade Update-Status …</div>
+                        <div id="updateProgressWrap" class="update-progress-inline" hidden>
+                            <div class="update-progress-inline-head">
+                                <span id="updateProgressLabel">Fortschritt</span>
+                                <strong id="updateProgressPercent">—</strong>
+                            </div>
+                            <div class="update-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                                <div id="updateProgressFill" class="update-progress-fill"></div>
+                            </div>
+                        </div>
                         <div id="updateError" class="update-error" hidden></div>
 
                         <div class="update-links">
                             <a id="updateReleaseLink" class="link-muted" href="#" target="_blank" rel="noopener" hidden>Release auf GitHub öffnen</a>
                         </div>
+
+                        <details id="updateReleaseDetails" class="update-release-details" hidden>
+                            <summary>Release-Details anzeigen</summary>
+                            <div class="kv update-kv top-gap">
+                                <div class="kv-row">
+                                    <span>Release-Name</span>
+                                    <strong id="updateReleaseName">—</strong>
+                                </div>
+                                <div class="kv-row">
+                                    <span>Paket</span>
+                                    <strong id="updateAssetName">—</strong>
+                                </div>
+                                <div class="kv-row">
+                                    <span>Paketgröße</span>
+                                    <strong id="updateAssetSize">—</strong>
+                                </div>
+                            </div>
+                            <pre id="updateReleaseNotes" class="update-release-notes"></pre>
+                        </details>
 
                         <div id="updateCommandWrap" class="update-command-wrap" hidden>
                             <div class="update-command-label">Installationsbefehl für dieses Release</div>
@@ -229,6 +257,32 @@
         </main>
     </div>
 
+    <div id="updateOverlay" class="update-overlay" hidden>
+        <div class="update-overlay-backdrop"></div>
+        <section class="card update-overlay-card" role="dialog" aria-modal="true" aria-labelledby="updateOverlayTitle">
+            <div class="card-head">
+                <div>
+                    <h2 id="updateOverlayTitle">Update läuft</h2>
+                    <p id="updateOverlaySubtitle" class="card-subtitle">PV2Hash wird aktualisiert. Bitte dieses Fenster geöffnet lassen.</p>
+                </div>
+                <span id="updateOverlayBadge" class="status-pill status-info">Startet …</span>
+            </div>
+            <div class="update-progress-inline top-gap">
+                <div class="update-progress-inline-head">
+                    <span id="updateOverlayProgressLabel">Fortschritt</span>
+                    <strong id="updateOverlayProgressPercent">—</strong>
+                </div>
+                <div class="update-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div id="updateOverlayProgressFill" class="update-progress-fill"></div>
+                </div>
+            </div>
+            <div id="updateOverlayMessage" class="update-message top-gap">Update wird vorbereitet …</div>
+            <div class="actions end top-gap">
+                <a class="btn btn-secondary" href="/system/update-progress">Fortschrittsseite öffnen</a>
+            </div>
+        </section>
+    </div>
+
     <script>
         const logConsole = document.getElementById("logConsole");
         const consoleWrap = document.getElementById("consoleWrap");
@@ -259,6 +313,21 @@
         const updateReleaseLink = document.getElementById("updateReleaseLink");
         const updateCommandWrap = document.getElementById("updateCommandWrap");
         const updateCommand = document.getElementById("updateCommand");
+        const updateProgressWrap = document.getElementById("updateProgressWrap");
+        const updateProgressPercent = document.getElementById("updateProgressPercent");
+        const updateProgressFill = document.getElementById("updateProgressFill");
+        const updateReleaseDetails = document.getElementById("updateReleaseDetails");
+        const updateReleaseName = document.getElementById("updateReleaseName");
+        const updateAssetName = document.getElementById("updateAssetName");
+        const updateAssetSize = document.getElementById("updateAssetSize");
+        const updateReleaseNotes = document.getElementById("updateReleaseNotes");
+        const updateOverlay = document.getElementById("updateOverlay");
+        const updateOverlayBadge = document.getElementById("updateOverlayBadge");
+        const updateOverlayTitle = document.getElementById("updateOverlayTitle");
+        const updateOverlaySubtitle = document.getElementById("updateOverlaySubtitle");
+        const updateOverlayProgressPercent = document.getElementById("updateOverlayProgressPercent");
+        const updateOverlayProgressFill = document.getElementById("updateOverlayProgressFill");
+        const updateOverlayMessage = document.getElementById("updateOverlayMessage");
 
 
         let autoScroll = true;
@@ -282,6 +351,35 @@
                 return value;
             }
             return parsed.toLocaleString("de-DE");
+        }
+
+        function setProgress(wrap, fill, percentEl, value) {
+            const percent = Number(value);
+            if (!Number.isFinite(percent)) {
+                if (wrap) wrap.hidden = true;
+                return;
+            }
+            const bounded = Math.max(0, Math.min(100, Math.round(percent)));
+            if (wrap) wrap.hidden = false;
+            if (fill) fill.style.width = `%`;
+            if (percentEl) percentEl.textContent = `%`;
+            const bar = fill ? fill.closest(".update-progress-bar") : null;
+            if (bar) bar.setAttribute("aria-valuenow", String(bounded));
+        }
+
+        function showUpdateOverlay(show = true) {
+            if (!updateOverlay) return;
+            updateOverlay.hidden = !show;
+        }
+
+        function renderReleaseDetails(details) {
+            const hasDetails = !!(details && (details.name || details.body || details.asset_name || details.asset_size_text));
+            updateReleaseDetails.hidden = !hasDetails;
+            if (!hasDetails) return;
+            updateReleaseName.textContent = details.name || "—";
+            updateAssetName.textContent = details.asset_name || "—";
+            updateAssetSize.textContent = details.asset_size_text || "—";
+            updateReleaseNotes.textContent = details.body || "Keine Release Notes vorhanden.";
         }
 
         function renderHostStatus(data) {
@@ -402,6 +500,27 @@
             updateInstallBtn.textContent = "Update starten";
         }
 
+        function renderSystemUpdateModel(model) {
+            const updateStatus = model && model.update_status ? model.update_status : {};
+            const runnerStatus = model && model.runner_status ? model.runner_status : {};
+            renderUpdateStatus(updateStatus);
+            renderUpdateRunnerStatus(runnerStatus);
+            renderReleaseDetails(model && model.release_details ? model.release_details : {});
+            setProgress(updateProgressWrap, updateProgressFill, updateProgressPercent, runnerStatus.progress_percent);
+            if (runnerStatus.running) {
+                showUpdateOverlay(true);
+                updateOverlayBadge.textContent = runnerStatus.status === "starting" ? "Startet …" : "Läuft";
+                updateOverlayBadge.className = runnerStatus.status === "starting" ? "status-pill status-info" : "status-pill status-warn";
+                updateOverlayTitle.textContent = runnerStatus.status === "starting" ? "Update startet" : "Update wird installiert";
+                updateOverlaySubtitle.textContent = "Der Dienst kann dabei kurzzeitig nicht erreichbar sein.";
+                updateOverlayMessage.textContent = runnerStatus.message || "Update läuft …";
+                setProgress(null, updateOverlayProgressFill, updateOverlayProgressPercent, runnerStatus.progress_percent);
+            } else if (runnerStatus.status === "success" || runnerStatus.status === "error") {
+                updateOverlayMessage.textContent = runnerStatus.message || "—";
+                setProgress(null, updateOverlayProgressFill, updateOverlayProgressPercent, runnerStatus.progress_percent);
+            }
+        }
+
         async function fetchHostStatus() {
             try {
                 const response = await fetch("/api/system/host-status", { cache: "no-store" });
@@ -412,11 +531,11 @@
             }
         }
 
-        async function fetchUpdateStatus() {
+        async function fetchSystemUpdateModel() {
             try {
-                const response = await fetch("/api/system/update-status", { cache: "no-store" });
+                const response = await fetch("/api/system/update-model", { cache: "no-store" });
                 const data = await response.json();
-                renderUpdateStatus(data);
+                renderSystemUpdateModel(data);
             } catch (err) {
                 updateStateBadge.textContent = "Fehler";
                 updateStateBadge.className = "status-pill status-bad";
@@ -432,8 +551,7 @@
                     headers: { "Accept": "application/json" }
                 });
                 const data = await response.json();
-                renderUpdateStatus(data);
-                await fetchUpdateRunnerStatus();
+                await fetchSystemUpdateModel();
             } catch (err) {
                 updateStateBadge.textContent = "Fehler";
                 updateStateBadge.className = "status-pill status-bad";
@@ -444,14 +562,7 @@
         }
 
         async function fetchUpdateRunnerStatus() {
-            try {
-                const response = await fetch("/api/system/self-update-status", { cache: "no-store" });
-                const data = await response.json();
-                renderUpdateRunnerStatus(data);
-            } catch (err) {
-                updateInstallBtn.disabled = true;
-                updateInstallBtn.textContent = "Update starten";
-            }
+            await fetchSystemUpdateModel();
         }
 
         async function startUpdateInstall() {
@@ -471,8 +582,9 @@
                 });
                 const data = await response.json();
                 renderUpdateRunnerStatus(data);
-                if (response.ok && data.progress_url) {
-                    window.location.href = data.progress_url;
+                await fetchSystemUpdateModel();
+                if (response.ok) {
+                    showUpdateOverlay(true);
                 }
             } catch (err) {
                 updateInstallBtn.disabled = false;
@@ -556,10 +668,10 @@
 
         fetchHostStatus();
         fetchLogs();
-        fetchUpdateStatus().then(fetchUpdateRunnerStatus);
+        fetchSystemUpdateModel();
         setInterval(fetchHostStatus, 15000);
         setInterval(fetchLogs, 2000);
-        setInterval(fetchUpdateRunnerStatus, 3000);
+        setInterval(fetchSystemUpdateModel, 3000);
     </script>
 </body>
 </html>
