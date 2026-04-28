@@ -1416,12 +1416,6 @@
       }
     }
 
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('saved') === '1') {
-      window.showToast('success', 'Einstellungen gespeichert.');
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-
     loadSettingsModel();
   }
 

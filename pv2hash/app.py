@@ -1779,7 +1779,6 @@ async def settings_page(request: Request):
         name="settings.html",
         context={
             "request": request,
-            "refresh_seconds": _safe_int(state.config.get("app", {}).get("refresh_seconds", 5), 5),
             "instance_name": state.config.get("system", {}).get("instance_name", "PV2Hash Node"),
         },
     )
@@ -1796,14 +1795,6 @@ async def api_save_settings(request: Request):
     result = _save_settings_from_values(values if isinstance(values, dict) else {})
     return JSONResponse(result)
 
-
-@app.post("/settings")
-async def save_settings(request: Request):
-    # Temporary non-JS/direct form fallback during the settings AJAX migration.
-    # The settings page itself now saves through /api/settings/config.
-    form = await request.form()
-    _save_settings_from_values(dict(form))
-    return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 
 @app.get("/sources")
