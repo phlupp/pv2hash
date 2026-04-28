@@ -2037,6 +2037,7 @@
   }
 
   async function systemRunUpdateCheck(button) {
+    if (button?.dataset.busy === '1') return;
     const restore = setButtonBusy(button, 'Prüft …');
     try {
       const response = await fetch('/api/system/update-check', {
@@ -2054,6 +2055,7 @@
   }
 
   async function systemStartUpdate(button) {
+    if (button?.dataset.busy === '1') return;
     const release = systemLastUpdateStatus && (systemLastUpdateStatus.release_version_full || systemLastUpdateStatus.release_tag)
       ? (systemLastUpdateStatus.release_version_full || systemLastUpdateStatus.release_tag)
       : 'das aktuelle Release';
@@ -2081,6 +2083,7 @@
   }
 
   async function systemReloadRuntime(button) {
+    if (button?.dataset.busy === '1') return;
     const restore = setButtonBusy(button, 'Lädt …');
     try {
       const data = await postJson('/api/system/reload', {});
@@ -2094,6 +2097,7 @@
   }
 
   async function systemSaveLogLevel(button) {
+    if (button?.dataset.busy === '1') return;
     const select = document.querySelector('[data-system-log-level]');
     const restore = setButtonBusy(button, 'Speichert …');
     try {
@@ -2126,7 +2130,8 @@
 
   function setupSystemPage() {
     const root = document.querySelector('[data-system-root]');
-    if (!root) return;
+    if (!root || root.dataset.systemPageReady === '1') return;
+    root.dataset.systemPageReady = '1';
 
     root.addEventListener('click', (event) => {
       const updateCheck = event.target.closest('[data-system-update-check]');
