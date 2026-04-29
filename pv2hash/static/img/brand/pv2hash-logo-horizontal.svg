@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="420" viewBox="0 0 1400 420">
+  <defs>
+    <linearGradient id="gBolt" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0%" stop-color="#b13cff"/>
+      <stop offset="100%" stop-color="#15d7ff"/>
+    </linearGradient>
+    <linearGradient id="gPanel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a53cff"/>
+      <stop offset="100%" stop-color="#4a21df"/>
+    </linearGradient>
+    <linearGradient id="gChip" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#9140ff"/>
+      <stop offset="100%" stop-color="#2f9cff"/>
+    </linearGradient>
+    <style>
+      .brand { font-family: "Orbitron", "Rajdhani", "Exo 2", Arial, sans-serif; font-weight: 700; }
+    </style>
+  </defs>
+  <g transform="translate(28,18)">
+    <!-- Sun -->
+    <path d="M130 122 A70 70 0 0 1 244 122" fill="none" stroke="#f5b300" stroke-width="9" stroke-linecap="round"/>
+    <g stroke="#f5b300" stroke-width="9" stroke-linecap="round">
+      <line x1="62" y1="128" x2="25" y2="132"/>
+      <line x1="79" y1="89" x2="49" y2="66"/>
+      <line x1="117" y1="59" x2="117" y2="27"/>
+      <line x1="167" y1="47" x2="167" y2="15"/>
+      <line x1="217" y1="58" x2="236" y2="31"/>
+      <line x1="249" y1="87" x2="278" y2="66"/>
+    </g>
+
+    <!-- Solar panel -->
+    <g fill="url(#gPanel)">
+      <polygon points="50,165 116,165 95,220 29,220"/>
+      <polygon points="130,165 196,165 175,220 109,220"/>
+      <polygon points="210,165 276,165 255,220 189,220"/>
+      <polygon points="50,231 116,231 95,286 29,286"/>
+      <polygon points="130,231 196,231 175,286 109,286"/>
+      <polygon points="210,231 276,231 255,286 189,286"/>
+      <polygon points="50,297 116,297 95,352 29,352"/>
+      <polygon points="130,297 196,297 175,352 109,352"/>
+      <polygon points="210,297 276,297 255,352 189,352"/>
+    </g>
+
+    <!-- Chip arc -->
+    <path d="M304 92 A145 145 0 1 1 337 360" fill="none" stroke="url(#gChip)" stroke-width="10" stroke-linecap="round"/>
+
+    <!-- Lightning -->
+    <polygon points="358,28 236,214 323,214 228,390 492,130 381,130" fill="url(#gBolt)"/>
+
+    <!-- Chip -->
+    <g transform="translate(312,132)" fill="none" stroke="url(#gChip)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M58 42 L58 24"/><circle cx="58" cy="14" r="5" fill="#9140ff" stroke="none"/>
+      <path d="M94 42 L94 10"/><circle cx="94" cy="0" r="5" fill="#9140ff" stroke="none"/>
+      <path d="M130 42 L130 24"/><circle cx="130" cy="14" r="5" fill="#9140ff" stroke="none"/>
+      <path d="M166 42 L166 34 L186 16"/><circle cx="192" cy="10" r="5" fill="#9140ff" stroke="none"/>
+
+      <path d="M186 92 L212 92"/><circle cx="224" cy="92" r="5" fill="#6b63ff" stroke="none"/>
+      <path d="M186 138 L212 138"/><circle cx="224" cy="138" r="5" fill="#3d8fff" stroke="none"/>
+      <path d="M186 184 L212 184"/><circle cx="224" cy="184" r="5" fill="#22b5ff" stroke="none"/>
+
+      <path d="M70 190 L70 226"/><circle cx="70" cy="238" r="5" fill="#22b5ff" stroke="none"/>
+      <path d="M106 190 L106 226"/><circle cx="106" cy="238" r="5" fill="#22b5ff" stroke="none"/>
+      <path d="M142 190 L142 226"/><circle cx="142" cy="238" r="5" fill="#22b5ff" stroke="none"/>
+
+      <path d="M54 56 H164 A20 20 0 0 1 184 76 V170 A20 20 0 0 1 164 190 H70 A20 20 0 0 1 50 170 V138"/>
+    </g>
+  </g>
+
+  <g class="brand" transform="translate(560,0)">
+    <text x="0" y="246" font-size="154" fill="#ffffff">PV</text>
+    <text x="240" y="246" font-size="154" fill="#8d36ff">2</text>
+    <text x="352" y="246" font-size="154" fill="#ffffff">Hash</text>
+  </g>
+</svg>

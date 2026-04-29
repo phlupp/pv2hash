@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="gBolt" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0%" stop-color="#b13cff"/>
+      <stop offset="100%" stop-color="#15d7ff"/>
+    </linearGradient>
+    <linearGradient id="gPanel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a53cff"/>
+      <stop offset="100%" stop-color="#4a21df"/>
+    </linearGradient>
+    <linearGradient id="gChip" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#9140ff"/>
+      <stop offset="100%" stop-color="#2f9cff"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(18,24)">
+    <path d="M102 112 A68 68 0 0 1 212 112" fill="none" stroke="#f5b300" stroke-width="9" stroke-linecap="round"/>
+    <g stroke="#f5b300" stroke-width="9" stroke-linecap="round">
+      <line x1="34" y1="117" x2="0" y2="123"/>
+      <line x1="50" y1="79" x2="22" y2="58"/>
+      <line x1="89" y1="50" x2="89" y2="20"/>
+      <line x1="136" y1="39" x2="136" y2="9"/>
+      <line x1="183" y1="50" x2="201" y2="24"/>
+      <line x1="214" y1="78" x2="240" y2="59"/>
+    </g>
+
+    <g fill="url(#gPanel)">
+      <polygon points="24,155 82,155 63,206 5,206"/>
+      <polygon points="94,155 152,155 133,206 75,206"/>
+      <polygon points="164,155 222,155 203,206 145,206"/>
+      <polygon points="24,214 82,214 63,265 5,265"/>
+      <polygon points="94,214 152,214 133,265 75,265"/>
+      <polygon points="164,214 222,214 203,265 145,265"/>
+      <polygon points="24,273 82,273 63,324 5,324"/>
+      <polygon points="94,273 152,273 133,324 75,324"/>
+      <polygon points="164,273 222,273 203,324 145,324"/>
+    </g>
+
+    <path d="M255 82 A140 140 0 1 1 286 343" fill="none" stroke="url(#gChip)" stroke-width="10" stroke-linecap="round"/>
+    <polygon points="306,18 189,204 274,204 180,422 432,126 328,126" fill="url(#gBolt)"/>
+
+    <g transform="translate(250,126)" fill="none" stroke="url(#gChip)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M48 42 L48 24"/><circle cx="48" cy="14" r="5" fill="#9140ff" stroke="none"/>
+      <path d="M82 42 L82 10"/><circle cx="82" cy="0" r="5" fill="#9140ff" stroke="none"/>
+      <path d="M116 42 L116 24"/><circle cx="116" cy="14" r="5" fill="#9140ff" stroke="none"/>
+      <path d="M150 42 L150 34 L168 16"/><circle cx="174" cy="10" r="5" fill="#9140ff" stroke="none"/>
+
+      <path d="M168 88 L194 88"/><circle cx="206" cy="88" r="5" fill="#6b63ff" stroke="none"/>
+      <path d="M168 132 L194 132"/><circle cx="206" cy="132" r="5" fill="#3d8fff" stroke="none"/>
+      <path d="M168 176 L194 176"/><circle cx="206" cy="176" r="5" fill="#22b5ff" stroke="none"/>
+
+      <path d="M60 182 L60 216"/><circle cx="60" cy="228" r="5" fill="#22b5ff" stroke="none"/>
+      <path d="M94 182 L94 216"/><circle cx="94" cy="228" r="5" fill="#22b5ff" stroke="none"/>
+      <path d="M128 182 L128 216"/><circle cx="128" cy="228" r="5" fill="#22b5ff" stroke="none"/>
+
+      <path d="M46 56 H148 A20 20 0 0 1 168 76 V164 A20 20 0 0 1 148 184 H60 A20 20 0 0 1 40 164 V134"/>
+    </g>
+  </g>
+</svg>
