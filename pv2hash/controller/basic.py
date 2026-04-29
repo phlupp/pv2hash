@@ -53,6 +53,7 @@ class BatteryContext:
     discharge_power_w: float
     active: bool
     available_charge_surplus_w: float
+    charging_export_unlocked: bool
     policies: list[MinerBatteryPolicy]
 
 
@@ -117,7 +118,9 @@ class BasicController:
         grid_power_w = float(snapshot.grid_power_w)
         current_profiles = get_current_profiles(miners)
         battery_context = self._build_battery_context(snapshot=snapshot, miners=miners)
-        max_profiles = [policy.max_profile for policy in battery_context.policies]
+        max_profiles = self._get_effective_battery_max_profiles(
+            battery_context=battery_context,
+        )
         target_profiles = [
             policy.target_profile or current_profiles[idx]
             for idx, policy in enumerate(battery_context.policies)
@@ -190,9 +193,12 @@ class BasicController:
                     if down_plan.changed:
                         candidate_profiles = down_plan.profiles
                         action = "step_down"
-                        summary = (
-                            f"step_down ({distribution_mode}, "
-                            f"release≈{down_plan.delta_power_w:.0f}W)"
+                        summary = self._build_battery_summary(
+                            battery_context=battery_context,
+                            fallback=(
+                                f"step_down ({distribution_mode}, "
+                                f"release≈{down_plan.delta_power_w:.0f}W)"
+                            ),
                         )
                 else:
                     up_plan = get_step_up_plan(distribution_mode, miners)
@@ -205,9 +211,12 @@ class BasicController:
                     ):
                         candidate_profiles = up_plan.profiles
                         action = "step_up"
-                        summary = (
-                            f"step_up ({distribution_mode}, "
-                            f"need≈{up_plan.delta_power_w:.0f}W)"
+                        summary = self._build_battery_summary(
+                            battery_context=battery_context,
+                            fallback=(
+                                f"step_up ({distribution_mode}, "
+                                f"need≈{up_plan.delta_power_w:.0f}W)"
+                            ),
                         )
 
                 uncapped_candidate_profiles = candidate_profiles
@@ -321,10 +330,15 @@ class BasicController:
 
         active = mode is not None
         soc_pct = snapshot.battery_soc_pct
-        available_charge_surplus_w = max(0.0, -float(snapshot.grid_power_w)) + max(
+        grid_export_w = max(0.0, -float(snapshot.grid_power_w))
+        available_charge_surplus_w = grid_export_w + max(
             0.0,
             charge_power_w,
         ) + self.max_import_w
+        charging_export_unlocked = (
+            mode == "charging"
+            and grid_export_w > self.switch_hysteresis_w
+        )
 
         policies = [
             self._build_miner_battery_policy(
@@ -342,8 +356,25 @@ class BasicController:
             discharge_power_w=discharge_power_w,
             active=active,
             available_charge_surplus_w=available_charge_surplus_w,
+            charging_export_unlocked=charging_export_unlocked,
             policies=policies,
         )
+
+    def _get_effective_battery_max_profiles(
+        self,
+        *,
+        battery_context: BatteryContext,
+    ) -> list[str]:
+        if (
+            battery_context.mode == "charging"
+            and battery_context.charging_export_unlocked
+        ):
+            return [
+                "p4" if policy.reason == "battery_charge_target" else policy.max_profile
+                for policy in battery_context.policies
+            ]
+
+        return [policy.max_profile for policy in battery_context.policies]
 
     def _build_miner_battery_policy(
         self,
@@ -446,8 +477,15 @@ class BasicController:
             return fallback
 
         if battery_context.mode == "charging":
+            export_suffix = (
+                ", grid-export-unlocked"
+                if battery_context.charging_export_unlocked
+                else ""
+            )
             return (
-                f"{fallback}, battery=charging, soc={self._format_soc(battery_context.soc_pct)}"
+                f"{fallback}, battery=charging, "
+                f"soc={self._format_soc(battery_context.soc_pct)}"
+                f"{export_suffix}"
             )
 
         if battery_context.mode == "discharging":
