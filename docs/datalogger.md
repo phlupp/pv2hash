@@ -73,7 +73,7 @@ Die erste Chart-Ausbaustufe zeigt:
 - **Batterie:** SOC sowie Lade-/Entladeleistung; Ladeleistung wird positiv und Entladeleistung negativ dargestellt, die Watt-Achse wird symmetrisch um 0 skaliert
 - **Mining:** Gesamthashrate und Minerleistung
 
-Profilwechsel-Marker sind für eine spätere Ausbaustufe vorgesehen. Die dafür nötigen Profildaten liegen bereits in `history_miner_samples`.
+Profilwechsel-Marker werden aus `history_miner_samples` abgeleitet. Wenn sich das Profil eines Miners im ausgewählten Zeitraum ändert, liefert die Series-API einen Marker mit Zeitpunkt, Minername sowie altem und neuem Profil. Die Chart-Oberfläche zeichnet diese Marker als vertikale Linien in die Charts ein; im Tooltip am nächstgelegenen Datenpunkt wird der Profilwechsel angezeigt.
 
 Die Data-Logger-Seite lädt standardmäßig den Bereich `12h` und aktualisiert die Charts bei sichtbarem Browser-Tab automatisch alle 30 Sekunden. Beim Wechsel zurück in einen sichtbaren Tab wird sofort neu geladen.
 

@@ -397,6 +397,7 @@ class DataLogger:
 
         raw_rows = [dict(row) for row in rows]
         points = self._downsample_rows(raw_rows, max_points=max_points, start=start, end=end)
+        markers = self._profile_switch_markers(start_iso=start_iso, end_iso=end_iso)
         return {
             "range": selected_range,
             "range_seconds": range_seconds,
@@ -404,9 +405,63 @@ class DataLogger:
             "end": end_iso,
             "raw_count": len(raw_rows),
             "point_count": len(points),
+            "marker_count": len(markers),
             "max_points": max_points,
             "points": points,
+            "markers": markers,
         }
+
+    def _profile_switch_markers(self, *, start_iso: str, end_iso: str, max_markers: int = 300) -> list[dict[str, Any]]:
+        """Derive profile switch markers from per-miner samples."""
+        self._ensure_schema()
+        with self._connect() as con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                """
+                SELECT ts, miner_id, miner_key, name, driver, profile, power_w, hashrate_ghs, runtime_state
+                FROM history_miner_samples
+                WHERE ts >= ? AND ts <= ?
+                ORDER BY miner_id ASC, ts ASC
+                """,
+                (start_iso, end_iso),
+            ).fetchall()
+
+        previous_profile_by_miner: dict[str, str | None] = {}
+        markers: list[dict[str, Any]] = []
+        for row_obj in rows:
+            row = dict(row_obj)
+            miner_id = str(row.get("miner_id") or row.get("miner_key") or "")
+            if not miner_id:
+                continue
+            profile = row.get("profile")
+            profile_text = str(profile).strip() if profile is not None else ""
+            if not profile_text:
+                continue
+
+            previous = previous_profile_by_miner.get(miner_id)
+            previous_profile_by_miner[miner_id] = profile_text
+            if previous is None or previous == profile_text:
+                continue
+
+            miner_name = str(row.get("name") or row.get("miner_key") or miner_id)
+            markers.append({
+                "ts": row.get("ts"),
+                "type": "profile_switch",
+                "miner_id": row.get("miner_id"),
+                "miner_key": row.get("miner_key"),
+                "miner_name": miner_name,
+                "driver": row.get("driver"),
+                "old_profile": previous,
+                "new_profile": profile_text,
+                "label": f"{miner_name}: {previous} -> {profile_text}",
+                "power_w": _float_or_none(row.get("power_w")),
+                "hashrate_ghs": _float_or_none(row.get("hashrate_ghs")),
+                "runtime_state": row.get("runtime_state"),
+            })
+
+        if len(markers) > max_markers:
+            markers = markers[-max_markers:]
+        return markers
 
     def _downsample_rows(
         self,

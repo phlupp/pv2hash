@@ -2523,6 +2523,73 @@
     return new Intl.DateTimeFormat('de-DE', options).format(date);
   }
 
+  function mapDataLoggerMarkersToPoints(points, markers) {
+    const safePoints = Array.isArray(points) ? points : [];
+    const safeMarkers = Array.isArray(markers) ? markers : [];
+    if (!safePoints.length || !safeMarkers.length) return { markers: [], byIndex: new Map() };
+
+    const pointTimes = safePoints.map((point) => {
+      const time = Date.parse(point.ts || '');
+      return Number.isFinite(time) ? time : null;
+    });
+    const mapped = [];
+    const byIndex = new Map();
+
+    for (const marker of safeMarkers) {
+      const markerTime = Date.parse(marker.ts || '');
+      if (!Number.isFinite(markerTime)) continue;
+      let bestIndex = -1;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < pointTimes.length; i += 1) {
+        const pointTime = pointTimes[i];
+        if (pointTime === null) continue;
+        const distance = Math.abs(pointTime - markerTime);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = i;
+        }
+      }
+      if (bestIndex < 0) continue;
+      const mappedMarker = { ...marker, point_index: bestIndex };
+      mapped.push(mappedMarker);
+      const bucket = byIndex.get(bestIndex) || [];
+      bucket.push(mappedMarker);
+      byIndex.set(bestIndex, bucket);
+    }
+
+    return { markers: mapped, byIndex };
+  }
+
+  const dataLoggerProfileMarkersPlugin = {
+    id: 'pv2hashProfileMarkers',
+    afterDatasetsDraw(chart) {
+      const markers = chart.$pv2hashMarkers || [];
+      if (!markers.length || !chart.scales?.x || !chart.chartArea) return;
+      const { ctx, chartArea, scales } = chart;
+      ctx.save();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255, 196, 87, 0.55)';
+      ctx.fillStyle = 'rgba(255, 196, 87, 0.95)';
+      for (const marker of markers) {
+        const index = Number(marker.point_index);
+        if (!Number.isFinite(index)) continue;
+        const x = scales.x.getPixelForValue(index);
+        if (!Number.isFinite(x) || x < chartArea.left || x > chartArea.right) continue;
+        ctx.beginPath();
+        ctx.moveTo(x, chartArea.top);
+        ctx.lineTo(x, chartArea.bottom);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x, chartArea.top + 2);
+        ctx.lineTo(x - 4, chartArea.top + 10);
+        ctx.lineTo(x + 4, chartArea.top + 10);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    },
+  };
+
   function updateDataLoggerBadges(status) {
     if (!status) return;
     const enabled = document.querySelector('[data-datalogger-badge="enabled"]');
@@ -2563,6 +2630,16 @@
               const index = items && items[0] ? items[0].dataIndex : 0;
               const point = items && items[0] && items[0].chart.$pv2hashPoints ? items[0].chart.$pv2hashPoints[index] : null;
               return point && point.ts ? new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'medium' }).format(new Date(point.ts)) : '';
+            },
+            afterBody(items) {
+              const index = items && items[0] ? items[0].dataIndex : 0;
+              const chart = items && items[0] ? items[0].chart : null;
+              const markers = chart && chart.$pv2hashMarkersByIndex ? chart.$pv2hashMarkersByIndex.get(index) : null;
+              if (!markers || !markers.length) return [];
+              return ['', 'Profilwechsel:', ...markers.slice(0, 6).map((marker) => {
+                const fallback = `${marker.old_profile || '?'} -> ${marker.new_profile || '?'}`;
+                return `• ${marker.label || fallback}`;
+              })];
             }
           }
         }
@@ -2651,6 +2728,10 @@
     if (empty) empty.hidden = points.length > 0;
     const pointBadge = document.querySelector('[data-datalogger-points]');
     if (pointBadge) pointBadge.textContent = `${points.length.toLocaleString('de-DE')} Punkte`;
+    const markers = Array.isArray(series?.markers) ? series.markers : [];
+    const mappedMarkers = mapDataLoggerMarkersToPoints(points, markers);
+    const markerBadge = document.querySelector('[data-datalogger-markers]');
+    if (markerBadge) markerBadge.textContent = `${markers.length.toLocaleString('de-DE')} Profilwechsel`;
 
     const labels = points.map((point) => formatDataLoggerTime(point.ts, rangeName));
     const values = (field) => points.map((point) => point[field] === null || point[field] === undefined ? null : Number(point[field]));
@@ -2668,6 +2749,7 @@
     if (energyCanvas) {
       dataloggerCharts.energy = new Chart(energyCanvas, {
         type: 'line',
+        plugins: [dataLoggerProfileMarkersPlugin],
         data: {
           labels,
           datasets: [
@@ -2680,12 +2762,15 @@
         options: dataLoggerChartOptions({ leftTitle: 'Watt', rangeName }),
       });
       dataloggerCharts.energy.$pv2hashPoints = points;
+      dataloggerCharts.energy.$pv2hashMarkers = mappedMarkers.markers;
+      dataloggerCharts.energy.$pv2hashMarkersByIndex = mappedMarkers.byIndex;
     }
 
     const batteryCanvas = document.getElementById('dataloggerBatteryChart');
     if (batteryCanvas) {
       dataloggerCharts.battery = new Chart(batteryCanvas, {
         type: 'line',
+        plugins: [dataLoggerProfileMarkersPlugin],
         data: {
           labels,
           datasets: [
@@ -2703,12 +2788,15 @@
         }),
       });
       dataloggerCharts.battery.$pv2hashPoints = points;
+      dataloggerCharts.battery.$pv2hashMarkers = mappedMarkers.markers;
+      dataloggerCharts.battery.$pv2hashMarkersByIndex = mappedMarkers.byIndex;
     }
 
     const miningCanvas = document.getElementById('dataloggerMiningChart');
     if (miningCanvas) {
       dataloggerCharts.mining = new Chart(miningCanvas, {
         type: 'line',
+        plugins: [dataLoggerProfileMarkersPlugin],
         data: {
           labels,
           datasets: [
@@ -2719,6 +2807,8 @@
         options: dataLoggerChartOptions({ leftTitle: 'Watt', rightTitle: 'GH/s', rangeName }),
       });
       dataloggerCharts.mining.$pv2hashPoints = points;
+      dataloggerCharts.mining.$pv2hashMarkers = mappedMarkers.markers;
+      dataloggerCharts.mining.$pv2hashMarkersByIndex = mappedMarkers.byIndex;
     }
   }
 
