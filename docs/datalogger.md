@@ -62,7 +62,7 @@ Die Data-Logger-Seite nutzt die lokal mitgelieferte Chart.js-Datei aus `pv2hash/
 Die Zeitreihen werden über diesen Endpunkt geladen:
 
 ```text
-GET /api/datalogger/series?range=1h|6h|24h|7d&max_points=720
+GET /api/datalogger/series?range=1h|6h|12h|24h|7d&max_points=720
 ```
 
 Der Endpunkt liest aus `history.sqlite` und reduziert größere Zeiträume serverseitig auf eine begrenzte Punktzahl. Dadurch bleiben 24h- und 7d-Ansichten auch bei 10-Sekunden-Sampling browserfreundlich.
@@ -74,3 +74,5 @@ Die erste Chart-Ausbaustufe zeigt:
 - **Mining:** Gesamthashrate und Minerleistung
 
 Profilwechsel-Marker sind für eine spätere Ausbaustufe vorgesehen. Die dafür nötigen Profildaten liegen bereits in `history_miner_samples`.
+
+Die Data-Logger-Seite lädt standardmäßig den Bereich `12h` und aktualisiert die Charts bei sichtbarem Browser-Tab automatisch alle 30 Sekunden. Beim Wechsel zurück in einen sichtbaren Tab wird sofort neu geladen.

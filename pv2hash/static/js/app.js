@@ -2501,7 +2501,9 @@
     energy: null,
     battery: null,
     mining: null,
-    range: '1h',
+    range: '12h',
+    refreshTimer: null,
+    refreshIntervalMs: 30000,
   };
 
   function formatDataLoggerNumber(value, suffix = '') {
@@ -2717,6 +2719,20 @@
     }
   }
 
+  function startDataLoggerRefresh() {
+    stopDataLoggerRefresh();
+    dataloggerCharts.refreshTimer = window.setInterval(() => {
+      if (!document.hidden) loadDataLoggerCharts(dataloggerCharts.range);
+    }, dataloggerCharts.refreshIntervalMs);
+  }
+
+  function stopDataLoggerRefresh() {
+    if (dataloggerCharts.refreshTimer) {
+      window.clearInterval(dataloggerCharts.refreshTimer);
+      dataloggerCharts.refreshTimer = null;
+    }
+  }
+
   function setupDataLoggerPage() {
     const root = document.querySelector('[data-datalogger-root]');
     if (!root || root.dataset.dataloggerReady === '1') return;
@@ -2726,14 +2742,20 @@
       const rangeButton = event.target.closest('[data-datalogger-range]');
       if (!rangeButton) return;
       event.preventDefault();
-      loadDataLoggerCharts(rangeButton.dataset.dataloggerRange || '1h');
+      loadDataLoggerCharts(rangeButton.dataset.dataloggerRange || '12h');
     });
 
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) loadDataLoggerCharts(dataloggerCharts.range);
+      if (document.hidden) {
+        stopDataLoggerRefresh();
+      } else {
+        loadDataLoggerCharts(dataloggerCharts.range);
+        startDataLoggerRefresh();
+      }
     });
 
     loadDataLoggerCharts(dataloggerCharts.range);
+    startDataLoggerRefresh();
   }
 
 

@@ -45,6 +45,7 @@ def _parse_range_seconds(value: str | None) -> tuple[str, int]:
     allowed = {
         "1h": 3600,
         "6h": 6 * 3600,
+        "12h": 12 * 3600,
         "24h": 24 * 3600,
         "7d": 7 * 24 * 3600,
     }
