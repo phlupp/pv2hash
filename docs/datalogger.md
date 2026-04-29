@@ -70,7 +70,7 @@ Der Endpunkt liest aus `history.sqlite` und reduziert größere Zeiträume serve
 Die erste Chart-Ausbaustufe zeigt:
 
 - **Energiefluss:** Netzanschluss, Minerleistung, Batterie-Ladeleistung und Batterie-Entladeleistung
-- **Batterie:** SOC sowie Lade-/Entladeleistung
+- **Batterie:** SOC sowie Lade-/Entladeleistung; Ladeleistung wird positiv und Entladeleistung negativ dargestellt, die Watt-Achse wird symmetrisch um 0 skaliert
 - **Mining:** Gesamthashrate und Minerleistung
 
 Profilwechsel-Marker sind für eine spätere Ausbaustufe vorgesehen. Die dafür nötigen Profildaten liegen bereits in `history_miner_samples`.

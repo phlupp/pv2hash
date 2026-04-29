@@ -2548,7 +2548,7 @@
     }
   }
 
-  function dataLoggerChartOptions({ leftTitle = '', rightTitle = '', rangeName = '1h' } = {}) {
+  function dataLoggerChartOptions({ leftTitle = '', rightTitle = '', rangeName = '1h', leftMin = undefined, leftMax = undefined } = {}) {
     const textColor = 'rgba(242, 245, 255, 0.78)';
     const gridColor = 'rgba(255, 255, 255, 0.08)';
     return {
@@ -2575,7 +2575,13 @@
         y: {
           title: { display: Boolean(leftTitle), text: leftTitle, color: textColor },
           ticks: { color: textColor },
-          grid: { color: gridColor },
+          grid: {
+            color(context) {
+              return context.tick && context.tick.value === 0 ? 'rgba(255, 255, 255, 0.22)' : gridColor;
+            },
+          },
+          min: leftMin,
+          max: leftMax,
         },
         y1: {
           position: 'right',
@@ -2588,6 +2594,21 @@
         },
       },
     };
+  }
+
+  function niceDataLoggerAxisMax(value) {
+    const absValue = Math.abs(Number(value) || 0);
+    if (absValue <= 0) return undefined;
+    const exponent = Math.floor(Math.log10(absValue));
+    const base = 10 ** exponent;
+    const normalized = absValue / base;
+    let nice = 1;
+    if (normalized <= 1) nice = 1;
+    else if (normalized <= 2) nice = 2;
+    else if (normalized <= 2.5) nice = 2.5;
+    else if (normalized <= 5) nice = 5;
+    else nice = 10;
+    return nice * base;
   }
 
   function makeDataLoggerDataset(label, data, color, yAxisID = 'y') {
@@ -2633,6 +2654,14 @@
 
     const labels = points.map((point) => formatDataLoggerTime(point.ts, rangeName));
     const values = (field) => points.map((point) => point[field] === null || point[field] === undefined ? null : Number(point[field]));
+    const batteryChargeValues = values('battery_charge_power_w');
+    const batteryDischargeValues = values('battery_discharge_power_w');
+    const batteryDischargeNegativeValues = batteryDischargeValues.map((value) => value === null ? null : -Math.abs(value));
+    const batteryPowerAxisMax = niceDataLoggerAxisMax(Math.max(
+      ...batteryChargeValues.filter((value) => value !== null).map((value) => Math.abs(value)),
+      ...batteryDischargeValues.filter((value) => value !== null).map((value) => Math.abs(value)),
+      0,
+    ));
     destroyDataLoggerCharts();
 
     const energyCanvas = document.getElementById('dataloggerEnergyChart');
@@ -2644,8 +2673,8 @@
           datasets: [
             makeDataLoggerDataset('Netzanschluss W (+Bezug/-Einspeisung)', values('grid_power_w'), 'rgba(98, 211, 255, 0.95)'),
             makeDataLoggerDataset('Minerleistung W', values('miner_power_w_total'), 'rgba(141, 99, 255, 0.95)'),
-            makeDataLoggerDataset('Batterie lädt W', values('battery_charge_power_w'), 'rgba(67, 227, 165, 0.95)'),
-            makeDataLoggerDataset('Batterie entlädt W', values('battery_discharge_power_w'), 'rgba(255, 177, 92, 0.95)'),
+            makeDataLoggerDataset('Batterie lädt W', batteryChargeValues, 'rgba(67, 227, 165, 0.95)'),
+            makeDataLoggerDataset('Batterie entlädt W', batteryDischargeValues, 'rgba(255, 177, 92, 0.95)'),
           ],
         },
         options: dataLoggerChartOptions({ leftTitle: 'Watt', rangeName }),
@@ -2661,11 +2690,17 @@
           labels,
           datasets: [
             makeDataLoggerDataset('SOC %', values('battery_soc_pct'), 'rgba(242, 245, 255, 0.95)', 'y1'),
-            makeDataLoggerDataset('Ladeleistung W', values('battery_charge_power_w'), 'rgba(67, 227, 165, 0.95)'),
-            makeDataLoggerDataset('Entladeleistung W', values('battery_discharge_power_w'), 'rgba(255, 177, 92, 0.95)'),
+            makeDataLoggerDataset('Ladeleistung W', batteryChargeValues, 'rgba(67, 227, 165, 0.95)'),
+            makeDataLoggerDataset('Entladeleistung W', batteryDischargeNegativeValues, 'rgba(255, 177, 92, 0.95)'),
           ],
         },
-        options: dataLoggerChartOptions({ leftTitle: 'Watt', rightTitle: 'SOC %', rangeName }),
+        options: dataLoggerChartOptions({
+          leftTitle: 'Watt',
+          rightTitle: 'SOC %',
+          rangeName,
+          leftMin: batteryPowerAxisMax ? -batteryPowerAxisMax : undefined,
+          leftMax: batteryPowerAxisMax || undefined,
+        }),
       });
       dataloggerCharts.battery.$pv2hashPoints = points;
     }
