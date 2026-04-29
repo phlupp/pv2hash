@@ -1,9 +1,10 @@
 <aside class="sidebar">
     <div class="brand">
-        <div class="brand-mark">PV</div>
-        <div>
-            <div class="brand-title">PV2Hash</div>
-            <div class="brand-subtitle">{{ nav_subtitle|default(instance_name|default('PV2Hash')) }}</div>
+        <a class="brand-logo-link" href="/" aria-label="PV2Hash Dashboard">
+            <img class="brand-logo" src="/static/img/brand/pv2hash-logo-horizontal-400.png" alt="PV2Hash">
+        </a>
+        <div class="brand-meta">
+            <div class="brand-node">{{ instance_name|default(nav_subtitle|default('PV2Hash Node')) }}</div>
             {% set nav_update_status = update_check.status if update_check is defined and update_check else "idle" %}
             {% if app_version_full is defined %}
             <a

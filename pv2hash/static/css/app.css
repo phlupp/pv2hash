@@ -45,33 +45,34 @@ a {
 }
 
 .brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+    display: grid;
+    gap: 8px;
     margin-bottom: 26px;
 }
 
-.brand-mark {
-    width: 44px;
-    height: 44px;
-    border-radius: 14px;
+.brand-logo-link {
+    display: block;
+    width: 100%;
+    max-width: 198px;
+}
+
+.brand-logo {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.brand-meta {
     display: grid;
-    place-items: center;
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    font-weight: 800;
-    color: white;
-    box-shadow: var(--shadow);
+    gap: 3px;
+    padding-left: 2px;
 }
 
-.brand-title {
-    font-size: 21px;
-    font-weight: 800;
-    letter-spacing: .2px;
-}
-
-.brand-subtitle {
-    color: var(--muted);
-    font-size: 12px;
+.brand-node {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.25;
 }
 
 .nav {
@@ -1632,7 +1633,7 @@ form.is-busy {
 
 /* Dashboard live refresh / shared nav version */
 .brand-version {
-    margin-top: 5px;
+    margin-top: 0;
     display: inline-flex;
     flex-direction: column;
     align-items: flex-start;
