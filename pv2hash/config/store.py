@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,23 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
 
     return result
 
+
+
+
+def _ensure_uuid(value: Any | None = None) -> str:
+    text = str(value or "").strip()
+    return text or str(uuid4())
+
+
+def _normalize_identity_fields(config: dict[str, Any]) -> None:
+    source = config.setdefault("source", {})
+    source["uuid"] = _ensure_uuid(source.get("uuid"))
+
+    battery = config.setdefault("battery", {})
+    battery["uuid"] = _ensure_uuid(battery.get("uuid"))
+
+    for miner in config.get("miners", []):
+        miner["uuid"] = _ensure_uuid(miner.get("uuid"))
 
 def _coerce_float(value: Any, default: float) -> float:
     try:
@@ -196,6 +214,7 @@ def _normalize_battery_settings(config: dict[str, Any]) -> None:
 
 def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized = deepcopy(config)
+    _normalize_identity_fields(normalized)
     _normalize_miner_profiles(normalized)
     _normalize_source_settings(normalized)
     _normalize_source_loss_profiles(normalized)
@@ -217,7 +236,10 @@ def load_config() -> dict[str, Any]:
         user_config = json.load(f)
 
     merged = deep_merge(DEFAULT_CONFIG, user_config)
-    return normalize_config(merged)
+    normalized = normalize_config(merged)
+    if normalized != merged:
+        save_config(normalized)
+    return normalized
 
 
 def save_config(config: dict[str, Any]) -> None:

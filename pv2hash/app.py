@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from pv2hash.config.store import CONFIG_PATH, load_config, save_config
+from pv2hash.identity import load_instance_identity
 from pv2hash.logging_ext.setup import (
     get_log_file_path,
     get_logger,
@@ -43,6 +44,7 @@ from pv2hash.version import APP_VERSION, APP_VERSION_FULL
 initial_config = load_config()
 setup_logging(initial_config.get("system", {}).get("log_level", "INFO"))
 logger = get_logger("pv2hash.app")
+instance_identity = load_instance_identity()
 
 app = FastAPI(title="PV2Hash", version=APP_VERSION_FULL)
 app.mount("/static", StaticFiles(directory="pv2hash/static"), name="static")
@@ -66,6 +68,95 @@ EDITABLE_MIN_REGULATED_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
 MODBUS_REGISTER_TYPES = ("holding", "input", "coil", "discrete_input")
 MODBUS_VALUE_TYPES = ("int8", "uint8", "int16", "uint16", "int32", "uint32", "float32")
 MODBUS_ENDIAN_TYPES = ("big_endian", "little_endian")
+
+
+def _build_instance_info() -> dict[str, Any]:
+    return {
+        "id": instance_identity.id,
+        "created_at": instance_identity.created_at,
+        "name": state.config.get("system", {}).get("instance_name", "PV2Hash Node"),
+        "version": APP_VERSION,
+        "version_full": APP_VERSION_FULL,
+    }
+
+
+def _device_uuid(config: dict[str, Any]) -> str:
+    return str(config.get("uuid") or "")
+
+
+def _build_runtime_snapshot_payload() -> dict[str, Any]:
+    snapshot = state.snapshot
+    runtime_miners = {miner.id: miner for miner in state.miners}
+    config_miners = state.config.get("miners", []) if state.config else []
+
+    miners: list[dict[str, Any]] = []
+    for miner_cfg in config_miners:
+        miner_key = str(miner_cfg.get("id") or "")
+        runtime_miner = runtime_miners.get(miner_key)
+        miners.append({
+            "id": _device_uuid(miner_cfg),
+            "key": miner_key,
+            "name": str(miner_cfg.get("name") or miner_key),
+            "driver": str(miner_cfg.get("driver") or ""),
+            "host": str(miner_cfg.get("host") or ""),
+            "priority": int(miner_cfg.get("priority", 100) or 100),
+            "monitor_enabled": bool(miner_cfg.get("monitor_enabled", True)),
+            "control_enabled": bool(miner_cfg.get("control_enabled", True)),
+            "reachable": bool(runtime_miner.reachable) if runtime_miner else False,
+            "profile": str(runtime_miner.profile or "off") if runtime_miner else "off",
+            "power_w": float(runtime_miner.power_w) if runtime_miner else 0.0,
+            "hashrate_ghs": getattr(runtime_miner, "current_hashrate_ghs", None) if runtime_miner else None,
+            "runtime_state": str(getattr(runtime_miner, "runtime_state", "unknown") or "unknown") if runtime_miner else "unknown",
+        })
+
+    source_cfg = state.config.get("source", {}) if state.config else {}
+    battery_cfg = state.config.get("battery", {}) if state.config else {}
+    controller_status = _build_controller_status()
+
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(UTC),
+        "instance": _build_instance_info(),
+        "controller": {
+            "policy_mode": state.config.get("control", {}).get("policy_mode"),
+            "distribution_mode": state.config.get("control", {}).get("distribution_mode"),
+            "summary": controller_status.get("summary_text"),
+            "last_decision": state.last_decision,
+            "last_decision_at": state.last_decision_at,
+            "last_profile_switch_at": state.last_profile_switch_at,
+        },
+        "source": {
+            "id": _device_uuid(source_cfg),
+            "key": "source",
+            "role": "grid",
+            "type": source_cfg.get("type"),
+            "name": source_cfg.get("name"),
+            "enabled": bool(source_cfg.get("enabled", True)),
+            "quality": getattr(snapshot, "quality", None) if snapshot else None,
+            "grid_power_w": float(snapshot.grid_power_w) if snapshot else None,
+        },
+        "battery": {
+            "id": _device_uuid(battery_cfg),
+            "key": "battery",
+            "role": "battery",
+            "type": battery_cfg.get("type"),
+            "name": battery_cfg.get("name"),
+            "enabled": bool(battery_cfg.get("enabled", False)) and battery_cfg.get("type") != "none",
+            "soc_pct": snapshot.battery_soc_pct if snapshot else None,
+            "charge_power_w": snapshot.battery_charge_power_w if snapshot else None,
+            "discharge_power_w": snapshot.battery_discharge_power_w if snapshot else None,
+            "is_active": bool(snapshot.battery_is_active) if snapshot else False,
+            "is_charging": bool(snapshot.battery_is_charging) if snapshot else False,
+            "is_discharging": bool(snapshot.battery_is_discharging) if snapshot else False,
+        },
+        "miners": miners,
+        "totals": {
+            "miner_power_w": sum(item["power_w"] for item in miners),
+            "miner_hashrate_ghs": sum(float(item.get("hashrate_ghs") or 0.0) for item in miners),
+            "control_enabled_miner_count": sum(1 for item in miners if item.get("control_enabled")),
+            "reachable_miner_count": sum(1 for item in miners if item.get("reachable")),
+        },
+    }
 
 
 DRIVER_CLASSES: dict[str, type[MinerAdapter]] = {
@@ -306,6 +397,7 @@ def _build_settings_model() -> dict:
     profile_options = _settings_select_options((("off", "off"), ("p1", "p1"), ("p2", "p2"), ("p3", "p3"), ("p4", "p4")))
     return {"sections": [
         {"id": "system", "title": "Instanz", "subtitle": "Grunddaten und Aktualisierungsintervall der Oberfläche.", "fields": [
+            _setting_field("instance_id", "Instanz-ID", "text", instance_identity.id, disabled=True, help="Stabile lokale UUID dieser PV2Hash-Installation. Wird für Historie und spätere Portal-Anbindung genutzt.", layout={"width": "full"}),
             _setting_field("instance_name", "Instanzname", "text", system_cfg.get("instance_name", "PV2Hash Node"), required=True, layout={"width": "half"}),
             _setting_field("refresh_seconds", "Live-Aktualisierung", "number", app_cfg.get("refresh_seconds", 5), min=1, step=1, unit="s", layout={"width": "half"}),
         ]},
@@ -490,6 +582,7 @@ def _build_dashboard_miner_rows() -> list[dict]:
         rows.append(
             {
                 "id": str(miner_cfg.get("id", "")),
+                "uuid": _device_uuid(miner_cfg),
                 "name": name,
                 "priority": priority,
                 "host": host,
@@ -642,6 +735,8 @@ def _build_system_model() -> dict[str, Any]:
                 "type": "details",
                 "rows": [
                     _system_row("Instanz", state.config["system"].get("instance_name", "PV2Hash Node"), key="instance_name"),
+                    _system_row("Instanz-ID", instance_identity.id, key="instance_id"),
+                    _system_row("Erstellt", instance_identity.created_at, key="instance_created_at"),
                     _system_row("Messung", _resolve_measurement_profile_label(source_type), key="source_profile"),
                     _system_row("Batterie", _resolve_battery_profile_label(battery_type), key="battery_profile"),
                     _system_row("Miner aktiv", len(state.miners), key="miner_count"),
@@ -1259,11 +1354,13 @@ def _build_miners_live_payload(open_ids: set[str] | None = None) -> dict:
         merged.setdefault("profiles", {})
         merged.setdefault("min_regulated_profile", "off")
         merged["driver"] = _normalize_miner_driver(merged.get("driver"))
+        merged["uuid"] = _device_uuid(merged)
         merged["runtime"] = runtime
         merged["summary"] = _miner_card_summary(merged, runtime)
 
         item = {
             "id": miner_id,
+            "uuid": _device_uuid(miner_cfg),
             "summary": _format_miner_summary_for_api(merged["summary"]),
         }
 
@@ -1303,6 +1400,7 @@ def _build_sources_live_payload() -> dict:
         "status": "ok",
         "gui_models": services.get_source_gui_models(),
         "source": {
+            "id": _device_uuid(source_cfg),
             "type": source_type,
             "profile_label": _resolve_measurement_profile_label(source_type),
             "device_label": source_device_label or "—",
@@ -1315,6 +1413,7 @@ def _build_sources_live_payload() -> dict:
             "debug": source_debug or {},
         },
         "battery": {
+            "id": _device_uuid(battery_cfg),
             "type": battery_type,
             "profile_label": _resolve_battery_profile_label(battery_type),
             "enabled": battery_enabled,
@@ -1538,6 +1637,7 @@ def _build_miners_view() -> list[dict]:
         merged.setdefault("profiles", {})
         merged.setdefault("min_regulated_profile", "off")
         merged["driver"] = _normalize_miner_driver(merged.get("driver"))
+        merged["uuid"] = _device_uuid(merged)
         merged["runtime"] = runtime
         merged["summary"] = _miner_card_summary(merged, runtime)
         merged["supports_gui_schema"] = _driver_supports_gui_schema(merged.get("driver"))
@@ -2060,6 +2160,7 @@ async def _add_miner_result(form: Any) -> dict[str, Any]:
 
     miner_cfg = {
         "id": miner_id,
+        "uuid": str(uuid4()),
         "name": "Miner",
         "driver": driver,
         "monitor_enabled": True,
@@ -2400,6 +2501,11 @@ async def api_system_logging(request: Request):
     setup_logging(log_level)
     logger.info("Log level changed to %s", log_level)
     return JSONResponse(content=jsonable_encoder({"status": "ok", "message": f"Log-Level auf {log_level} gesetzt.", "model": _build_system_model()}))
+
+
+@app.get("/api/runtime/snapshot")
+async def api_runtime_snapshot():
+    return JSONResponse(content=jsonable_encoder(_build_runtime_snapshot_payload()))
 
 
 @app.get("/api/dashboard/status")
