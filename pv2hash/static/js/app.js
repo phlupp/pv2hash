@@ -63,6 +63,8 @@
     heartbeatTimer: null,
     heartbeatRunning: false,
     reconnectToastShown: false,
+    heartbeatOnlineMs: 30000,
+    heartbeatOfflineMs: 5000,
   };
 
   function backendOverlaySuppressed() {
@@ -104,6 +106,10 @@
     backendConnectivity.offlineSince = null;
     hideBackendOfflineOverlay();
 
+    if (wasOffline) {
+      startBackendHeartbeat();
+    }
+
     if (wasOffline && !backendConnectivity.reconnectToastShown && !backendOverlaySuppressed()) {
       backendConnectivity.reconnectToastShown = true;
       if (window.showToast) window.showToast('success', 'Verbindung zu PV2Hash wiederhergestellt.', { timeout: 5000 });
@@ -121,6 +127,7 @@
     if (backendConnectivity.online) {
       backendConnectivity.online = false;
       backendConnectivity.offlineSince = new Date();
+      startBackendHeartbeat();
     }
 
     const reason = error && error.message ? `Letzter Fehler: ${error.message}` : 'Warte auf Wiederverbindung …';
@@ -173,7 +180,10 @@
   function startBackendHeartbeat() {
     stopBackendHeartbeat();
     if (document.hidden || backendOverlaySuppressed()) return;
-    backendConnectivity.heartbeatTimer = window.setInterval(backendHeartbeat, 5000);
+    const intervalMs = backendConnectivity.online
+      ? backendConnectivity.heartbeatOnlineMs
+      : backendConnectivity.heartbeatOfflineMs;
+    backendConnectivity.heartbeatTimer = window.setInterval(backendHeartbeat, intervalMs);
   }
 
   function stopBackendHeartbeat() {
@@ -1976,8 +1986,8 @@
           <button class="btn btn-secondary" type="button" data-system-log-filter-clear>Filter löschen</button>
         </div>
         <div class="console-control-row console-control-row-actions">
-          <button class="btn btn-secondary" type="button" data-system-log-scroll-toggle>STOPPEN SCROLLING</button>
-          <button class="btn btn-secondary" type="button" data-system-log-visibility-toggle>AUSBLENDEN LOGS</button>
+          <button class="btn btn-secondary" type="button" data-system-log-scroll-toggle>${systemAutoScroll ? 'STOPPEN SCROLLING' : 'STARTEN SCROLLING'}</button>
+          <button class="btn btn-secondary" type="button" data-system-log-visibility-toggle>${systemLogsVisible ? 'AUSBLENDEN LOGS' : 'EINBLENDEN LOGS'}</button>
         </div>
       </div>
     `;
@@ -1995,6 +2005,7 @@
     const wrap = document.createElement('div');
     wrap.className = 'console-wrap';
     wrap.dataset.systemConsoleWrap = '1';
+    wrap.style.display = systemLogsVisible ? 'block' : 'none';
     const output = document.createElement('div');
     output.className = 'console-output';
     output.dataset.systemLogConsole = '1';
@@ -2208,7 +2219,7 @@
 
   async function loadSystemLogs() {
     const root = document.querySelector('[data-system-root]');
-    if (!root || document.hidden) return;
+    if (!root || document.hidden || !systemLogsVisible) return;
     try {
       const response = await fetch('/api/logs', { cache: 'no-store' });
       const data = await readJsonResponse(response, 'Logs konnten nicht geladen werden.');
@@ -2227,7 +2238,9 @@
     if (!root || document.hidden) return;
     stopSystemRefresh();
     systemModelTimer = window.setInterval(loadSystemModel, 5000);
-    systemLogTimer = window.setInterval(loadSystemLogs, 2000);
+    if (systemLogsVisible) {
+      systemLogTimer = window.setInterval(loadSystemLogs, 5000);
+    }
   }
 
   function stopSystemRefresh() {
@@ -2395,6 +2408,13 @@
         const wrap = document.querySelector('[data-system-console-wrap]');
         if (wrap) wrap.style.display = systemLogsVisible ? 'block' : 'none';
         visibilityToggle.textContent = systemLogsVisible ? 'AUSBLENDEN LOGS' : 'EINBLENDEN LOGS';
+        if (systemLogsVisible) {
+          loadSystemLogs();
+          startSystemRefresh();
+        } else if (systemLogTimer) {
+          window.clearInterval(systemLogTimer);
+          systemLogTimer = null;
+        }
       }
     });
 

@@ -903,6 +903,20 @@ def _build_storage_summary() -> dict:
 
 
 _HOST_CPU_SAMPLE: tuple[int, int] | None = None
+_HOST_STATUS_CACHE: tuple[float, dict] | None = None
+_HOST_STORAGE_CACHE: tuple[float, dict] | None = None
+_HOST_STATIC_INFO = {
+    'hostname': socket.gethostname() or '—',
+    'fqdn': '',
+    'platform_text': f"{platform.system()} {platform.release()}",
+    'python_text': sys.version.split()[0],
+}
+try:
+    _HOST_STATIC_INFO['fqdn'] = socket.getfqdn()
+except Exception:
+    _HOST_STATIC_INFO['fqdn'] = ''
+if _HOST_STATIC_INFO['fqdn'] == _HOST_STATIC_INFO['hostname']:
+    _HOST_STATIC_INFO['fqdn'] = ''
 
 
 def _sample_cpu_percent() -> float | None:
@@ -924,12 +938,20 @@ def _sample_cpu_percent() -> float | None:
     return max(0.0, min(100.0, usage))
 
 
-def _get_host_status() -> dict:
-    hostname = socket.gethostname()
-    try:
-        fqdn = socket.getfqdn()
-    except Exception:
-        fqdn = ''
+def _get_storage_summary_cached() -> dict:
+    global _HOST_STORAGE_CACHE
+    now = monotonic()
+    if _HOST_STORAGE_CACHE is not None:
+        cached_at, cached = _HOST_STORAGE_CACHE
+        if now - cached_at < 60.0:
+            return dict(cached)
+
+    storage = _build_storage_summary()
+    _HOST_STORAGE_CACHE = (now, dict(storage))
+    return storage
+
+
+def _get_host_status_uncached() -> dict:
     cpu_percent = _sample_cpu_percent()
     mem_total, mem_available = _read_meminfo()
     mem_used = None
@@ -943,9 +965,10 @@ def _get_host_status() -> dict:
         load_text = ' / '.join(f"{value:.2f}" for value in load_values)
     except Exception:
         load_text = '—'
+
+    uptime_seconds = _read_uptime_seconds()
     return {
-        'hostname': hostname or '—',
-        'fqdn': fqdn if fqdn and fqdn != hostname else '',
+        **_HOST_STATIC_INFO,
         'cpu_percent': cpu_percent,
         'cpu_percent_text': f"{cpu_percent:.0f}%" if cpu_percent is not None else '—',
         'ram_used_bytes': mem_used,
@@ -954,12 +977,23 @@ def _get_host_status() -> dict:
         'ram_percent': mem_percent,
         'ram_percent_text': f"{mem_percent:.0f}%" if mem_percent is not None else '—',
         'load_text': load_text,
-        'uptime_seconds': _read_uptime_seconds(),
-        'uptime_text': _format_duration(_read_uptime_seconds()),
-        'platform_text': f"{platform.system()} {platform.release()}",
-        'python_text': sys.version.split()[0],
-        'storage': _build_storage_summary(),
+        'uptime_seconds': uptime_seconds,
+        'uptime_text': _format_duration(uptime_seconds),
+        'storage': _get_storage_summary_cached(),
     }
+
+
+def _get_host_status() -> dict:
+    global _HOST_STATUS_CACHE
+    now = monotonic()
+    if _HOST_STATUS_CACHE is not None:
+        cached_at, cached = _HOST_STATUS_CACHE
+        if now - cached_at < 2.0:
+            return deepcopy(cached)
+
+    status = _get_host_status_uncached()
+    _HOST_STATUS_CACHE = (now, deepcopy(status))
+    return status
 
 
 def _redirect_to_miners(
