@@ -1657,6 +1657,7 @@
   let systemLogsVisible = true;
   let systemLastUpdateStatus = null;
   let systemUpdateOverlayRedirectTimer = null;
+  const systemUpdateOverlaySessionKey = 'pv2hash.systemUpdateOverlayStarted';
 
   function systemEscapeHtml(text) {
     const div = document.createElement('div');
@@ -2063,6 +2064,7 @@
   function scheduleSystemOverlayDashboardRedirect() {
     if (systemUpdateOverlayRedirectTimer) return;
     systemUpdateOverlayRedirectTimer = window.setTimeout(() => {
+      try { window.sessionStorage.removeItem(systemUpdateOverlaySessionKey); } catch (_) {}
       window.location.href = '/';
     }, 3000);
   }
@@ -2071,6 +2073,26 @@
     if (!systemUpdateOverlayRedirectTimer) return;
     window.clearTimeout(systemUpdateOverlayRedirectTimer);
     systemUpdateOverlayRedirectTimer = null;
+  }
+
+  function systemUpdateOverlayWasStartedHere() {
+    try {
+      return window.sessionStorage.getItem(systemUpdateOverlaySessionKey) === '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function markSystemUpdateOverlayStarted() {
+    try {
+      window.sessionStorage.setItem(systemUpdateOverlaySessionKey, '1');
+    } catch (_) {}
+  }
+
+  function clearSystemUpdateOverlayStarted() {
+    try {
+      window.sessionStorage.removeItem(systemUpdateOverlaySessionKey);
+    } catch (_) {}
   }
 
   function renderSystemUpdateOverlay(runner) {
@@ -2106,6 +2128,10 @@
     }
 
     if (runner?.status === 'success') {
+      if (!systemUpdateOverlayWasStartedHere() && overlay.hidden) {
+        clearSystemOverlayDashboardRedirect();
+        return;
+      }
       overlay.hidden = false;
       if (badge) {
         badge.textContent = 'Erfolgreich';
@@ -2126,6 +2152,7 @@
 
     if (runner?.status === 'error') {
       clearSystemOverlayDashboardRedirect();
+      clearSystemUpdateOverlayStarted();
       overlay.hidden = false;
       if (badge) {
         badge.textContent = 'Fehler';
@@ -2289,6 +2316,7 @@
         headers: { 'Accept': 'application/json' },
       });
       await readJsonResponse(response, 'Update konnte nicht gestartet werden.');
+      markSystemUpdateOverlayStarted();
       const overlay = document.getElementById('updateOverlay');
       if (overlay) overlay.hidden = false;
       await loadSystemModel({ force: true });
