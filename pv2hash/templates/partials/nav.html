@@ -38,4 +38,22 @@
 </aside>
 {% include "partials/toasts.html" %}
 
+<div id="backendOfflineOverlay" class="connection-overlay" hidden>
+    <div class="connection-overlay-backdrop"></div>
+    <section class="card connection-overlay-card" role="alertdialog" aria-modal="true" aria-labelledby="backendOfflineTitle">
+        <div class="card-head">
+            <div>
+                <h2 id="backendOfflineTitle">Verbindung zur Anwendung verloren</h2>
+                <p class="card-subtitle">Die geladene Seite bleibt geöffnet, aber Live-Daten können gerade nicht aktualisiert werden.</p>
+            </div>
+            <span class="status-pill status-bad">Offline</span>
+        </div>
+        <div id="backendOfflineMessage" class="update-error top-gap">PV2Hash antwortet aktuell nicht. Es wird automatisch erneut versucht.</div>
+        <p id="backendOfflineSince" class="muted top-gap">Warte auf Wiederverbindung …</p>
+        <div class="actions end top-gap">
+            <button class="btn btn-secondary" type="button" data-backend-offline-retry>Erneut prüfen</button>
+        </div>
+    </section>
+</div>
+
 <script src="/static/js/app.js" defer></script>

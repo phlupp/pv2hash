@@ -56,6 +56,155 @@
     return toast;
   };
 
+  const backendConnectivity = {
+    online: true,
+    failureCount: 0,
+    offlineSince: null,
+    heartbeatTimer: null,
+    heartbeatRunning: false,
+    reconnectToastShown: false,
+  };
+
+  function backendOverlaySuppressed() {
+    if (window.location.pathname === '/system/update-progress') return true;
+    const updateOverlay = document.getElementById('updateOverlay');
+    return Boolean(updateOverlay && !updateOverlay.hidden);
+  }
+
+  function getBackendOfflineOverlay() {
+    return document.getElementById('backendOfflineOverlay');
+  }
+
+  function setBackendOfflineDetails(message) {
+    const messageEl = document.getElementById('backendOfflineMessage');
+    const sinceEl = document.getElementById('backendOfflineSince');
+    if (messageEl) messageEl.textContent = message || 'PV2Hash antwortet aktuell nicht. Es wird automatisch erneut versucht.';
+    if (sinceEl && backendConnectivity.offlineSince) {
+      sinceEl.textContent = `Seit ${backendConnectivity.offlineSince.toLocaleTimeString('de-DE')} ohne Antwort.`;
+    }
+  }
+
+  function showBackendOfflineOverlay(message) {
+    if (backendOverlaySuppressed()) return;
+    const overlay = getBackendOfflineOverlay();
+    if (!overlay) return;
+    setBackendOfflineDetails(message);
+    overlay.hidden = false;
+  }
+
+  function hideBackendOfflineOverlay() {
+    const overlay = getBackendOfflineOverlay();
+    if (overlay) overlay.hidden = true;
+  }
+
+  function markBackendOnline() {
+    const wasOffline = !backendConnectivity.online;
+    backendConnectivity.online = true;
+    backendConnectivity.failureCount = 0;
+    backendConnectivity.offlineSince = null;
+    hideBackendOfflineOverlay();
+
+    if (wasOffline && !backendConnectivity.reconnectToastShown && !backendOverlaySuppressed()) {
+      backendConnectivity.reconnectToastShown = true;
+      if (window.showToast) window.showToast('success', 'Verbindung zu PV2Hash wiederhergestellt.', { timeout: 5000 });
+      window.setTimeout(() => {
+        backendConnectivity.reconnectToastShown = false;
+      }, 1000);
+    }
+  }
+
+  function markBackendOffline(error) {
+    if (backendOverlaySuppressed()) return;
+    backendConnectivity.failureCount += 1;
+    if (backendConnectivity.failureCount < 2) return;
+
+    if (backendConnectivity.online) {
+      backendConnectivity.online = false;
+      backendConnectivity.offlineSince = new Date();
+    }
+
+    const reason = error && error.message ? `Letzter Fehler: ${error.message}` : 'Warte auf Wiederverbindung …';
+    showBackendOfflineOverlay(reason);
+  }
+
+  function isSameOriginFetch(input) {
+    try {
+      const url = typeof input === 'string'
+        ? new URL(input, window.location.origin)
+        : input instanceof URL
+          ? input
+          : input && input.url
+            ? new URL(input.url, window.location.origin)
+            : null;
+      return Boolean(url && url.origin === window.location.origin);
+    } catch (_) {
+      return true;
+    }
+  }
+
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async function pv2hashFetch(input, init) {
+    const trackBackend = isSameOriginFetch(input);
+    try {
+      const response = await nativeFetch(input, init);
+      if (trackBackend) markBackendOnline();
+      return response;
+    } catch (error) {
+      if (trackBackend && error && error.name !== 'AbortError') markBackendOffline(error);
+      throw error;
+    }
+  };
+
+  async function backendHeartbeat() {
+    if (document.hidden || backendConnectivity.heartbeatRunning || backendOverlaySuppressed()) return;
+    backendConnectivity.heartbeatRunning = true;
+    try {
+      const response = await nativeFetch('/api/ui/versionstatus', { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+      markBackendOnline();
+      return response.ok;
+    } catch (error) {
+      if (error && error.name !== 'AbortError') markBackendOffline(error);
+      return false;
+    } finally {
+      backendConnectivity.heartbeatRunning = false;
+    }
+  }
+
+  function startBackendHeartbeat() {
+    stopBackendHeartbeat();
+    if (document.hidden || backendOverlaySuppressed()) return;
+    backendConnectivity.heartbeatTimer = window.setInterval(backendHeartbeat, 5000);
+  }
+
+  function stopBackendHeartbeat() {
+    if (backendConnectivity.heartbeatTimer) {
+      window.clearInterval(backendConnectivity.heartbeatTimer);
+      backendConnectivity.heartbeatTimer = null;
+    }
+  }
+
+  function setupBackendConnectivityMonitor() {
+    const retryButton = document.querySelector('[data-backend-offline-retry]');
+    if (retryButton) {
+      retryButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        backendHeartbeat();
+      });
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopBackendHeartbeat();
+      } else {
+        backendHeartbeat();
+        startBackendHeartbeat();
+      }
+    });
+
+    backendHeartbeat();
+    startBackendHeartbeat();
+  }
+
   async function readJsonResponse(response, fallbackMessage) {
     let data = {};
     try {
@@ -2306,6 +2455,7 @@
 
     const params = new URLSearchParams(window.location.search);
     openAndScrollToMiner(params.get('miner_id'));
+    setupBackendConnectivityMonitor();
     setupMinerLiveRefresh();
     setupDashboardLiveRefresh();
     setupSourcesPage();
