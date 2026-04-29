@@ -87,6 +87,10 @@ a {
     color: var(--text);
 }
 
+.brand-title-accent {
+    color: var(--accent);
+}
+
 .brand-subtitle {
     color: var(--muted);
     font-size: 12px;

@@ -4,7 +4,7 @@
             <img class="brand-mark" src="/static/img/brand/pv2hash-chip-app-icon-flat-192.png" alt="">
         </a>
         <div class="brand-copy">
-            <a class="brand-title" href="/">PV2Hash</a>
+            <a class="brand-title" href="/">PV<span class="brand-title-accent">2</span>Hash</a>
             <div class="brand-subtitle">{{ instance_name|default(nav_subtitle|default('PV2Hash Node')) }}</div>
             {% set nav_update_status = update_check.status if update_check is defined and update_check else "idle" %}
             {% if app_version_full is defined %}
