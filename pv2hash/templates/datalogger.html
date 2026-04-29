@@ -32,9 +32,6 @@
                 <span class="badge {{ 'status-good' if status.enabled else 'status-muted' }}" data-datalogger-badge="enabled">{{ 'Aktiv' if status.enabled else 'Inaktiv' }}</span>
                 <span class="badge" data-datalogger-badge="interval">Intervall: {{ status.interval_seconds }} s</span>
                 <span class="badge" data-datalogger-badge="retention">Aufbewahrung: {{ status.retention_days }} Tage</span>
-                <span class="badge" data-datalogger-badge="samples">Samples: {{ status.sample_count }}</span>
-                <span class="badge" data-datalogger-badge="db">DB: {{ '%.1f'|format((status.database_size_bytes or 0) / 1024 / 1024) }} MB</span>
-                <span class="badge" data-datalogger-badge="latest">Letztes Sample: {{ status.newest_sample_at or '—' }}</span>
             </section>
 
             {% if status.last_error %}

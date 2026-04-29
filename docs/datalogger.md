@@ -76,3 +76,20 @@ Die erste Chart-Ausbaustufe zeigt:
 Profilwechsel-Marker sind für eine spätere Ausbaustufe vorgesehen. Die dafür nötigen Profildaten liegen bereits in `history_miner_samples`.
 
 Die Data-Logger-Seite lädt standardmäßig den Bereich `12h` und aktualisiert die Charts bei sichtbarem Browser-Tab automatisch alle 30 Sekunden. Beim Wechsel zurück in einen sichtbaren Tab wird sofort neu geladen.
+
+## Platzierung der Statusinformationen
+
+Die Data-Logger-Seite bleibt bewusst chart-fokussiert. Dort werden nur die wichtigsten Betriebsparameter als Badges angezeigt:
+
+- Aktiv/Inaktiv
+- Intervall
+- Aufbewahrung
+
+Die technischen Details zum lokalen Logger werden auf der Systemseite in einer eigenen Karte angezeigt:
+
+- Aktiv
+- Intervall
+- Aufbewahrung
+- Samples
+- DB Size
+- Letztes Sample als relative Zeit mit Sekunden

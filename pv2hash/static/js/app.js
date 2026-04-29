@@ -2071,7 +2071,7 @@
 
       if (card.id === 'backup' || card.id === 'update') {
         topGrid.appendChild(element);
-      } else if (card.id === 'instance' || card.id === 'host') {
+      } else if (card.id === 'instance' || card.id === 'host' || card.id === 'datalogger') {
         midGrid.appendChild(element);
       } else {
         element.classList.add('top-gap');

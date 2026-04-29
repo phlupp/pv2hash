@@ -717,6 +717,33 @@ def _system_row(label: str, value: Any, *, key: str | None = None) -> dict[str, 
     }
 
 
+
+def _build_system_datalogger_rows() -> list[dict[str, Any]]:
+    try:
+        status = data_logger.status()
+    except Exception as exc:
+        return [
+            _system_row("Status", "Fehler", key="datalogger_enabled"),
+            _system_row("Fehler", str(exc), key="datalogger_error"),
+        ]
+
+    enabled = bool(status.get("enabled"))
+    interval = status.get("interval_seconds")
+    retention = status.get("retention_days")
+    sample_count = int(status.get("sample_count") or 0)
+    database_size = _format_bytes(status.get("database_size_bytes") or 0)
+    latest = status.get("newest_sample_at") or status.get("last_sample_at")
+
+    return [
+        _system_row("Aktiv", "Ja" if enabled else "Nein", key="datalogger_enabled"),
+        _system_row("Intervall", f"{interval} s" if interval else "—", key="datalogger_interval"),
+        _system_row("Aufbewahrung", f"{retention} Tage" if retention else "—", key="datalogger_retention"),
+        _system_row("Samples", f"{sample_count:,}".replace(",", "."), key="datalogger_samples"),
+        _system_row("DB Size", database_size, key="datalogger_db_size"),
+        _system_row("Letztes Sample", _format_relative_time(latest), key="datalogger_latest"),
+    ]
+
+
 def _build_system_model() -> dict[str, Any]:
     host_status = _get_host_status()
     source_type = state.config.get("source", {}).get("type", "unknown")
@@ -781,6 +808,12 @@ def _build_system_model() -> dict[str, Any]:
                     _system_row("Python", host_status.get("python_text"), key="python"),
                     _system_row("Speicher", storage_text, key="storage"),
                 ],
+            },
+            {
+                "id": "datalogger",
+                "title": "Data Logger",
+                "type": "details",
+                "rows": _build_system_datalogger_rows(),
             },
             {
                 "id": "logging",
@@ -942,6 +975,28 @@ def _format_duration(seconds: float | int | None) -> str:
         parts.append(f"{minutes}m")
     parts.append(f"{secs}s")
     return " ".join(parts)
+
+
+def _format_relative_time(value: str | datetime | None) -> str:
+    if not value:
+        return "—"
+
+    try:
+        if isinstance(value, datetime):
+            parsed = value
+        else:
+            text = str(value).strip()
+            if not text:
+                return "—"
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        age_seconds = max(0, (datetime.now(UTC) - parsed.astimezone(UTC)).total_seconds())
+        return f"vor {_format_duration(age_seconds)}"
+    except Exception:
+        return str(value)
 
 
 def _read_cpu_times() -> tuple[int, int] | None:
