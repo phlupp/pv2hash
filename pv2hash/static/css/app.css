@@ -45,33 +45,51 @@ a {
 }
 
 .brand {
-    display: grid;
-    gap: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
     margin-bottom: 26px;
 }
 
-.brand-logo-link {
-    display: block;
-    width: 100%;
-    max-width: 198px;
+.brand-mark-link {
+    flex: 0 0 auto;
+    display: inline-flex;
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
 }
 
-.brand-logo {
+.brand-mark {
     display: block;
-    width: 100%;
-    height: auto;
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
 }
 
-.brand-meta {
+.brand-copy {
     display: grid;
-    gap: 3px;
-    padding-left: 2px;
+    gap: 2px;
+    min-width: 0;
 }
 
-.brand-node {
+.brand-title {
     color: var(--text);
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 21px;
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: .2px;
+    text-decoration: none;
+}
+
+.brand-title:hover {
+    color: var(--text);
+}
+
+.brand-subtitle {
+    color: var(--muted);
+    font-size: 12px;
     line-height: 1.25;
 }
 
@@ -1633,7 +1651,7 @@ form.is-busy {
 
 /* Dashboard live refresh / shared nav version */
 .brand-version {
-    margin-top: 0;
+    margin-top: 5px;
     display: inline-flex;
     flex-direction: column;
     align-items: flex-start;
