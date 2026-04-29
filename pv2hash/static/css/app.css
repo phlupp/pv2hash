@@ -1986,9 +1986,9 @@ form.is-busy {
 
 .chart-wrap {
     position: relative;
-    min-height: 300px;
-    height: 36vh;
-    max-height: 420px;
+    min-height: 600px;
+    height: 64vh;
+    max-height: 760px;
     margin-top: 18px;
 }
 
@@ -2016,7 +2016,8 @@ form.is-busy {
     }
 
     .chart-wrap {
-        min-height: 260px;
-        height: 42vh;
+        min-height: 460px;
+        height: 62vh;
+        max-height: 680px;
     }
 }
