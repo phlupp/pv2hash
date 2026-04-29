@@ -67,6 +67,38 @@
     heartbeatOfflineMs: 5000,
   };
 
+  const UPDATE_FLOW_ACTIVE_KEY = 'pv2hash.updateFlowActive';
+
+  function setActiveUpdateFlow(active) {
+    try {
+      if (active) {
+        window.sessionStorage.setItem(UPDATE_FLOW_ACTIVE_KEY, String(Date.now()));
+      } else {
+        window.sessionStorage.removeItem(UPDATE_FLOW_ACTIVE_KEY);
+      }
+    } catch (_) {
+      // sessionStorage can be unavailable in hardened browser modes.
+    }
+  }
+
+  function hasActiveUpdateFlow() {
+    try {
+      return Boolean(window.sessionStorage.getItem(UPDATE_FLOW_ACTIVE_KEY));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isBackendConnectionError(error) {
+    const name = String(error?.name || '');
+    const message = String(error?.message || '').toLowerCase();
+    return name === 'TypeError'
+      || message.includes('failed to fetch')
+      || message.includes('networkerror')
+      || message.includes('network error')
+      || message.includes('load failed');
+  }
+
   function backendOverlaySuppressed() {
     if (window.location.pathname === '/system/update-progress') return true;
     const updateOverlay = document.getElementById('updateOverlay');
@@ -2063,6 +2095,7 @@
   function scheduleSystemOverlayDashboardRedirect() {
     if (systemUpdateOverlayRedirectTimer) return;
     systemUpdateOverlayRedirectTimer = window.setTimeout(() => {
+      setActiveUpdateFlow(false);
       window.location.href = '/';
     }, 3000);
   }
@@ -2087,6 +2120,7 @@
 
     const running = !!runner?.running;
     if (running) {
+      setActiveUpdateFlow(true);
       clearSystemOverlayDashboardRedirect();
       overlay.hidden = false;
       if (badge) {
@@ -2106,6 +2140,12 @@
     }
 
     if (runner?.status === 'success') {
+      if (!hasActiveUpdateFlow()) {
+        clearSystemOverlayDashboardRedirect();
+        overlay.hidden = true;
+        return;
+      }
+
       overlay.hidden = false;
       if (badge) {
         badge.textContent = 'Erfolgreich';
@@ -2140,7 +2180,11 @@
         actionLink.className = 'btn btn-secondary';
       }
       systemSetProgress(fill, percent, runner.progress_percent ?? 100);
+      return;
     }
+
+    clearSystemOverlayDashboardRedirect();
+    overlay.hidden = true;
   }
 
   function systemUserIsEditingImportForm() {
@@ -2160,11 +2204,13 @@
       const model = await readJsonResponse(response, 'Systemdaten konnten nicht geladen werden.');
       renderSystemModel(model);
     } catch (error) {
-      const container = document.querySelector('[data-system-model-container]');
-      if (container) {
-        container.innerHTML = '<section class="card"><div class="card-head"><h2>System</h2></div><p class="update-error">Systemdaten konnten nicht geladen werden.</p></section>';
+      if (!isBackendConnectionError(error)) {
+        const container = document.querySelector('[data-system-model-container]');
+        if (container) {
+          container.innerHTML = '<section class="card"><div class="card-head"><h2>System</h2></div><p class="update-error">Systemdaten konnten nicht geladen werden.</p></section>';
+        }
+        if (window.showToast) window.showToast('error', error.message || 'Systemdaten konnten nicht geladen werden.');
       }
-      if (window.showToast) window.showToast('error', error.message || 'Systemdaten konnten nicht geladen werden.');
     } finally {
       systemModelLoading = false;
     }
@@ -2226,9 +2272,11 @@
       systemLogLines = Array.isArray(data.lines) ? data.lines : [];
       renderSystemLogs();
     } catch (error) {
-      const consoleEl = document.querySelector('[data-system-log-console]');
-      if (consoleEl) {
-        consoleEl.innerHTML = '<div class="log-row"><div class="log-message-full">Fehler beim Laden der Logs.</div></div>';
+      if (!isBackendConnectionError(error)) {
+        const consoleEl = document.querySelector('[data-system-log-console]');
+        if (consoleEl) {
+          consoleEl.innerHTML = '<div class="log-row"><div class="log-message-full">Fehler beim Laden der Logs.</div></div>';
+        }
       }
     }
   }
@@ -2283,6 +2331,7 @@
     }
 
     const restore = setButtonBusy(button, 'Startet …');
+    setActiveUpdateFlow(true);
     try {
       const response = await fetch('/api/system/self-update', {
         method: 'POST',
@@ -2294,6 +2343,7 @@
       await loadSystemModel({ force: true });
       if (window.showToast) window.showToast('success', 'Update wurde gestartet.');
     } catch (error) {
+      setActiveUpdateFlow(false);
       if (window.showToast) window.showToast('error', error.message || 'Update konnte nicht gestartet werden.');
     } finally {
       restore();
