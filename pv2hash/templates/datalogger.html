@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PV2Hash · Data Logger</title>
     <link rel="stylesheet" href="/static/css/app.css">
+    <script src="/static/vendor/chartjs/chart.umd.min.js" defer></script>
 </head>
 <body>
     <div class="layout">
@@ -12,66 +13,75 @@
         {% set nav_subtitle = instance_name %}
         {% include "partials/nav.html" %}
 
-        <main class="content">
-            <header class="topbar">
+        <main class="content" data-datalogger-root>
+            <header class="topbar datalogger-topbar">
                 <div>
                     <h1>Data Logger</h1>
                     <p>Lokale Messwertaufzeichnung für Regleranalyse, Charts und spätere Portal-Synchronisierung.</p>
                 </div>
+                <div class="datalogger-range" role="group" aria-label="Zeitraum auswählen">
+                    <button class="btn btn-secondary active" type="button" data-datalogger-range="1h">1h</button>
+                    <button class="btn btn-secondary" type="button" data-datalogger-range="6h">6h</button>
+                    <button class="btn btn-secondary" type="button" data-datalogger-range="24h">24h</button>
+                    <button class="btn btn-secondary" type="button" data-datalogger-range="7d">7d</button>
+                </div>
             </header>
 
-            <section class="grid grid-4">
-                <article class="card stat">
-                    <span class="label">Status</span>
-                    <strong class="{{ 'good' if status.enabled else 'muted' }}">{{ 'Aktiv' if status.enabled else 'Inaktiv' }}</strong>
-                    <small>Intervall: {{ status.interval_seconds }} s</small>
-                </article>
-                <article class="card stat">
-                    <span class="label">Aufbewahrung</span>
-                    <strong>{{ status.retention_days }} Tage</strong>
-                    <small>Maximum: 30 Tage</small>
-                </article>
-                <article class="card stat">
-                    <span class="label">Samples</span>
-                    <strong>{{ status.sample_count }}</strong>
-                    <small>Miner-Samples: {{ status.miner_sample_count }}</small>
-                </article>
-                <article class="card stat">
-                    <span class="label">Datenbank</span>
-                    <strong>{{ '%.1f'|format((status.database_size_bytes or 0) / 1024 / 1024) }} MB</strong>
-                    <small>{{ status.database_path }}</small>
-                </article>
+            <section class="badge-row datalogger-badges" aria-label="Data Logger Status">
+                <span class="badge {{ 'status-good' if status.enabled else 'status-muted' }}" data-datalogger-badge="enabled">{{ 'Aktiv' if status.enabled else 'Inaktiv' }}</span>
+                <span class="badge" data-datalogger-badge="interval">Intervall: {{ status.interval_seconds }} s</span>
+                <span class="badge" data-datalogger-badge="retention">Aufbewahrung: {{ status.retention_days }} Tage</span>
+                <span class="badge" data-datalogger-badge="samples">Samples: {{ status.sample_count }}</span>
+                <span class="badge" data-datalogger-badge="db">DB: {{ '%.1f'|format((status.database_size_bytes or 0) / 1024 / 1024) }} MB</span>
+                <span class="badge" data-datalogger-badge="latest">Letztes Sample: {{ status.newest_sample_at or '—' }}</span>
             </section>
 
-            <section class="card top-gap">
+            {% if status.last_error %}
+            <div class="update-error top-gap" data-datalogger-error>{{ status.last_error }}</div>
+            {% else %}
+            <div class="update-error top-gap" data-datalogger-error hidden></div>
+            {% endif %}
+
+            <section class="card datalogger-chart-card top-gap">
                 <div class="card-head">
                     <div>
-                        <h2>Aufzeichnung</h2>
-                        <p class="card-subtitle">Phase 1 legt die lokale SQLite-Basis an und schreibt Snapshot-Samples. Die Chart-Oberfläche folgt im nächsten Schritt.</p>
+                        <h2>Energiefluss</h2>
+                        <p class="card-subtitle">Netzanschluss, Minerleistung und Batterie-Leistung im ausgewählten Zeitraum.</p>
+                    </div>
+                    <span class="status-pill" data-datalogger-points>— Punkte</span>
+                </div>
+                <div class="chart-wrap">
+                    <canvas id="dataloggerEnergyChart" height="120"></canvas>
+                </div>
+            </section>
+
+            <section class="card datalogger-chart-card top-gap">
+                <div class="card-head">
+                    <div>
+                        <h2>Batterie</h2>
+                        <p class="card-subtitle">SOC und Lade-/Entladeleistung. SOC nutzt die rechte Achse.</p>
                     </div>
                 </div>
-                <div class="grid grid-2">
+                <div class="chart-wrap">
+                    <canvas id="dataloggerBatteryChart" height="120"></canvas>
+                </div>
+            </section>
+
+            <section class="card datalogger-chart-card top-gap">
+                <div class="card-head">
                     <div>
-                        <span class="label">Ältestes Sample</span>
-                        <p>{{ status.oldest_sample_at or '—' }}</p>
-                    </div>
-                    <div>
-                        <span class="label">Neuestes Sample</span>
-                        <p>{{ status.newest_sample_at or '—' }}</p>
-                    </div>
-                    <div>
-                        <span class="label">Letztes geschriebenes Sample</span>
-                        <p>{{ status.last_sample_at or '—' }}</p>
-                    </div>
-                    <div>
-                        <span class="label">Events</span>
-                        <p>{{ status.event_count }}</p>
+                        <h2>Mining</h2>
+                        <p class="card-subtitle">Gesamthashrate und gemessene Minerleistung.</p>
                     </div>
                 </div>
-                {% if status.last_error %}
-                <div class="update-error top-gap">{{ status.last_error }}</div>
-                {% endif %}
-                <p class="muted top-gap">Einstellungen findest du unter Einstellungen → Data Logger.</p>
+                <div class="chart-wrap">
+                    <canvas id="dataloggerMiningChart" height="120"></canvas>
+                </div>
+            </section>
+
+            <section class="card datalogger-empty top-gap" data-datalogger-empty hidden>
+                <h2>Noch keine Chart-Daten</h2>
+                <p>Der Data Logger sammelt bereits im Hintergrund. Sobald Samples im ausgewählten Zeitraum vorhanden sind, erscheinen hier die Charts.</p>
             </section>
         </main>
     </div>

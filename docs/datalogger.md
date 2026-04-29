@@ -54,3 +54,23 @@ PV2Hash löscht regelmäßig Samples, die älter als die konfigurierte Aufbewahr
 ## Portal-Vorbereitung
 
 Der Data Logger nutzt den zentralen Runtime-Snapshot. Dadurch entstehen dieselben stabilen Datenstrukturen, die später auch für `pv2hash.net` verwendet werden können.
+
+## Chart-Oberfläche
+
+Die Data-Logger-Seite nutzt die lokal mitgelieferte Chart.js-Datei aus `pv2hash/static/vendor/chartjs/` und funktioniert ohne CDN oder Internetzugriff.
+
+Die Zeitreihen werden über diesen Endpunkt geladen:
+
+```text
+GET /api/datalogger/series?range=1h|6h|24h|7d&max_points=720
+```
+
+Der Endpunkt liest aus `history.sqlite` und reduziert größere Zeiträume serverseitig auf eine begrenzte Punktzahl. Dadurch bleiben 24h- und 7d-Ansichten auch bei 10-Sekunden-Sampling browserfreundlich.
+
+Die erste Chart-Ausbaustufe zeigt:
+
+- **Energiefluss:** Netzanschluss, Minerleistung, Batterie-Ladeleistung und Batterie-Entladeleistung
+- **Batterie:** SOC sowie Lade-/Entladeleistung
+- **Mining:** Gesamthashrate und Minerleistung
+
+Profilwechsel-Marker sind für eine spätere Ausbaustufe vorgesehen. Die dafür nötigen Profildaten liegen bereits in `history_miner_samples`.

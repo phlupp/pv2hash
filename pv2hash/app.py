@@ -2549,6 +2549,11 @@ async def api_datalogger_status():
     return JSONResponse(content=jsonable_encoder({"status": "ok", "datalogger": data_logger.status()}))
 
 
+@app.get("/api/datalogger/series")
+async def api_datalogger_series(range: str = "24h", max_points: int = 720):
+    return JSONResponse(content=jsonable_encoder({"status": "ok", "series": data_logger.series(range_name=range, max_points=max_points)}))
+
+
 @app.get("/system")
 async def system_page(request: Request):
     return templates.TemplateResponse(

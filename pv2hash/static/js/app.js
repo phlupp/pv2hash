@@ -2497,6 +2497,246 @@
   }
 
 
+  const dataloggerCharts = {
+    energy: null,
+    battery: null,
+    mining: null,
+    range: '1h',
+  };
+
+  function formatDataLoggerNumber(value, suffix = '') {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+    const number = Number(value);
+    if (Math.abs(number) >= 1000) return `${number.toLocaleString('de-DE', { maximumFractionDigits: 0 })}${suffix}`;
+    return `${number.toLocaleString('de-DE', { maximumFractionDigits: 1 })}${suffix}`;
+  }
+
+  function formatDataLoggerTime(iso, rangeName) {
+    if (!iso) return '';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return String(iso);
+    const options = rangeName === '7d'
+      ? { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }
+      : { hour: '2-digit', minute: '2-digit', second: rangeName === '1h' ? '2-digit' : undefined };
+    return new Intl.DateTimeFormat('de-DE', options).format(date);
+  }
+
+  function updateDataLoggerBadges(status) {
+    if (!status) return;
+    const enabled = document.querySelector('[data-datalogger-badge="enabled"]');
+    if (enabled) {
+      enabled.textContent = status.enabled ? 'Aktiv' : 'Inaktiv';
+      enabled.classList.toggle('status-good', Boolean(status.enabled));
+      enabled.classList.toggle('status-muted', !status.enabled);
+    }
+    const interval = document.querySelector('[data-datalogger-badge="interval"]');
+    if (interval) interval.textContent = `Intervall: ${status.interval_seconds || '—'} s`;
+    const retention = document.querySelector('[data-datalogger-badge="retention"]');
+    if (retention) retention.textContent = `Aufbewahrung: ${status.retention_days || '—'} Tage`;
+    const samples = document.querySelector('[data-datalogger-badge="samples"]');
+    if (samples) samples.textContent = `Samples: ${(status.sample_count || 0).toLocaleString('de-DE')}`;
+    const db = document.querySelector('[data-datalogger-badge="db"]');
+    if (db) db.textContent = `DB: ${((status.database_size_bytes || 0) / 1024 / 1024).toLocaleString('de-DE', { maximumFractionDigits: 1 })} MB`;
+    const latest = document.querySelector('[data-datalogger-badge="latest"]');
+    if (latest) latest.textContent = `Letztes Sample: ${status.newest_sample_at ? formatDataLoggerTime(status.newest_sample_at, '7d') : '—'}`;
+    const error = document.querySelector('[data-datalogger-error]');
+    if (error) {
+      error.hidden = !status.last_error;
+      error.textContent = status.last_error || '';
+    }
+  }
+
+  function dataLoggerChartOptions({ leftTitle = '', rightTitle = '', rangeName = '1h' } = {}) {
+    const textColor = 'rgba(242, 245, 255, 0.78)';
+    const gridColor = 'rgba(255, 255, 255, 0.08)';
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: textColor, boxWidth: 12, boxHeight: 12 } },
+        tooltip: {
+          callbacks: {
+            title(items) {
+              const index = items && items[0] ? items[0].dataIndex : 0;
+              const point = items && items[0] && items[0].chart.$pv2hashPoints ? items[0].chart.$pv2hashPoints[index] : null;
+              return point && point.ts ? new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'medium' }).format(new Date(point.ts)) : '';
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: textColor, maxRotation: 0, autoSkip: true, maxTicksLimit: rangeName === '1h' ? 8 : 10 },
+          grid: { color: gridColor },
+        },
+        y: {
+          title: { display: Boolean(leftTitle), text: leftTitle, color: textColor },
+          ticks: { color: textColor },
+          grid: { color: gridColor },
+        },
+        y1: {
+          position: 'right',
+          display: Boolean(rightTitle),
+          title: { display: Boolean(rightTitle), text: rightTitle, color: textColor },
+          ticks: { color: textColor },
+          grid: { drawOnChartArea: false },
+          min: rightTitle === 'SOC %' ? 0 : undefined,
+          max: rightTitle === 'SOC %' ? 100 : undefined,
+        },
+      },
+    };
+  }
+
+  function makeDataLoggerDataset(label, data, color, yAxisID = 'y') {
+    return {
+      label,
+      data,
+      yAxisID,
+      borderColor: color,
+      backgroundColor: color.replace('0.95', '0.16'),
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHitRadius: 8,
+      tension: 0.18,
+      spanGaps: true,
+    };
+  }
+
+  function destroyDataLoggerCharts() {
+    for (const key of ['energy', 'battery', 'mining']) {
+      if (dataloggerCharts[key]) {
+        dataloggerCharts[key].destroy();
+        dataloggerCharts[key] = null;
+      }
+    }
+  }
+
+  function renderDataLoggerCharts(series) {
+    if (!window.Chart) {
+      const error = document.querySelector('[data-datalogger-error]');
+      if (error) {
+        error.hidden = false;
+        error.textContent = 'Chart.js konnte nicht geladen werden. Bitte prüfe static/vendor/chartjs/chart.umd.min.js.';
+      }
+      return;
+    }
+
+    const points = series?.points || [];
+    const rangeName = series?.range || dataloggerCharts.range;
+    const empty = document.querySelector('[data-datalogger-empty]');
+    if (empty) empty.hidden = points.length > 0;
+    const pointBadge = document.querySelector('[data-datalogger-points]');
+    if (pointBadge) pointBadge.textContent = `${points.length.toLocaleString('de-DE')} Punkte`;
+
+    const labels = points.map((point) => formatDataLoggerTime(point.ts, rangeName));
+    const values = (field) => points.map((point) => point[field] === null || point[field] === undefined ? null : Number(point[field]));
+    destroyDataLoggerCharts();
+
+    const energyCanvas = document.getElementById('dataloggerEnergyChart');
+    if (energyCanvas) {
+      dataloggerCharts.energy = new Chart(energyCanvas, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            makeDataLoggerDataset('Netzanschluss W (+Bezug/-Einspeisung)', values('grid_power_w'), 'rgba(98, 211, 255, 0.95)'),
+            makeDataLoggerDataset('Minerleistung W', values('miner_power_w_total'), 'rgba(141, 99, 255, 0.95)'),
+            makeDataLoggerDataset('Batterie lädt W', values('battery_charge_power_w'), 'rgba(67, 227, 165, 0.95)'),
+            makeDataLoggerDataset('Batterie entlädt W', values('battery_discharge_power_w'), 'rgba(255, 177, 92, 0.95)'),
+          ],
+        },
+        options: dataLoggerChartOptions({ leftTitle: 'Watt', rangeName }),
+      });
+      dataloggerCharts.energy.$pv2hashPoints = points;
+    }
+
+    const batteryCanvas = document.getElementById('dataloggerBatteryChart');
+    if (batteryCanvas) {
+      dataloggerCharts.battery = new Chart(batteryCanvas, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            makeDataLoggerDataset('SOC %', values('battery_soc_pct'), 'rgba(242, 245, 255, 0.95)', 'y1'),
+            makeDataLoggerDataset('Ladeleistung W', values('battery_charge_power_w'), 'rgba(67, 227, 165, 0.95)'),
+            makeDataLoggerDataset('Entladeleistung W', values('battery_discharge_power_w'), 'rgba(255, 177, 92, 0.95)'),
+          ],
+        },
+        options: dataLoggerChartOptions({ leftTitle: 'Watt', rightTitle: 'SOC %', rangeName }),
+      });
+      dataloggerCharts.battery.$pv2hashPoints = points;
+    }
+
+    const miningCanvas = document.getElementById('dataloggerMiningChart');
+    if (miningCanvas) {
+      dataloggerCharts.mining = new Chart(miningCanvas, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            makeDataLoggerDataset('Hashrate GH/s', values('miner_hashrate_ghs_total'), 'rgba(98, 211, 255, 0.95)', 'y1'),
+            makeDataLoggerDataset('Minerleistung W', values('miner_power_w_total'), 'rgba(141, 99, 255, 0.95)'),
+          ],
+        },
+        options: dataLoggerChartOptions({ leftTitle: 'Watt', rightTitle: 'GH/s', rangeName }),
+      });
+      dataloggerCharts.mining.$pv2hashPoints = points;
+    }
+  }
+
+  async function loadDataLoggerCharts(rangeName = dataloggerCharts.range) {
+    dataloggerCharts.range = rangeName;
+    const buttons = document.querySelectorAll('[data-datalogger-range]');
+    for (const button of buttons) {
+      button.classList.toggle('active', button.dataset.dataloggerRange === rangeName);
+    }
+
+    const root = document.querySelector('[data-datalogger-root]');
+    if (root) root.dataset.loading = '1';
+    try {
+      const [statusResponse, seriesResponse] = await Promise.all([
+        fetch('/api/datalogger/status', { headers: { 'Accept': 'application/json' }, cache: 'no-store' }),
+        fetch(`/api/datalogger/series?range=${encodeURIComponent(rangeName)}&max_points=720`, { headers: { 'Accept': 'application/json' }, cache: 'no-store' }),
+      ]);
+      if (!statusResponse.ok) throw new Error(`Status konnte nicht geladen werden (${statusResponse.status})`);
+      if (!seriesResponse.ok) throw new Error(`Zeitreihe konnte nicht geladen werden (${seriesResponse.status})`);
+      const statusData = await statusResponse.json();
+      const seriesData = await seriesResponse.json();
+      updateDataLoggerBadges(statusData.datalogger);
+      renderDataLoggerCharts(seriesData.series);
+    } catch (error) {
+      if (isBackendConnectionError(error)) return;
+      const errorEl = document.querySelector('[data-datalogger-error]');
+      if (errorEl) {
+        errorEl.hidden = false;
+        errorEl.textContent = error.message || 'Data-Logger-Daten konnten nicht geladen werden.';
+      }
+    } finally {
+      if (root) root.dataset.loading = '0';
+    }
+  }
+
+  function setupDataLoggerPage() {
+    const root = document.querySelector('[data-datalogger-root]');
+    if (!root || root.dataset.dataloggerReady === '1') return;
+    root.dataset.dataloggerReady = '1';
+
+    root.addEventListener('click', (event) => {
+      const rangeButton = event.target.closest('[data-datalogger-range]');
+      if (!rangeButton) return;
+      event.preventDefault();
+      loadDataLoggerCharts(rangeButton.dataset.dataloggerRange || '1h');
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) loadDataLoggerCharts(dataloggerCharts.range);
+    });
+
+    loadDataLoggerCharts(dataloggerCharts.range);
+  }
+
+
   function setupVersionStatusRefresh() {
     const link = document.querySelector('[data-versionstatus]');
     if (!link) return;
@@ -2531,6 +2771,7 @@
     setupSourcesPage();
     setupSettingsPage();
     setupSystemPage();
+    setupDataLoggerPage();
     setupVersionStatusRefresh();
   });
 })();

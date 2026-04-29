@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -37,6 +38,50 @@ def _float_or_none(value: Any) -> float | None:
 def _int_bool(value: Any) -> int:
     return 1 if bool(value) else 0
 
+
+
+def _parse_range_seconds(value: str | None) -> tuple[str, int]:
+    raw = str(value or "24h").strip().lower()
+    allowed = {
+        "1h": 3600,
+        "6h": 6 * 3600,
+        "24h": 24 * 3600,
+        "7d": 7 * 24 * 3600,
+    }
+    if raw not in allowed:
+        raw = "24h"
+    return raw, allowed[raw]
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        text = str(value)
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
+    except Exception:
+        return None
+
+
+def _avg(values: list[float | None]) -> float | None:
+    cleaned = [float(v) for v in values if v is not None and math.isfinite(float(v))]
+    if not cleaned:
+        return None
+    return sum(cleaned) / len(cleaned)
+
+
+def _last_text(values: list[Any]) -> str | None:
+    for value in reversed(values):
+        if value is not None:
+            text = str(value).strip()
+            if text:
+                return text
+    return None
 
 def normalize_datalogger_config(config: dict[str, Any] | None) -> dict[str, Any]:
     raw = dict(config or {})
@@ -307,4 +352,126 @@ class DataLogger:
             "newest_sample_at": newest_sample_at,
             "last_sample_at": self._last_sample_at,
             "last_error": self._last_error,
+        }
+
+    def series(self, *, range_name: str = "24h", max_points: int = 720) -> dict[str, Any]:
+        self._ensure_schema()
+        selected_range, range_seconds = _parse_range_seconds(range_name)
+        max_points = max(120, min(1200, int(max_points or 720)))
+        end = datetime.now(UTC)
+        start = end - timedelta(seconds=range_seconds)
+        start_iso = start.isoformat()
+        end_iso = end.isoformat()
+
+        columns = (
+            "ts",
+            "grid_power_w",
+            "source_quality",
+            "battery_quality",
+            "battery_soc_pct",
+            "battery_charge_power_w",
+            "battery_discharge_power_w",
+            "miner_power_w_total",
+            "miner_hashrate_ghs_total",
+            "control_enabled_miner_count",
+            "monitor_enabled_miner_count",
+            "reachable_miner_count",
+            "controller_summary",
+            "controller_last_decision",
+            "host_cpu_percent",
+            "host_memory_percent",
+            "host_disk_percent",
+        )
+        with self._connect() as con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                f"""
+                SELECT {', '.join(columns)}
+                FROM history_samples
+                WHERE ts >= ? AND ts <= ?
+                ORDER BY ts ASC
+                """,
+                (start_iso, end_iso),
+            ).fetchall()
+
+        raw_rows = [dict(row) for row in rows]
+        points = self._downsample_rows(raw_rows, max_points=max_points, start=start, end=end)
+        return {
+            "range": selected_range,
+            "range_seconds": range_seconds,
+            "start": start_iso,
+            "end": end_iso,
+            "raw_count": len(raw_rows),
+            "point_count": len(points),
+            "max_points": max_points,
+            "points": points,
+        }
+
+    def _downsample_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        max_points: int,
+        start: datetime,
+        end: datetime,
+    ) -> list[dict[str, Any]]:
+        if len(rows) <= max_points:
+            return [self._normalize_series_point(row) for row in rows]
+
+        total_seconds = max(1.0, (end - start).total_seconds())
+        bucket_seconds = max(1.0, total_seconds / float(max_points))
+        buckets: dict[int, list[dict[str, Any]]] = {}
+        for row in rows:
+            ts_dt = _parse_iso_datetime(row.get("ts"))
+            if ts_dt is None:
+                continue
+            bucket = int(max(0, min(max_points - 1, (ts_dt - start).total_seconds() // bucket_seconds)))
+            buckets.setdefault(bucket, []).append(row)
+
+        points: list[dict[str, Any]] = []
+        for bucket in sorted(buckets):
+            bucket_rows = buckets[bucket]
+            if not bucket_rows:
+                continue
+            last = bucket_rows[-1]
+            points.append({
+                "ts": last.get("ts"),
+                "grid_power_w": _avg([_float_or_none(row.get("grid_power_w")) for row in bucket_rows]),
+                "battery_soc_pct": _avg([_float_or_none(row.get("battery_soc_pct")) for row in bucket_rows]),
+                "battery_charge_power_w": _avg([_float_or_none(row.get("battery_charge_power_w")) for row in bucket_rows]),
+                "battery_discharge_power_w": _avg([_float_or_none(row.get("battery_discharge_power_w")) for row in bucket_rows]),
+                "miner_power_w_total": _avg([_float_or_none(row.get("miner_power_w_total")) for row in bucket_rows]),
+                "miner_hashrate_ghs_total": _avg([_float_or_none(row.get("miner_hashrate_ghs_total")) for row in bucket_rows]),
+                "host_cpu_percent": _avg([_float_or_none(row.get("host_cpu_percent")) for row in bucket_rows]),
+                "host_memory_percent": _avg([_float_or_none(row.get("host_memory_percent")) for row in bucket_rows]),
+                "host_disk_percent": _avg([_float_or_none(row.get("host_disk_percent")) for row in bucket_rows]),
+                "source_quality": _last_text([row.get("source_quality") for row in bucket_rows]),
+                "battery_quality": _last_text([row.get("battery_quality") for row in bucket_rows]),
+                "control_enabled_miner_count": int(last.get("control_enabled_miner_count") or 0),
+                "monitor_enabled_miner_count": int(last.get("monitor_enabled_miner_count") or 0),
+                "reachable_miner_count": int(last.get("reachable_miner_count") or 0),
+                "controller_summary": last.get("controller_summary"),
+                "controller_last_decision": last.get("controller_last_decision"),
+            })
+        return points
+
+    def _normalize_series_point(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "ts": row.get("ts"),
+            "grid_power_w": _float_or_none(row.get("grid_power_w")),
+            "battery_soc_pct": _float_or_none(row.get("battery_soc_pct")),
+            "battery_charge_power_w": _float_or_none(row.get("battery_charge_power_w")),
+            "battery_discharge_power_w": _float_or_none(row.get("battery_discharge_power_w")),
+            "miner_power_w_total": _float_or_none(row.get("miner_power_w_total")),
+            "miner_hashrate_ghs_total": _float_or_none(row.get("miner_hashrate_ghs_total")),
+            "host_cpu_percent": _float_or_none(row.get("host_cpu_percent")),
+            "host_memory_percent": _float_or_none(row.get("host_memory_percent")),
+            "host_disk_percent": _float_or_none(row.get("host_disk_percent")),
+            "source_quality": row.get("source_quality"),
+            "battery_quality": row.get("battery_quality"),
+            "control_enabled_miner_count": int(row.get("control_enabled_miner_count") or 0),
+            "monitor_enabled_miner_count": int(row.get("monitor_enabled_miner_count") or 0),
+            "reachable_miner_count": int(row.get("reachable_miner_count") or 0),
+            "controller_summary": row.get("controller_summary"),
+            "controller_last_decision": row.get("controller_last_decision"),
         }
