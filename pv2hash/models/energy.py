@@ -14,6 +14,8 @@ class EnergySnapshot:
     battery_is_charging: bool | None = None
     battery_is_discharging: bool | None = None
     battery_is_active: bool | None = None
+    battery_quality: str | None = None
+    battery_updated_at: datetime | None = None
 
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     source: str = "unknown"

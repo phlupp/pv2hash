@@ -142,6 +142,8 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
             "type": battery_cfg.get("type"),
             "name": battery_cfg.get("name"),
             "enabled": bool(battery_cfg.get("enabled", False)) and battery_cfg.get("type") != "none",
+            "quality": getattr(snapshot, "battery_quality", None) if snapshot else None,
+            "updated_at": getattr(snapshot, "battery_updated_at", None) if snapshot else None,
             "soc_pct": snapshot.battery_soc_pct if snapshot else None,
             "charge_power_w": snapshot.battery_charge_power_w if snapshot else None,
             "discharge_power_w": snapshot.battery_discharge_power_w if snapshot else None,
@@ -154,6 +156,7 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
             "miner_power_w": sum(item["power_w"] for item in miners),
             "miner_hashrate_ghs": sum(float(item.get("hashrate_ghs") or 0.0) for item in miners),
             "control_enabled_miner_count": sum(1 for item in miners if item.get("control_enabled")),
+            "monitor_enabled_miner_count": sum(1 for item in miners if item.get("monitor_enabled")),
             "reachable_miner_count": sum(1 for item in miners if item.get("reachable")),
         },
     }
@@ -1185,6 +1188,16 @@ def _merge_battery_snapshot(main_snapshot, battery_snapshot):
             battery_snapshot.battery_is_active
             if battery_snapshot.battery_is_active is not None
             else main_snapshot.battery_is_active
+        ),
+        battery_quality=(
+            battery_snapshot.battery_quality
+            if battery_snapshot.battery_quality is not None
+            else main_snapshot.battery_quality
+        ),
+        battery_updated_at=(
+            battery_snapshot.battery_updated_at
+            if battery_snapshot.battery_updated_at is not None
+            else main_snapshot.battery_updated_at
         ),
     )
 
