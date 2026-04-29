@@ -220,6 +220,8 @@ def _render_field(field: DriverField, value: Any) -> dict:
         "id": field.name.replace('.', '-'),
     }
     rendered["layout"] = _normalize_field_layout(rendered.get("layout"))
+    if field.choices:
+        rendered["options"] = [asdict(choice) for choice in field.choices]
     return rendered
 
 
@@ -279,6 +281,69 @@ def _render_action(action: DriverAction) -> dict:
 
 def _driver_action_fields(driver: str | None) -> list[dict]:
     return [_render_action(action) for action in _driver_actions_schema(driver)]
+
+
+
+
+def _setting_field(name: str, label: str, field_type: str, value: Any, **kwargs: Any) -> dict:
+    field = {"name": name, "label": label, "type": field_type, "value": value, "layout": _normalize_field_layout(kwargs.pop("layout", None))}
+    field.update({key: val for key, val in kwargs.items() if val is not None})
+    return field
+
+
+def _settings_select_options(items: tuple[tuple[str, str], ...]) -> list[dict]:
+    return [{"value": value, "label": label} for value, label in items]
+
+
+def _build_settings_model() -> dict:
+    system_cfg = state.config.setdefault("system", {})
+    app_cfg = state.config.setdefault("app", {})
+    control_cfg = state.config.setdefault("control", {})
+    source_loss = control_cfg.setdefault("source_loss", {})
+    stale_loss = source_loss.setdefault("stale", {})
+    offline_loss = source_loss.setdefault("offline", {})
+    mode_options = _settings_select_options((("hold_current", "Aktuellen Zustand halten"), ("force_profile", "Fallback-Profil erzwingen"), ("off_all", "Alle Miner ausschalten")))
+    profile_options = _settings_select_options((("off", "off"), ("p1", "p1"), ("p2", "p2"), ("p3", "p3"), ("p4", "p4")))
+    return {"sections": [
+        {"id": "system", "title": "Instanz", "subtitle": "Grunddaten und Aktualisierungsintervall der Oberfläche.", "fields": [
+            _setting_field("instance_name", "Instanzname", "text", system_cfg.get("instance_name", "PV2Hash Node"), required=True, layout={"width": "half"}),
+            _setting_field("refresh_seconds", "Live-Aktualisierung", "number", app_cfg.get("refresh_seconds", 5), min=1, step=1, unit="s", layout={"width": "half"}),
+        ]},
+        {"id": "control", "title": "Regelung", "subtitle": "Grundverhalten des PV-Reglers und Schaltabstände.", "fields": [
+            _setting_field("policy_mode", "Reglermodus", "select", control_cfg.get("policy_mode", "coarse"), options=_settings_select_options((("coarse", "Coarse"),)), layout={"width": "half"}),
+            _setting_field("distribution_mode", "Verteilungsstrategie", "select", control_cfg.get("distribution_mode", "equal"), options=_settings_select_options((("equal", "Equal"), ("cascade", "Cascade"))), layout={"width": "half"}),
+            _setting_field("switch_hysteresis_w", "Schalt-Hysterese", "number", control_cfg.get("switch_hysteresis_w", 100), min=0, step=1, unit="W", layout={"width": "third"}),
+            _setting_field("min_switch_interval_seconds", "Min. Schaltabstand", "number", control_cfg.get("min_switch_interval_seconds", 60), min=0, step=1, unit="s", layout={"width": "third"}),
+            _setting_field("max_import_w", "Max. Netzbezug", "number", control_cfg.get("max_import_w", 200), min=0, step=1, unit="W", layout={"width": "third"}),
+            _setting_field("import_hold_seconds", "Netzbezug halten", "number", control_cfg.get("import_hold_seconds", 15), min=0, step=1, unit="s", layout={"width": "third"}),
+        ]},
+        {"id": "source-loss", "title": "Messwertausfall", "subtitle": "Verhalten, wenn Messwerte veralten oder die Quelle offline ist.", "fields": [
+            _setting_field("stale_mode", "Bei veralteten Messwerten", "select", stale_loss.get("mode", "hold_current"), options=mode_options, layout={"width": "third"}),
+            _setting_field("stale_fallback_profile", "Fallback-Profil", "select", stale_loss.get("fallback_profile", "p1"), options=profile_options, layout={"width": "third"}),
+            _setting_field("stale_hold_seconds", "Halten für", "number", stale_loss.get("hold_seconds", 0), min=0, step=1, unit="s", help="0 bedeutet halten bis Messwerte zurückkommen.", layout={"width": "third"}),
+            _setting_field("offline_mode", "Bei Quelle offline", "select", offline_loss.get("mode", "off_all"), options=mode_options, layout={"width": "third"}),
+            _setting_field("offline_fallback_profile", "Fallback-Profil", "select", offline_loss.get("fallback_profile", "p1"), options=profile_options, layout={"width": "third"}),
+            _setting_field("offline_hold_seconds", "Halten für", "number", offline_loss.get("hold_seconds", 0), min=0, step=1, unit="s", help="0 bedeutet halten bis die Quelle zurückkommt.", layout={"width": "third"}),
+        ]},
+    ]}
+
+
+def _apply_settings_payload(payload: dict[str, Any]) -> None:
+    state.config.setdefault("system", {})
+    state.config.setdefault("app", {})
+    state.config.setdefault("control", {})
+    control = state.config["control"]
+    state.config["system"]["instance_name"] = str(payload.get("instance_name") or "PV2Hash Node").strip() or "PV2Hash Node"
+    state.config["app"]["refresh_seconds"] = _safe_int(payload.get("refresh_seconds", 5), 5)
+    control["policy_mode"] = str(payload.get("policy_mode") or "coarse").strip() or "coarse"
+    control["distribution_mode"] = str(payload.get("distribution_mode") or "equal").strip() or "equal"
+    control["switch_hysteresis_w"] = _safe_int(payload.get("switch_hysteresis_w", 100), 100)
+    control["min_switch_interval_seconds"] = _safe_int(payload.get("min_switch_interval_seconds", 60), 60)
+    control["max_import_w"] = max(0, _safe_int(payload.get("max_import_w", 200), 200))
+    control["import_hold_seconds"] = _safe_int(payload.get("import_hold_seconds", 15), 15)
+    control.setdefault("source_loss", {})
+    control["source_loss"]["stale"] = {"mode": str(payload.get("stale_mode") or "hold_current").strip() or "hold_current", "fallback_profile": _normalize_fallback_profile(payload.get("stale_fallback_profile", "p1")), "hold_seconds": _safe_int(payload.get("stale_hold_seconds", 0), 0)}
+    control["source_loss"]["offline"] = {"mode": str(payload.get("offline_mode") or "off_all").strip() or "off_all", "fallback_profile": _normalize_fallback_profile(payload.get("offline_fallback_profile", "p1")), "hold_seconds": _safe_int(payload.get("offline_hold_seconds", 0), 0)}
 
 
 def _core_identity_basic_fields() -> list[dict]:
@@ -1792,6 +1857,30 @@ async def save_settings(request: Request):
     )
     reload_runtime()
     return RedirectResponse(url="/settings?saved=1", status_code=303)
+
+
+@app.get("/api/settings/model")
+async def api_settings_model():
+    return JSONResponse(content=jsonable_encoder({"status": "ok", "model": _build_settings_model()}))
+
+
+@app.post("/api/settings/config")
+async def api_settings_config(request: Request):
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        return JSONResponse({"status": "error", "message": "Ungültige Einstellungen."}, status_code=400)
+    _apply_settings_payload(payload)
+    save_config(state.config)
+    setup_logging(state.config["system"].get("log_level", "INFO"))
+    logger.info(
+        "Settings saved: instance=%s refresh_seconds=%s policy_mode=%s distribution_mode=%s",
+        state.config["system"].get("instance_name", "PV2Hash Node"),
+        state.config["app"].get("refresh_seconds", 5),
+        state.config["control"].get("policy_mode", "coarse"),
+        state.config["control"].get("distribution_mode", "equal"),
+    )
+    reload_runtime()
+    return JSONResponse(content=jsonable_encoder({"status": "ok", "message": "Einstellungen gespeichert.", "instance_name": state.config["system"].get("instance_name", "PV2Hash Node"), "model": _build_settings_model()}))
 
 
 @app.get("/sources")
