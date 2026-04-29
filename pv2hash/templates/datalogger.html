@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PV2Hash · Data Logger</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <div class="layout">
+        {% set nav_active = 'datalogger' %}
+        {% set nav_subtitle = instance_name %}
+        {% include "partials/nav.html" %}
+
+        <main class="content">
+            <header class="topbar">
+                <div>
+                    <h1>Data Logger</h1>
+                    <p>Lokale Messwertaufzeichnung für Regleranalyse, Charts und spätere Portal-Synchronisierung.</p>
+                </div>
+            </header>
+
+            <section class="grid grid-4">
+                <article class="card stat">
+                    <span class="label">Status</span>
+                    <strong class="{{ 'good' if status.enabled else 'muted' }}">{{ 'Aktiv' if status.enabled else 'Inaktiv' }}</strong>
+                    <small>Intervall: {{ status.interval_seconds }} s</small>
+                </article>
+                <article class="card stat">
+                    <span class="label">Aufbewahrung</span>
+                    <strong>{{ status.retention_days }} Tage</strong>
+                    <small>Maximum: 30 Tage</small>
+                </article>
+                <article class="card stat">
+                    <span class="label">Samples</span>
+                    <strong>{{ status.sample_count }}</strong>
+                    <small>Miner-Samples: {{ status.miner_sample_count }}</small>
+                </article>
+                <article class="card stat">
+                    <span class="label">Datenbank</span>
+                    <strong>{{ '%.1f'|format((status.database_size_bytes or 0) / 1024 / 1024) }} MB</strong>
+                    <small>{{ status.database_path }}</small>
+                </article>
+            </section>
+
+            <section class="card top-gap">
+                <div class="card-head">
+                    <div>
+                        <h2>Aufzeichnung</h2>
+                        <p class="card-subtitle">Phase 1 legt die lokale SQLite-Basis an und schreibt Snapshot-Samples. Die Chart-Oberfläche folgt im nächsten Schritt.</p>
+                    </div>
+                </div>
+                <div class="grid grid-2">
+                    <div>
+                        <span class="label">Ältestes Sample</span>
+                        <p>{{ status.oldest_sample_at or '—' }}</p>
+                    </div>
+                    <div>
+                        <span class="label">Neuestes Sample</span>
+                        <p>{{ status.newest_sample_at or '—' }}</p>
+                    </div>
+                    <div>
+                        <span class="label">Letztes geschriebenes Sample</span>
+                        <p>{{ status.last_sample_at or '—' }}</p>
+                    </div>
+                    <div>
+                        <span class="label">Events</span>
+                        <p>{{ status.event_count }}</p>
+                    </div>
+                </div>
+                {% if status.last_error %}
+                <div class="update-error top-gap">{{ status.last_error }}</div>
+                {% endif %}
+                <p class="muted top-gap">Einstellungen findest du unter Einstellungen → Data Logger.</p>
+            </section>
+        </main>
+    </div>
+</body>
+</html>

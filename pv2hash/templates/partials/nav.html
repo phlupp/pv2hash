@@ -31,7 +31,7 @@
         <a class="nav-item{% if nav_active|default('dashboard') == 'sources' %} active{% endif %}" href="/sources">Messungen</a>
         <a class="nav-item{% if nav_active|default('dashboard') == 'miners' %} active{% endif %}" href="/miners">Miner</a>
         <a class="nav-item{% if nav_active|default('dashboard') == 'settings' %} active{% endif %}" href="/settings">Einstellungen</a>
-        <span class="nav-item disabled">Verlauf</span>
+        <a class="nav-item{% if nav_active|default('dashboard') == 'datalogger' %} active{% endif %}" href="/datalogger">Data Logger</a>
         <a class="nav-item{% if nav_active|default('dashboard') == 'system' %} active{% endif %}" href="/system">System</a>
         {% endif %}
     </nav>

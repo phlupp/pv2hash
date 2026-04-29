@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from pv2hash.config.defaults import DEFAULT_CONFIG
+from pv2hash.datalogger import normalize_datalogger_config
 
 CONFIG_PATH = Path("data/config.json")
 
@@ -186,6 +187,10 @@ def _normalize_source_settings(config: dict[str, Any]) -> None:
     settings = source.setdefault("settings", {})
     settings["debug_dump_obis"] = bool(settings.get("debug_dump_obis", False))
 
+def _normalize_datalogger_settings(config: dict[str, Any]) -> None:
+    config["datalogger"] = normalize_datalogger_config(config.get("datalogger", {}))
+
+
 def _normalize_battery_settings(config: dict[str, Any]) -> None:
     battery = config.setdefault("battery", {})
     defaults = DEFAULT_CONFIG.get("battery", {})
@@ -219,6 +224,7 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     _normalize_source_settings(normalized)
     _normalize_source_loss_profiles(normalized)
     _normalize_battery_settings(normalized)
+    _normalize_datalogger_settings(normalized)
     return normalized
 
 

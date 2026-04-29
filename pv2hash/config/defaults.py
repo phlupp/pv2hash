@@ -12,6 +12,11 @@ DEFAULT_CONFIG = {
         "check_updates": True,
         "update_repo": "phlupp/pv2hash",
     },
+    "datalogger": {
+        "enabled": True,
+        "interval_seconds": 10,
+        "retention_days": 7,
+    },
     "source": {
         "type": "simulator",
         "name": "Simulator Source",

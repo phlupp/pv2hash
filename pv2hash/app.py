@@ -24,6 +24,7 @@ from fastapi.templating import Jinja2Templates
 
 from pv2hash.config.store import CONFIG_PATH, load_config, save_config
 from pv2hash.identity import load_instance_identity
+from pv2hash.datalogger import DataLogger, normalize_datalogger_config
 from pv2hash.logging_ext.setup import (
     get_log_file_path,
     get_logger,
@@ -60,6 +61,10 @@ update_checker = UpdateChecker(
 )
 self_update_manager = SelfUpdateManager(
     current_version=APP_VERSION,
+)
+data_logger = DataLogger(
+    config_provider=lambda: state.config,
+    snapshot_provider=lambda: _build_runtime_snapshot_payload(),
 )
 
 EDITABLE_PROFILE_NAMES = ("p1", "p2", "p3", "p4")
@@ -394,6 +399,7 @@ def _build_settings_model() -> dict:
     system_cfg = state.config.setdefault("system", {})
     app_cfg = state.config.setdefault("app", {})
     control_cfg = state.config.setdefault("control", {})
+    datalogger_cfg = normalize_datalogger_config(state.config.setdefault("datalogger", {}))
     source_loss = control_cfg.setdefault("source_loss", {})
     stale_loss = source_loss.setdefault("stale", {})
     offline_loss = source_loss.setdefault("offline", {})
@@ -421,6 +427,11 @@ def _build_settings_model() -> dict:
             _setting_field("offline_fallback_profile", "Fallback-Profil", "select", offline_loss.get("fallback_profile", "p1"), options=profile_options, layout={"width": "third"}),
             _setting_field("offline_hold_seconds", "Halten für", "number", offline_loss.get("hold_seconds", 0), min=0, step=1, unit="s", help="0 bedeutet halten bis die Quelle zurückkommt.", layout={"width": "third"}),
         ]},
+        {"id": "datalogger", "title": "Data Logger", "subtitle": "Lokale Messwertaufzeichnung als Grundlage für Charts und spätere Portal-Synchronisierung.", "fields": [
+            _setting_field("datalogger_enabled", "Data Logging aktivieren", "checkbox", datalogger_cfg.get("enabled", True), help="Speichert lokale Zeitreihen in data/history.sqlite. Kann auf sehr schwachen Systemen deaktiviert werden.", layout={"width": "full"}),
+            _setting_field("datalogger_interval_seconds", "Aufzeichnungsintervall", "select", datalogger_cfg.get("interval_seconds", 10), options=_settings_select_options((("10", "10 Sekunden"), ("30", "30 Sekunden"), ("60", "60 Sekunden"))), layout={"width": "half"}),
+            _setting_field("datalogger_retention_days", "Aufbewahrung", "number", datalogger_cfg.get("retention_days", 7), min=1, max=30, step=1, unit="Tage", help="Maximal 30 Tage. Standard: 7 Tage.", layout={"width": "half"}),
+        ]},
     ]}
 
 
@@ -440,6 +451,11 @@ def _apply_settings_payload(payload: dict[str, Any]) -> None:
     control.setdefault("source_loss", {})
     control["source_loss"]["stale"] = {"mode": str(payload.get("stale_mode") or "hold_current").strip() or "hold_current", "fallback_profile": _normalize_fallback_profile(payload.get("stale_fallback_profile", "p1")), "hold_seconds": _safe_int(payload.get("stale_hold_seconds", 0), 0)}
     control["source_loss"]["offline"] = {"mode": str(payload.get("offline_mode") or "off_all").strip() or "off_all", "fallback_profile": _normalize_fallback_profile(payload.get("offline_fallback_profile", "p1")), "hold_seconds": _safe_int(payload.get("offline_hold_seconds", 0), 0)}
+    state.config["datalogger"] = normalize_datalogger_config({
+        "enabled": bool(payload.get("datalogger_enabled", False)),
+        "interval_seconds": _safe_int(payload.get("datalogger_interval_seconds", 10), 10),
+        "retention_days": _safe_int(payload.get("datalogger_retention_days", 7), 7),
+    })
 
 
 def _core_identity_basic_fields() -> list[dict]:
@@ -1924,6 +1940,7 @@ async def startup_event() -> None:
     logger.info("Application startup complete")
     asyncio.create_task(control_loop())
     asyncio.create_task(update_checker.run_background_loop())
+    asyncio.create_task(data_logger.run())
 
 
 def reload_runtime() -> None:
@@ -2512,6 +2529,24 @@ async def api_delete_miner(miner_id: str):
     save_config(state.config)
     reload_runtime()
     return JSONResponse({"status": "ok", "message": "Miner gelöscht.", "miner_id": miner_id})
+
+
+@app.get("/datalogger")
+async def datalogger_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="datalogger.html",
+        context={
+            "request": request,
+            "instance_name": state.config["system"].get("instance_name", "PV2Hash Node"),
+            "status": data_logger.status(),
+        },
+    )
+
+
+@app.get("/api/datalogger/status")
+async def api_datalogger_status():
+    return JSONResponse(content=jsonable_encoder({"status": "ok", "datalogger": data_logger.status()}))
 
 
 @app.get("/system")
