@@ -1497,6 +1497,7 @@
   let systemAutoScroll = true;
   let systemLogsVisible = true;
   let systemLastUpdateStatus = null;
+  let systemUpdateOverlayRedirectTimer = null;
 
   function systemEscapeHtml(text) {
     const div = document.createElement('div');
@@ -1899,6 +1900,19 @@
     renderSystemLogs();
   }
 
+  function scheduleSystemOverlayDashboardRedirect() {
+    if (systemUpdateOverlayRedirectTimer) return;
+    systemUpdateOverlayRedirectTimer = window.setTimeout(() => {
+      window.location.href = '/';
+    }, 3000);
+  }
+
+  function clearSystemOverlayDashboardRedirect() {
+    if (!systemUpdateOverlayRedirectTimer) return;
+    window.clearTimeout(systemUpdateOverlayRedirectTimer);
+    systemUpdateOverlayRedirectTimer = null;
+  }
+
   function renderSystemUpdateOverlay(runner) {
     const overlay = document.getElementById('updateOverlay');
     if (!overlay) return;
@@ -1909,9 +1923,11 @@
     const percent = document.getElementById('updateOverlayProgressPercent');
     const fill = document.getElementById('updateOverlayProgressFill');
     const message = document.getElementById('updateOverlayMessage');
+    const actionLink = document.getElementById('updateOverlayActionLink');
 
     const running = !!runner?.running;
     if (running) {
+      clearSystemOverlayDashboardRedirect();
       overlay.hidden = false;
       if (badge) {
         badge.textContent = runner.status === 'starting' ? 'Startet …' : 'Läuft';
@@ -1920,10 +1936,50 @@
       if (title) title.textContent = runner.status === 'starting' ? 'Update startet' : 'Update wird installiert';
       if (subtitle) subtitle.textContent = 'Der Dienst kann dabei kurzzeitig nicht erreichbar sein.';
       if (message) message.textContent = runner.message || 'Update läuft …';
+      if (actionLink) {
+        actionLink.href = '/system/update-progress';
+        actionLink.textContent = 'Fortschrittsseite öffnen';
+        actionLink.className = 'btn btn-secondary';
+      }
       systemSetProgress(fill, percent, runner.progress_percent);
-    } else if (runner?.status === 'success' || runner?.status === 'error') {
-      if (message) message.textContent = runner.message || '—';
-      systemSetProgress(fill, percent, runner.progress_percent);
+      return;
+    }
+
+    if (runner?.status === 'success') {
+      overlay.hidden = false;
+      if (badge) {
+        badge.textContent = 'Erfolgreich';
+        badge.className = 'status-pill status-good';
+      }
+      if (title) title.textContent = 'Update abgeschlossen';
+      if (subtitle) subtitle.textContent = 'PV2Hash wurde erfolgreich aktualisiert. Weiterleitung zum Dashboard …';
+      if (message) message.textContent = runner.message || 'Update erfolgreich abgeschlossen.';
+      if (actionLink) {
+        actionLink.href = '/';
+        actionLink.textContent = 'Zum Dashboard';
+        actionLink.className = 'btn btn-info';
+      }
+      systemSetProgress(fill, percent, runner.progress_percent ?? 100);
+      scheduleSystemOverlayDashboardRedirect();
+      return;
+    }
+
+    if (runner?.status === 'error') {
+      clearSystemOverlayDashboardRedirect();
+      overlay.hidden = false;
+      if (badge) {
+        badge.textContent = 'Fehler';
+        badge.className = 'status-pill status-bad';
+      }
+      if (title) title.textContent = 'Update fehlgeschlagen';
+      if (subtitle) subtitle.textContent = 'Bitte prüfe die Details auf der Systemseite.';
+      if (message) message.textContent = runner.message || runner.last_error || 'Update fehlgeschlagen.';
+      if (actionLink) {
+        actionLink.href = '/system';
+        actionLink.textContent = 'Zur Systemseite';
+        actionLink.className = 'btn btn-secondary';
+      }
+      systemSetProgress(fill, percent, runner.progress_percent ?? 100);
     }
   }
 
