@@ -117,6 +117,7 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
         "status": "ok",
         "timestamp": datetime.now(UTC),
         "instance": _build_instance_info(),
+        "host": _build_snapshot_host_info(),
         "controller": {
             "policy_mode": state.config.get("control", {}).get("policy_mode"),
             "distribution_mode": state.config.get("control", {}).get("distribution_mode"),
@@ -1000,13 +1001,29 @@ def _build_storage_summary() -> dict:
     }
 
 
+def _read_os_pretty_name() -> str | None:
+    try:
+        for line in Path('/etc/os-release').read_text(encoding='utf-8').splitlines():
+            if not line.startswith('PRETTY_NAME='):
+                continue
+            value = line.split('=', 1)[1].strip().strip('\"')
+            return value or None
+    except Exception:
+        return None
+    return None
+
+
 _HOST_CPU_SAMPLE: tuple[int, int] | None = None
 _HOST_STATUS_CACHE: tuple[float, dict] | None = None
 _HOST_STORAGE_CACHE: tuple[float, dict] | None = None
 _HOST_STATIC_INFO = {
     'hostname': socket.gethostname() or '—',
     'fqdn': '',
+    'platform': platform.system(),
+    'platform_release': platform.release(),
     'platform_text': f"{platform.system()} {platform.release()}",
+    'os': _read_os_pretty_name(),
+    'python_version': sys.version.split()[0],
     'python_text': sys.version.split()[0],
 }
 try:
@@ -1092,6 +1109,35 @@ def _get_host_status() -> dict:
     status = _get_host_status_uncached()
     _HOST_STATUS_CACHE = (now, deepcopy(status))
     return status
+
+
+def _build_snapshot_host_info() -> dict[str, Any]:
+    host_status = _get_host_status()
+    storage = host_status.get('storage') or {}
+    return {
+        'hostname': host_status.get('hostname'),
+        'fqdn': host_status.get('fqdn'),
+        'platform': host_status.get('platform'),
+        'platform_release': host_status.get('platform_release'),
+        'platform_text': host_status.get('platform_text'),
+        'os': host_status.get('os'),
+        'python_version': host_status.get('python_version'),
+        'uptime_seconds': host_status.get('uptime_seconds'),
+        'uptime_text': host_status.get('uptime_text'),
+        'cpu_percent': host_status.get('cpu_percent'),
+        'cpu_percent_text': host_status.get('cpu_percent_text'),
+        'load_text': host_status.get('load_text'),
+        'memory_total_bytes': host_status.get('ram_total_bytes'),
+        'memory_used_bytes': host_status.get('ram_used_bytes'),
+        'memory_percent': host_status.get('ram_percent'),
+        'memory_text': host_status.get('ram_text'),
+        'memory_percent_text': host_status.get('ram_percent_text'),
+        'disk_total_bytes': storage.get('total_bytes'),
+        'disk_used_bytes': storage.get('used_bytes'),
+        'disk_percent': storage.get('percent'),
+        'disk_text': storage.get('text'),
+        'disk_percent_text': storage.get('percent_text'),
+    }
 
 
 def _redirect_to_miners(
