@@ -2151,3 +2151,10 @@ form.is-busy {
     box-shadow: none;
   }
 }
+
+.socket-discovery-item.is-duplicate,
+.socket-discovery-item:disabled {
+    opacity: 0.58;
+    cursor: not-allowed;
+    border-style: dashed;
+}

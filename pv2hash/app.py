@@ -286,10 +286,95 @@ def _build_sockets_view() -> list[dict[str, Any]]:
     return views
 
 
+def _socket_discovery_interfaces() -> list[dict[str, Any]]:
+    """Return local LAN interfaces that are suitable for active socket discovery."""
+    items: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in get_local_ipv4_networks():
+        ifname = str(item.get("ifname") or "").strip()
+        ifname_l = ifname.lower()
+        cidr = str(item.get("cidr") or "").strip()
+        if not ifname or not cidr:
+            continue
+        if ifname_l == "lo" or ifname_l.startswith(("docker", "br-", "veth", "virbr", "tailscale", "zt")):
+            continue
+        try:
+            network = ip_network(cidr, strict=False)
+            local = ip_address(str(item.get("address") or "0.0.0.0"))
+        except Exception:
+            continue
+        if network.is_loopback or network.is_link_local or network.is_multicast:
+            continue
+        if not (network.is_private or local.is_private):
+            continue
+        normalized = str(network)
+        key = (ifname, normalized)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({
+            "ifname": ifname,
+            "address": str(item.get("address") or ""),
+            "prefixlen": item.get("prefixlen"),
+            "cidr": normalized,
+            "label": f"{ifname} — {item.get('address') or ''}/{item.get('prefixlen') or ''} ({normalized})",
+        })
+    return items
+
+
+def _socket_duplicate(
+    *,
+    driver: str,
+    host: str,
+    settings: dict[str, Any],
+    exclude_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return an existing socket that would address the same physical device."""
+    driver = str(driver or "").strip().lower()
+    host_norm = str(host or "").strip().lower()
+    if not host_norm:
+        return None
+
+    def port_of(cfg: dict[str, Any]) -> int:
+        try:
+            return int((cfg.get("settings") or {}).get("port", 80) or 80)
+        except Exception:
+            return 80
+
+    def relay_of(cfg: dict[str, Any]) -> int:
+        try:
+            return int((cfg.get("settings") or {}).get("relay", 1) or 1)
+        except Exception:
+            return 1
+
+    try:
+        new_port = int(settings.get("port", 80) or 80)
+    except Exception:
+        new_port = 80
+    try:
+        new_relay = int(settings.get("relay", 1) or 1)
+    except Exception:
+        new_relay = 1
+
+    for socket_cfg in state.config.get("sockets", []) or []:
+        if exclude_id and socket_cfg.get("id") == exclude_id:
+            continue
+        if str(socket_cfg.get("driver") or "").strip().lower() != driver:
+            continue
+        existing_host = str(socket_cfg.get("host") or "").strip().lower()
+        if not existing_host or existing_host != host_norm:
+            continue
+        if driver == "tasmota_http" and (port_of(socket_cfg) != new_port or relay_of(socket_cfg) != new_relay):
+            continue
+        return socket_cfg
+    return None
+
+
 def _sockets_context(request: Request) -> dict[str, Any]:
     return {
         "request": request,
         "sockets": _build_sockets_view(),
+        "tasmota_discovery_interfaces": _socket_discovery_interfaces(),
         "instance_name": state.config["system"].get("instance_name", "PV2Hash Node"),
         "app_version_full": APP_VERSION_FULL,
         "update_check": update_checker.snapshot(),
@@ -2813,6 +2898,14 @@ async def api_add_socket(request: Request):
     name = str(form.get("name") or default_name).strip() or default_name
     host_default = "" if driver == "tasmota_http" else "simulator.local"
     host = str(form.get("host") or host_default).strip()
+    settings = _socket_settings_from_form(form, driver)
+    duplicate = _socket_duplicate(driver=driver, host=host, settings=settings)
+    if duplicate:
+        return JSONResponse({
+            "status": "error",
+            "message": f"Dieses Socket-Gerät ist bereits als ‚{duplicate.get('name') or duplicate.get('id')}‘ angelegt.",
+            "socket_id": duplicate.get("id"),
+        }, status_code=409)
     socket_cfg = {
         "id": socket_id,
         "uuid": str(uuid4()),
@@ -2823,7 +2916,7 @@ async def api_add_socket(request: Request):
         "monitor_enabled": True,
         "control_enabled": False,
         "priority": 100,
-        "settings": _socket_settings_from_form(form, driver),
+        "settings": settings,
     }
     state.config.setdefault("sockets", []).append(socket_cfg)
     save_config(state.config)
@@ -2848,7 +2941,15 @@ async def api_update_socket_config(socket_id: str, request: Request):
             socket_cfg["priority"] = int(form.get("priority") or socket_cfg.get("priority", 100) or 100)
         except Exception:
             socket_cfg["priority"] = 100
-        socket_cfg["settings"] = _socket_settings_from_form(form, driver, socket_cfg.get("settings", {}) or {})
+        settings = _socket_settings_from_form(form, driver, socket_cfg.get("settings", {}) or {})
+        duplicate = _socket_duplicate(driver=driver, host=str(socket_cfg.get("host") or ""), settings=settings, exclude_id=socket_id)
+        if duplicate:
+            return JSONResponse({
+                "status": "error",
+                "message": f"Dieses Socket-Gerät ist bereits als ‚{duplicate.get('name') or duplicate.get('id')}‘ angelegt.",
+                "socket_id": duplicate.get("id"),
+            }, status_code=409)
+        socket_cfg["settings"] = settings
         save_config(state.config)
         reload_runtime()
         return JSONResponse({"status": "ok", "message": "Socket-Konfiguration gespeichert.", "socket_id": socket_id})
@@ -2883,68 +2984,51 @@ async def api_switch_socket(socket_id: str, request: Request):
     return JSONResponse({"status": status, **result})
 
 
-def _candidate_tasmota_discovery_networks() -> list[str]:
-    """Return local IPv4 CIDRs that are useful for active Tasmota discovery.
-
-    The first socket discovery implementation used the first active interface.
-    On systems with loopback, Docker, bridges or VPNs this can easily be the
-    wrong network. For discovery we therefore scan all plausible private LAN
-    networks and exclude obvious non-LAN interfaces.
-    """
-    candidates: list[str] = []
-    seen: set[str] = set()
-    for item in get_local_ipv4_networks():
-        ifname = str(item.get("ifname") or "").lower()
-        cidr = str(item.get("cidr") or "").strip()
-        if not cidr:
-            continue
-        if ifname == "lo" or ifname.startswith(("docker", "br-", "veth", "virbr", "tailscale", "zt")):
-            continue
-        try:
-            network = ip_network(cidr, strict=False)
-            local = ip_address(str(item.get("address") or "0.0.0.0"))
-        except Exception:
-            continue
-        if network.is_loopback or network.is_link_local or network.is_multicast:
-            continue
-        if not (network.is_private or local.is_private):
-            continue
-        normalized = str(network)
-        if normalized in seen:
-            continue
-        seen.add(normalized)
-        candidates.append(normalized)
-    return candidates
-
-
 @app.post("/api/sockets/discover/tasmota")
 async def api_discover_tasmota(request: Request):
     form = await request.form()
     cidr = str(form.get("cidr") or "").strip()
+    ifname = str(form.get("ifname") or "").strip()
     port = int(form.get("port") or 80)
-    cidrs = [cidr] if cidr else _candidate_tasmota_discovery_networks()
-    if not cidrs:
-        return JSONResponse({"status": "error", "message": "Kein lokales IPv4-Netz für die Suche gefunden."}, status_code=400)
 
-    all_results: list[dict[str, Any]] = []
-    scanned_cidrs: list[str] = []
-    seen_hosts: set[str] = set()
+    interfaces = _socket_discovery_interfaces()
+    selected: dict[str, Any] | None = None
+    if cidr:
+        selected = {"ifname": ifname or "custom", "cidr": cidr, "label": cidr}
+    elif ifname:
+        selected = next((item for item in interfaces if item.get("ifname") == ifname), None)
+    if selected is None:
+        return JSONResponse({
+            "status": "error",
+            "message": "Bitte ein Netzwerk-Interface für die Tasmota-Suche auswählen.",
+            "interfaces": interfaces,
+        }, status_code=400)
+
+    network_cidr = str(selected.get("cidr") or "").strip()
+    if not network_cidr:
+        return JSONResponse({"status": "error", "message": "Für das ausgewählte Interface wurde kein IPv4-Netz gefunden."}, status_code=400)
+
     try:
-        for network_cidr in cidrs:
-            scanned_cidrs.append(network_cidr)
-            results = await asyncio.to_thread(discover_tasmota_http, network_cidr, port=port)
-            for item in results:
-                host = str(item.get("host") or "")
-                if host and host in seen_hosts:
-                    continue
-                if host:
-                    seen_hosts.add(host)
-                all_results.append(item)
+        results = await asyncio.to_thread(discover_tasmota_http, network_cidr, port=port)
+        existing = state.config.get("sockets", []) or []
+        for item in results:
+            settings = {"port": item.get("port") or port, "relay": 1}
+            duplicate = _socket_duplicate(driver="tasmota_http", host=str(item.get("host") or ""), settings=settings)
+            if duplicate:
+                item["existing_socket_id"] = duplicate.get("id")
+                item["existing_socket_name"] = duplicate.get("name")
     except Exception as exc:
         logger.exception("Tasmota discovery failed")
         return JSONResponse({"status": "error", "message": str(exc)}, status_code=500)
 
-    return JSONResponse({"status": "ok", "cidrs": scanned_cidrs, "cidr": scanned_cidrs[0] if scanned_cidrs else "", "results": all_results})
+    return JSONResponse({
+        "status": "ok",
+        "interfaces": interfaces,
+        "ifname": selected.get("ifname") or "",
+        "cidrs": [network_cidr],
+        "cidr": network_cidr,
+        "results": results,
+    })
 
 @app.post("/api/socket/{socket_id}/delete")
 async def api_delete_socket(socket_id: str):

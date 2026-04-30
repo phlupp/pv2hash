@@ -108,9 +108,11 @@ Supported manual actions:
 
 ## Tasmota discovery
 
-The socket page provides a manual Tasmota discovery action. It scans the first active local IPv4 network and probes devices through the Tasmota HTTP API. If nothing is found, Host/IP can still be entered manually.
+The socket page provides a manual Tasmota discovery action. Discovery is intentionally explicit: the user selects a local IPv4 interface, and PV2Hash scans the network configured on that interface. An optional CIDR such as `192.168.10.0/23` can override the interface network when needed.
 
-The scan is intentionally manual and bounded so PV2Hash does not continuously scan the LAN.
+The scan is manual and bounded so PV2Hash does not continuously scan the LAN. If no device is found, Host/IP can still be entered manually.
+
+Discovery results are checked against the configured sockets. A Tasmota device with the same host, port and relay is marked as already configured and cannot be selected again from the discovery list. The backend also prevents duplicate sockets on create/save.
 
 ## Future driver ideas
 
@@ -118,7 +120,3 @@ The scan is intentionally manual and bounded so PV2Hash does not continuously sc
 - Home Assistant bridge
 - Matter, much later, likely through an existing local controller/bridge instead of direct Matter commissioning inside PV2Hash
 
-
-### Tasmota Discovery
-
-Die Tasmota-Suche scannt manuell alle plausiblen lokalen privaten IPv4-Netze und ignoriert typische Loopback-, Docker-, Bridge- und VPN-Interfaces. Optional kann im Socket-Formular ein Suchnetz wie `192.168.10.0/23` angegeben werden. Wenn kein Gerät gefunden wird, bleibt die manuelle Host/IP-Eingabe immer möglich.

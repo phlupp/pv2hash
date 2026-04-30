@@ -2991,8 +2991,12 @@
     container.innerHTML = results.map((item) => {
       const power = item.power_w == null ? '—' : `${Number(item.power_w).toFixed(0)} W`;
       const state = item.is_on === true ? 'ON' : item.is_on === false ? 'OFF' : '—';
-      const label = `${item.host} · ${item.name || item.device_name || item.friendly_name || 'Tasmota'} · ${state} · ${power}`;
-      return `<button class="socket-discovery-item" type="button" data-tasmota-select data-host="${escapeHtml(item.host)}" data-name="${escapeHtml(item.name || item.device_name || item.friendly_name || '')}" data-port="${escapeHtml(item.port || 80)}">${escapeHtml(label)}</button>`;
+      const duplicate = Boolean(item.existing_socket_id);
+      const duplicateText = duplicate ? ` · bereits angelegt: ${item.existing_socket_name || item.existing_socket_id}` : '';
+      const label = `${item.host} · ${item.name || item.device_name || item.friendly_name || 'Tasmota'} · ${state} · ${power}${duplicateText}`;
+      const disabled = duplicate ? ' disabled aria-disabled="true"' : '';
+      const classes = duplicate ? 'socket-discovery-item is-duplicate' : 'socket-discovery-item';
+      return `<button class="${classes}" type="button" data-tasmota-select data-host="${escapeHtml(item.host)}" data-name="${escapeHtml(item.name || item.device_name || item.friendly_name || '')}" data-port="${escapeHtml(item.port || 80)}"${disabled}>${escapeHtml(label)}</button>`;
     }).join('');
   }
 
@@ -3099,8 +3103,15 @@
           const payload = new FormData();
           const portInput = form ? form.querySelector('input[name="port"]') : null;
           const cidrInput = form ? form.querySelector('input[name="cidr"]') : null;
+          const ifnameInput = form ? form.querySelector('[data-tasmota-interface-select]') : null;
+          const cidr = cidrInput && cidrInput.value ? cidrInput.value.trim() : '';
+          const ifname = ifnameInput && ifnameInput.value ? ifnameInput.value.trim() : '';
+          if (!cidr && !ifname) {
+            throw new Error('Bitte ein Netzwerk-Interface auswählen oder ein Suchnetz eintragen.');
+          }
           payload.set('port', portInput && portInput.value ? portInput.value : '80');
-          if (cidrInput && cidrInput.value) payload.set('cidr', cidrInput.value);
+          if (ifname) payload.set('ifname', ifname);
+          if (cidr) payload.set('cidr', cidr);
           const response = await fetch('/api/sockets/discover/tasmota', { method: 'POST', body: payload });
           const data = await readJsonResponse(response, 'Tasmota-Suche fehlgeschlagen.');
           renderTasmotaDiscoveryResults(results, data.results || [], data.cidrs || (data.cidr ? [data.cidr] : []));
