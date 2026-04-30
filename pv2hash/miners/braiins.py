@@ -120,6 +120,8 @@ class BraiinsMiner(MinerAdapter):
         self._token_expires_monotonic: float = 0.0
         self._last_bundle: dict[str, Any] = {}
         self._last_bundle_at: datetime | None = None
+        self._last_power_target_w: float | None = None
+        self._last_actual_power_w: float | None = None
 
         profile_cfg = profiles or {
             "p1": {"power_w": 1200},
@@ -288,6 +290,8 @@ class BraiinsMiner(MinerAdapter):
         tuner_constraints = constraints.get("tuner_constraints") if isinstance(constraints.get("tuner_constraints"), dict) else {}
         power_target = tuner_constraints.get("power_target") if isinstance(tuner_constraints.get("power_target"), dict) else {}
         current_target_w = self._extract_watt_from_tuner_state(tuner_state)
+        actual_power_w = self._extract_actual_power_w(stats)
+        efficiency_j_th = self._extract_efficiency_j_th(stats)
 
         return {
             "sections": [
@@ -300,10 +304,12 @@ class BraiinsMiner(MinerAdapter):
                     {"label": "Firmware", "value": str(self.info.firmware_version or "—")},
                 ]},
                 {"id": "performance", "title": "Leistung / Hashrate", "items": [
+                    {"label": "Aktuelle Leistung", "value": self._format_watt(actual_power_w)},
                     {"label": "Power Target aktuell", "value": self._format_watt(current_target_w)},
                     {"label": "Power Target min", "value": self._format_watt(self._extract_watt_constraint(power_target, "min"))},
                     {"label": "Power Target default", "value": self._format_watt(self._extract_watt_constraint(power_target, "default"))},
                     {"label": "Power Target max", "value": self._format_watt(self._extract_watt_constraint(power_target, "max"))},
+                    {"label": "Effizienz", "value": self._format_efficiency(efficiency_j_th)},
                     {"label": "Nominale Hashrate", "value": self._format_hashrate_node(miner_stats.get("nominal_hashrate"))},
                     {"label": "Hashrate 5s", "value": self._format_hashrate_node(real_hashrate.get("last_5s"))},
                     {"label": "Hashrate 1m", "value": self._format_hashrate_node(real_hashrate.get("last_1m"))},
@@ -562,7 +568,14 @@ class BraiinsMiner(MinerAdapter):
         self.info.autotuning_enabled = self._extract_autotuning_enabled(tuner_state)
 
         current_target_w = self._extract_watt_from_tuner_state(tuner_state)
-        if current_target_w is not None:
+        actual_power_w = self._extract_actual_power_w(stats)
+        self._last_power_target_w = current_target_w
+        self._last_actual_power_w = actual_power_w
+
+        if actual_power_w is not None:
+            self.info.power_w = actual_power_w
+        elif current_target_w is not None:
+            # Fallback for API versions that do not expose live consumption.
             self.info.power_w = current_target_w
 
         runtime_state = self._derive_runtime_state(
@@ -633,7 +646,10 @@ class BraiinsMiner(MinerAdapter):
         if self.info.runtime_state in {"unknown", "unreachable", "paused", "stopped"}:
             return True
 
-        current_w = self.info.power_w
+        # Compare SetPowerTarget writes against the current target, not live
+        # consumption. Live consumption fluctuates around the target and would
+        # otherwise trigger repeated unnecessary writes.
+        current_w = self._last_power_target_w
         if current_w is None:
             return True
 
@@ -680,6 +696,15 @@ class BraiinsMiner(MinerAdapter):
             if value is None:
                 return "—"
             return f"{float(value):.0f} W"
+        except Exception:
+            return "—"
+
+    @staticmethod
+    def _format_efficiency(value: Any) -> str:
+        try:
+            if value is None:
+                return "—"
+            return f"{float(value):.1f} J/TH"
         except Exception:
             return "—"
 
@@ -834,6 +859,42 @@ class BraiinsMiner(MinerAdapter):
         if isinstance(value, bool):
             return value
         return None
+
+    @staticmethod
+    def _extract_actual_power_w(stats: dict[str, Any]) -> float | None:
+        if not isinstance(stats, dict):
+            return None
+        power_stats = stats.get("power_stats") or {}
+        if not isinstance(power_stats, dict):
+            return None
+        consumption = power_stats.get("approximated_consumption") or {}
+        if not isinstance(consumption, dict):
+            return None
+        watt = consumption.get("watt")
+        if watt in (None, ""):
+            return None
+        try:
+            return float(watt)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_efficiency_j_th(stats: dict[str, Any]) -> float | None:
+        if not isinstance(stats, dict):
+            return None
+        power_stats = stats.get("power_stats") or {}
+        if not isinstance(power_stats, dict):
+            return None
+        efficiency = power_stats.get("efficiency") or {}
+        if not isinstance(efficiency, dict):
+            return None
+        value = efficiency.get("joule_per_terahash")
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except Exception:
+            return None
 
     @staticmethod
     def _extract_watt_from_tuner_state(tuner_state: dict[str, Any]) -> float | None:
