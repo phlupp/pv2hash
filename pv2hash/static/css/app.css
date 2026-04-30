@@ -2044,3 +2044,34 @@ form.is-busy {
         max-height: 680px;
     }
 }
+
+/* Socket device cards */
+.socket-list { margin-top: 1.25rem; }
+.socket-card {
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 18px;
+    background: rgba(17,24,39,.92);
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+.socket-card summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 1rem 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+.socket-card summary::-webkit-details-marker { display: none; }
+.socket-card summary::after {
+    content: '▾';
+    flex: 0 0 auto;
+    margin-top: .15rem;
+    font-size: 1.05rem;
+    opacity: .75;
+}
+.socket-card:not([open]) summary::after { content: '▸'; }
+.socket-card-body { padding: 0 1.25rem 1.25rem; }
+.socket-create-form { margin-top: .75rem; }
+.socket-empty { border-style: dashed; }

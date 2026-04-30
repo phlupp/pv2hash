@@ -191,6 +191,32 @@ def _normalize_datalogger_settings(config: dict[str, Any]) -> None:
     config["datalogger"] = normalize_datalogger_config(config.get("datalogger", {}))
 
 
+def _normalize_sockets(config: dict[str, Any]) -> None:
+    sockets = config.setdefault("sockets", [])
+    if not isinstance(sockets, list):
+        config["sockets"] = []
+        return
+
+    for socket_cfg in sockets:
+        if not isinstance(socket_cfg, dict):
+            continue
+        socket_cfg["uuid"] = _ensure_uuid(socket_cfg.get("uuid"))
+        socket_cfg["id"] = str(socket_cfg.get("id") or f"s-{uuid4().hex[:8]}").strip()
+        socket_cfg["name"] = str(socket_cfg.get("name") or "Socket").strip() or "Socket"
+        socket_cfg["driver"] = str(socket_cfg.get("driver") or "simulator").strip().lower() or "simulator"
+        socket_cfg["host"] = str(socket_cfg.get("host") or "").strip()
+        socket_cfg["enabled"] = bool(socket_cfg.get("enabled", True))
+        socket_cfg["monitor_enabled"] = bool(socket_cfg.get("monitor_enabled", True))
+        socket_cfg["control_enabled"] = bool(socket_cfg.get("control_enabled", False))
+        try:
+            socket_cfg["priority"] = int(socket_cfg.get("priority", 100) or 100)
+        except Exception:
+            socket_cfg["priority"] = 100
+        settings = socket_cfg.setdefault("settings", {})
+        if not isinstance(settings, dict):
+            socket_cfg["settings"] = {}
+
+
 def _normalize_battery_settings(config: dict[str, Any]) -> None:
     battery = config.setdefault("battery", {})
     defaults = DEFAULT_CONFIG.get("battery", {})
@@ -224,6 +250,7 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     _normalize_source_settings(normalized)
     _normalize_source_loss_profiles(normalized)
     _normalize_battery_settings(normalized)
+    _normalize_sockets(normalized)
     _normalize_datalogger_settings(normalized)
     return normalized
 

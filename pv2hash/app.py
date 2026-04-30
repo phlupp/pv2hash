@@ -158,15 +158,128 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
             "is_discharging": bool(snapshot.battery_is_discharging) if snapshot else False,
         },
         "miners": miners,
+        "sockets": _build_socket_snapshot_items(),
         "totals": {
             "miner_power_w": sum(item["power_w"] for item in miners),
             "miner_hashrate_ghs": sum(float(item.get("hashrate_ghs") or 0.0) for item in miners),
             "control_enabled_miner_count": sum(1 for item in miners if item.get("control_enabled")),
             "monitor_enabled_miner_count": sum(1 for item in miners if item.get("monitor_enabled")),
             "reachable_miner_count": sum(1 for item in miners if item.get("reachable")),
+            "socket_power_w": sum(float(item.get("power_w") or 0.0) for item in _build_socket_snapshot_items()),
+            "reachable_socket_count": sum(1 for item in _build_socket_snapshot_items() if item.get("reachable")),
+            "monitor_enabled_socket_count": sum(1 for item in _build_socket_snapshot_items() if item.get("monitor_enabled")),
         },
     }
 
+
+
+
+def _socket_status_payload(info) -> dict[str, Any]:
+    return {
+        "id": str(getattr(info, "uuid", "") or ""),
+        "key": str(getattr(info, "id", "") or ""),
+        "uuid": str(getattr(info, "uuid", "") or ""),
+        "name": str(getattr(info, "name", "Socket") or "Socket"),
+        "driver": str(getattr(info, "driver", "") or ""),
+        "host": str(getattr(info, "host", "") or ""),
+        "priority": int(getattr(info, "priority", 100) or 100),
+        "enabled": bool(getattr(info, "enabled", True)),
+        "monitor_enabled": bool(getattr(info, "monitor_enabled", True)),
+        "control_enabled": bool(getattr(info, "control_enabled", False)),
+        "reachable": bool(getattr(info, "reachable", False)),
+        "is_on": getattr(info, "is_on", None),
+        "power_w": getattr(info, "power_w", None),
+        "runtime_state": str(getattr(info, "runtime_state", "unknown") or "unknown"),
+        "last_seen": getattr(info, "last_seen", None),
+        "last_error": getattr(info, "last_error", None),
+    }
+
+
+def _build_socket_snapshot_items() -> list[dict[str, Any]]:
+    runtime_by_id = {str(getattr(socket, "id", "")): socket for socket in state.sockets}
+    items: list[dict[str, Any]] = []
+    for socket_cfg in state.config.get("sockets", []) or []:
+        socket_key = str(socket_cfg.get("id") or "")
+        runtime = runtime_by_id.get(socket_key)
+        if runtime is not None:
+            payload = _socket_status_payload(runtime)
+        else:
+            payload = {
+                "id": _device_uuid(socket_cfg),
+                "key": socket_key,
+                "uuid": _device_uuid(socket_cfg),
+                "name": str(socket_cfg.get("name") or socket_key or "Socket"),
+                "driver": str(socket_cfg.get("driver") or ""),
+                "host": str(socket_cfg.get("host") or ""),
+                "priority": int(socket_cfg.get("priority", 100) or 100),
+                "enabled": bool(socket_cfg.get("enabled", True)),
+                "monitor_enabled": bool(socket_cfg.get("monitor_enabled", True)),
+                "control_enabled": bool(socket_cfg.get("control_enabled", False)),
+                "reachable": False,
+                "is_on": None,
+                "power_w": None,
+                "runtime_state": "unknown",
+                "last_seen": None,
+                "last_error": None,
+            }
+        items.append(payload)
+    return items
+
+
+def _get_runtime_socket_adapter_by_id(socket_id: str):
+    for adapter in services.sockets:
+        if getattr(adapter.info, "id", None) == socket_id:
+            return adapter
+    return None
+
+
+def _socket_summary(payload: dict[str, Any]) -> dict[str, str]:
+    if not payload.get("monitor_enabled"):
+        state_text = "Verbindung aus"
+        state_class = "neutral"
+    elif payload.get("reachable") and payload.get("is_on") is True:
+        state_text = "Ein"
+        state_class = "ok"
+    elif payload.get("reachable") and payload.get("is_on") is False:
+        state_text = "Aus"
+        state_class = "neutral"
+    else:
+        state_text = "Nicht erreichbar"
+        state_class = "bad"
+
+    power = payload.get("power_w")
+    return {
+        "state_text": state_text,
+        "state_class": state_class,
+        "power_text": f"{float(power):.0f} W" if power is not None else "—",
+        "connection_text": "Verbindung OK" if payload.get("reachable") else "Keine Verbindung",
+        "connection_class": "ok" if payload.get("reachable") else "bad",
+    }
+
+
+def _build_sockets_view() -> list[dict[str, Any]]:
+    runtime_items = {item.get("key") or item.get("id"): item for item in _build_socket_snapshot_items()}
+    views: list[dict[str, Any]] = []
+    for socket_cfg in state.config.get("sockets", []) or []:
+        item = deepcopy(socket_cfg)
+        item.setdefault("settings", {})
+        item["uuid"] = _device_uuid(item)
+        runtime = runtime_items.get(str(item.get("id") or ""), {})
+        item["runtime"] = runtime
+        item["summary"] = _socket_summary(runtime)
+        views.append(item)
+    return views
+
+
+def _sockets_context(request: Request) -> dict[str, Any]:
+    return {
+        "request": request,
+        "sockets": _build_sockets_view(),
+        "instance_name": state.config["system"].get("instance_name", "PV2Hash Node"),
+        "app_version_full": APP_VERSION_FULL,
+        "update_check": update_checker.snapshot(),
+        "refresh_seconds": _safe_int(state.config.get("app", {}).get("refresh_seconds", 5), 5),
+    }
 
 DRIVER_CLASSES: dict[str, type[MinerAdapter]] = {
     "simulator": SimulatorMiner,
@@ -1976,8 +2089,16 @@ async def control_loop() -> None:
                 await asyncio.sleep(0.1)
                 continue
 
+            socket_states = []
+            for socket_adapter in list(services.sockets):
+                try:
+                    socket_states.append(socket_adapter.get_status())
+                except Exception:
+                    logger.exception("Failed to refresh socket status: %s", getattr(getattr(socket_adapter, "info", None), "id", "unknown"))
+
             state.snapshot = snapshot
             state.miners = miner_states
+            state.sockets = socket_states
             state.last_decision = decision.summary
             state.last_decision_at = datetime.now(UTC)
             if profile_switch_requested:
@@ -2015,6 +2136,7 @@ def reload_runtime() -> None:
 
     state.snapshot = None
     state.miners = []
+    state.sockets = []
     state.last_decision = None
     state.last_decision_at = None
     state.last_profile_switch_at = None
@@ -2584,6 +2706,119 @@ async def api_delete_miner(miner_id: str):
     save_config(state.config)
     reload_runtime()
     return JSONResponse({"status": "ok", "message": "Miner gelöscht.", "miner_id": miner_id})
+
+
+@app.get("/sockets")
+async def sockets_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="sockets.html",
+        context=_sockets_context(request),
+    )
+
+
+@app.get("/api/sockets/status")
+async def api_sockets_status():
+    socket_states = []
+    for adapter in list(services.sockets):
+        try:
+            socket_states.append(await asyncio.to_thread(adapter.get_status))
+        except Exception:
+            logger.exception("Failed to refresh socket status: %s", getattr(getattr(adapter, "info", None), "id", "unknown"))
+    state.sockets = socket_states
+    return JSONResponse({"status": "ok", "sockets": _build_socket_snapshot_items()})
+
+
+@app.post("/api/sockets/add")
+async def api_add_socket(request: Request):
+    form = await request.form()
+    socket_id = f"s-{uuid4().hex[:8]}"
+    name = str(form.get("name") or "Simulator Socket").strip() or "Simulator Socket"
+    host = str(form.get("host") or "simulator.local").strip() or "simulator.local"
+    socket_cfg = {
+        "id": socket_id,
+        "uuid": str(uuid4()),
+        "name": name,
+        "driver": "simulator",
+        "host": host,
+        "enabled": True,
+        "monitor_enabled": True,
+        "control_enabled": False,
+        "priority": 100,
+        "settings": {
+            "initial_on": False,
+            "on_power_w": 50.0,
+            "standby_power_w": 0.0,
+            "reachable": True,
+        },
+    }
+    state.config.setdefault("sockets", []).append(socket_cfg)
+    save_config(state.config)
+    reload_runtime()
+    return JSONResponse({"status": "ok", "message": "Socket angelegt.", "socket_id": socket_id})
+
+
+@app.post("/api/socket/{socket_id}/config")
+async def api_update_socket_config(socket_id: str, request: Request):
+    form = await request.form()
+    socket_id = str(socket_id).strip()
+    for socket_cfg in state.config.get("sockets", []) or []:
+        if socket_cfg.get("id") != socket_id:
+            continue
+        socket_cfg["name"] = str(form.get("name") or socket_cfg.get("name") or "Socket").strip() or "Socket"
+        socket_cfg["host"] = str(form.get("host") or "").strip()
+        socket_cfg["monitor_enabled"] = form.get("monitor_enabled") == "on"
+        socket_cfg["control_enabled"] = form.get("control_enabled") == "on"
+        try:
+            socket_cfg["priority"] = int(form.get("priority") or socket_cfg.get("priority", 100) or 100)
+        except Exception:
+            socket_cfg["priority"] = 100
+        settings = socket_cfg.setdefault("settings", {})
+        for key, default in (("on_power_w", 50.0), ("standby_power_w", 0.0)):
+            try:
+                settings[key] = float(form.get(key) or settings.get(key, default) or default)
+            except Exception:
+                settings[key] = default
+        settings["reachable"] = form.get("reachable") == "on"
+        save_config(state.config)
+        reload_runtime()
+        return JSONResponse({"status": "ok", "message": "Socket-Konfiguration gespeichert.", "socket_id": socket_id})
+    return JSONResponse({"status": "error", "message": "Socket nicht gefunden."}, status_code=404)
+
+
+@app.post("/api/socket/{socket_id}/switch")
+async def api_switch_socket(socket_id: str, request: Request):
+    payload = await request.json()
+    action = str(payload.get("action") or "").strip().lower()
+    adapter = _get_runtime_socket_adapter_by_id(str(socket_id).strip())
+    if adapter is None:
+        return JSONResponse({"status": "error", "message": "Socket-Laufzeitadapter nicht verfügbar."}, status_code=404)
+    try:
+        if action == "on":
+            result = await asyncio.to_thread(adapter.switch_on)
+        elif action == "off":
+            result = await asyncio.to_thread(adapter.switch_off)
+        else:
+            return JSONResponse({"status": "error", "message": "Unbekannte Socket-Aktion."}, status_code=400)
+    except Exception as exc:
+        return JSONResponse({"status": "error", "message": f"Socket-Aktion fehlgeschlagen: {exc}"}, status_code=400)
+    try:
+        state.sockets = [await asyncio.to_thread(socket.get_status) for socket in services.sockets]
+    except Exception:
+        logger.debug("Could not refresh sockets after switch", exc_info=True)
+    return JSONResponse({"status": "ok" if result.get("ok") else "error", "message": result.get("message", "")}, status_code=200 if result.get("ok") else 400)
+
+
+@app.post("/api/socket/{socket_id}/delete")
+async def api_delete_socket(socket_id: str):
+    socket_id = str(socket_id).strip()
+    before = len(state.config.get("sockets", []) or [])
+    state.config["sockets"] = [socket_cfg for socket_cfg in state.config.get("sockets", []) or [] if socket_cfg.get("id") != socket_id]
+    if len(state.config.get("sockets", []) or []) == before:
+        return JSONResponse({"status": "error", "message": "Socket nicht gefunden."}, status_code=404)
+    save_config(state.config)
+    reload_runtime()
+    return JSONResponse({"status": "ok", "message": "Socket gelöscht.", "socket_id": socket_id})
 
 
 @app.get("/datalogger")

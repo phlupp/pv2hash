@@ -2884,6 +2884,141 @@
   }
 
 
+  function updateSocketCard(item) {
+    const socketKey = item.key || item.id;
+    const card = document.querySelector(`[data-socket-card][data-socket-id="${cssEscape(socketKey)}"]`);
+    if (!card) return;
+    const stateEl = card.querySelector('[data-socket-state]');
+    const connectionEl = card.querySelector('[data-socket-connection]');
+    const powerEl = card.querySelector('[data-socket-power]');
+
+    let stateText = 'Nicht erreichbar';
+    let stateClass = 'bad';
+    if (!item.monitor_enabled) {
+      stateText = 'Verbindung aus';
+      stateClass = 'neutral';
+    } else if (item.reachable && item.is_on === true) {
+      stateText = 'Ein';
+      stateClass = 'ok';
+    } else if (item.reachable && item.is_on === false) {
+      stateText = 'Aus';
+      stateClass = 'neutral';
+    }
+    setPillState(stateEl, stateText, stateClass);
+    setPillState(connectionEl, item.reachable ? 'Verbindung OK' : 'Keine Verbindung', item.reachable ? 'ok' : 'bad');
+    if (powerEl) powerEl.textContent = item.power_w == null ? '—' : `${Number(item.power_w).toFixed(0)} W`;
+  }
+
+  async function refreshSockets() {
+    const root = document.querySelector('[data-sockets-root]');
+    if (!root || document.hidden || root.dataset.refreshing === '1') return;
+    root.dataset.refreshing = '1';
+    try {
+      const response = await fetch('/api/sockets/status', { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+      const data = await readJsonResponse(response, 'Socket-Status konnte nicht geladen werden.');
+      for (const item of data.sockets || []) updateSocketCard(item);
+    } catch (error) {
+      if (isBackendConnectionError(error)) {
+        markBackendOffline(error);
+      } else {
+        console.debug('PV2Hash socket refresh failed:', error);
+      }
+    } finally {
+      root.dataset.refreshing = '0';
+    }
+  }
+
+  let socketsRefreshTimer = null;
+  function startSocketsRefresh() {
+    const root = document.querySelector('[data-sockets-root]');
+    if (!root || socketsRefreshTimer) return;
+    const seconds = Math.max(2, Number(root.dataset.refreshSeconds || 5));
+    socketsRefreshTimer = window.setInterval(refreshSockets, seconds * 1000);
+  }
+
+  function stopSocketsRefresh() {
+    if (socketsRefreshTimer) {
+      window.clearInterval(socketsRefreshTimer);
+      socketsRefreshTimer = null;
+    }
+  }
+
+  function setupSocketsPage() {
+    const root = document.querySelector('[data-sockets-root]');
+    if (!root || root.dataset.socketsReady === '1') return;
+    root.dataset.socketsReady = '1';
+
+    root.addEventListener('submit', async (event) => {
+      const createForm = event.target.closest('[data-socket-create-form]');
+      const configForm = event.target.closest('[data-socket-config-form]');
+      if (!createForm && !configForm) return;
+      event.preventDefault();
+      const form = createForm || configForm;
+      const submitter = event.submitter || form.querySelector('[type="submit"]');
+      const restore = setButtonBusy(submitter, createForm ? 'Legt an …' : 'Speichert …');
+      try {
+        const url = createForm ? '/api/sockets/add' : `/api/socket/${encodeURIComponent(form.dataset.socketId || '')}/config`;
+        const data = await postForm(url, form);
+        window.showToast('success', data.message || 'Socket gespeichert.');
+        window.setTimeout(() => { window.location.href = data.socket_id ? `/sockets#${encodeURIComponent(data.socket_id)}` : '/sockets'; }, 300);
+      } catch (error) {
+        window.showToast('error', error.message || 'Socket konnte nicht gespeichert werden.');
+      } finally {
+        restore();
+      }
+    });
+
+    root.addEventListener('click', async (event) => {
+      const switchButton = event.target.closest('[data-socket-switch]');
+      if (switchButton) {
+        event.preventDefault();
+        const socketId = switchButton.dataset.socketId;
+        const action = switchButton.dataset.socketSwitch;
+        const restore = setButtonBusy(switchButton, action === 'on' ? 'Schaltet ein …' : 'Schaltet aus …');
+        try {
+          const data = await postJson(`/api/socket/${encodeURIComponent(socketId)}/switch`, { action });
+          window.showToast('success', data.message || 'Socket geschaltet.');
+          await refreshSockets();
+        } catch (error) {
+          window.showToast('error', error.message || 'Socket-Aktion fehlgeschlagen.');
+        } finally {
+          restore();
+        }
+        return;
+      }
+
+      const deleteButton = event.target.closest('[data-socket-delete]');
+      if (deleteButton) {
+        event.preventDefault();
+        const socketId = deleteButton.dataset.socketId;
+        if (!window.confirm('Socket wirklich löschen?')) return;
+        const restore = setButtonBusy(deleteButton, 'Löscht …');
+        try {
+          const data = await postJson(`/api/socket/${encodeURIComponent(socketId)}/delete`, {});
+          window.showToast('success', data.message || 'Socket gelöscht.');
+          const card = deleteButton.closest('[data-socket-card]');
+          if (card) card.remove();
+        } catch (error) {
+          window.showToast('error', error.message || 'Socket konnte nicht gelöscht werden.');
+        } finally {
+          restore();
+        }
+      }
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopSocketsRefresh();
+      } else {
+        refreshSockets();
+        startSocketsRefresh();
+      }
+    });
+
+    refreshSockets();
+    startSocketsRefresh();
+  }
+
   function setupVersionStatusRefresh() {
     const link = document.querySelector('[data-versionstatus]');
     if (!link) return;
@@ -2919,6 +3054,7 @@
     setupSettingsPage();
     setupSystemPage();
     setupDataLoggerPage();
+    setupSocketsPage();
     setupVersionStatusRefresh();
   });
 })();

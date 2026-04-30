@@ -70,6 +70,7 @@ DEFAULT_CONFIG = {
             },
         },
     },
+    "sockets": [],
     "miners": [
         {
             "id": "m1",

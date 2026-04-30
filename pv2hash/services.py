@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from pv2hash.config.store import load_config
 from pv2hash.controller.basic import BasicController
-from pv2hash.factory import build_battery_source, build_miners, build_source
+from pv2hash.factory import build_battery_source, build_miners, build_source, build_sockets
 from pv2hash.sources.battery_modbus import BatteryModbusSource, ModbusValueConfig
 from pv2hash.sources.simulator import SimulatorSource
 from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
@@ -19,6 +19,7 @@ class RuntimeServices:
         self.source = None
         self.battery_source = None
         self.miners = []
+        self.sockets = []
         self.controller = None
         self.last_error: str | None = None
         self.reload_generation = 0
@@ -42,6 +43,7 @@ class RuntimeServices:
         old_source = self.source
         old_battery_source = self.battery_source
         old_miners = list(self.miners)
+        old_sockets = list(self.sockets)
         old_by_id = {getattr(miner.info, "id", None): miner for miner in old_miners}
 
         logger.info("Reloading runtime from config")
@@ -56,6 +58,7 @@ class RuntimeServices:
         self.source = build_source(config)
         self.battery_source = build_battery_source(config)
         self.miners = build_miners(config)
+        self.sockets = build_sockets(config)
         self._carry_runtime_state(old_by_id)
         self._retired_miners = [
             miner
@@ -67,6 +70,9 @@ class RuntimeServices:
             self._close_adapter(old_source)
         if old_battery_source is not self.battery_source:
             self._close_adapter(old_battery_source)
+        for old_socket in old_sockets:
+            if old_socket not in self.sockets:
+                self._close_adapter(old_socket)
         self.last_error = None
         self.reload_generation += 1
 
@@ -75,8 +81,9 @@ class RuntimeServices:
         self.state.source_reloaded_at = now
 
         logger.info(
-            "Runtime reload finished, miners=%d generation=%d source=%s battery_source=%s",
+            "Runtime reload finished, miners=%d sockets=%d generation=%d source=%s battery_source=%s",
             len(self.miners),
+            len(self.sockets),
             self.reload_generation,
             config["source"].get("type"),
             config.get("battery", {}).get("type") if config.get("battery", {}).get("enabled") else "disabled",

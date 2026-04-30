@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PV2Hash – Sockets</title>
+    <link rel="icon" href="/static/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <link rel="manifest" href="/static/site.webmanifest">
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<div class="layout">
+    {% set nav_active = 'sockets' %}
+    {% set nav_subtitle = instance_name %}
+    {% include "partials/nav.html" %}
+
+    <main class="content" data-sockets-root data-refresh-seconds="{{ refresh_seconds }}">
+        <header class="topbar">
+            <div>
+                <h1>Sockets</h1>
+                <p>Steckdosen und Relais als eigene Geräteklasse. Phase 1: Status anzeigen und manuell schalten.</p>
+            </div>
+        </header>
+
+        <section class="card socket-create-card">
+            <div class="card-head">
+                <div>
+                    <h2>Simulator-Socket anlegen</h2>
+                    <p class="card-subtitle">Erstellt eine lokale Test-Steckdose für GUI, Snapshot und manuelles Schalten.</p>
+                </div>
+            </div>
+            <form class="socket-create-form" data-socket-create-form>
+                <div class="miner-field-grid">
+                    <div class="field gui-field gui-field-half">
+                        <label for="socket-create-name">Name</label>
+                        <input id="socket-create-name" name="name" type="text" value="Simulator Socket">
+                    </div>
+                    <div class="field gui-field gui-field-half">
+                        <label for="socket-create-host">Host</label>
+                        <input id="socket-create-host" name="host" type="text" value="simulator.local">
+                    </div>
+                </div>
+                <div class="actions-row">
+                    <button class="btn btn-primary" type="submit">+ Socket anlegen</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="socket-list top-gap" data-socket-list>
+            {% if not sockets %}
+            <section class="card socket-empty" data-socket-empty>
+                <h2>Noch keine Sockets</h2>
+                <p>Lege zunächst einen Simulator-Socket an. Echte Treiber wie Shelly/Tasmota können später ergänzt werden.</p>
+            </section>
+            {% endif %}
+            {% for socket in sockets %}
+            <details class="socket-card" data-socket-card data-socket-id="{{ socket.id }}" open>
+                <summary>
+                    <div>
+                        <h2>{{ socket.name }}</h2>
+                        <div class="miner-meta">
+                            <span class="pill {{ socket.summary.state_class }}" data-socket-state>{{ socket.summary.state_text }}</span>
+                            <span class="pill {{ socket.summary.connection_class }}" data-socket-connection>{{ socket.summary.connection_text }}</span>
+                            <span class="pill neutral" data-socket-power>{{ socket.summary.power_text }}</span>
+                            <span class="pill neutral">{{ socket.driver }}</span>
+                            <span class="pill neutral">Prio {{ socket.priority }}</span>
+                        </div>
+                    </div>
+                </summary>
+                <div class="socket-card-body">
+                    <form class="details-form" data-socket-config-form data-socket-id="{{ socket.id }}">
+                        <input type="hidden" name="socket_id" value="{{ socket.id }}">
+                        <h3 class="section-title">Identität <span class="section-title-meta">({{ socket.id }})</span></h3>
+                        <div class="miner-field-grid">
+                            <div class="field gui-field gui-field-half">
+                                <label for="socket-{{ socket.id }}-name">Name</label>
+                                <input id="socket-{{ socket.id }}-name" name="name" type="text" value="{{ socket.name }}">
+                            </div>
+                            <div class="field gui-field gui-field-half">
+                                <label for="socket-{{ socket.id }}-host">Host</label>
+                                <input id="socket-{{ socket.id }}-host" name="host" type="text" value="{{ socket.host }}">
+                            </div>
+                            <div class="field gui-field gui-field-quarter">
+                                <label for="socket-{{ socket.id }}-priority">Priorität</label>
+                                <input id="socket-{{ socket.id }}-priority" name="priority" type="number" value="{{ socket.priority }}">
+                            </div>
+                            <div class="field gui-field gui-field-quarter checkbox-field">
+                                <label><input type="checkbox" name="monitor_enabled" {% if socket.monitor_enabled %}checked{% endif %}> Verbindung</label>
+                            </div>
+                            <div class="field gui-field gui-field-quarter checkbox-field">
+                                <label><input type="checkbox" name="control_enabled" {% if socket.control_enabled %}checked{% endif %}> Automatik</label>
+                            </div>
+                            <div class="field gui-field gui-field-quarter checkbox-field">
+                                <label><input type="checkbox" name="reachable" {% if socket.settings.reachable|default(true) %}checked{% endif %}> Simulator erreichbar</label>
+                            </div>
+                        </div>
+
+                        <h3 class="section-title">Simulator</h3>
+                        <div class="miner-field-grid">
+                            <div class="field gui-field gui-field-half">
+                                <label for="socket-{{ socket.id }}-on-power">Leistung ein (W)</label>
+                                <input id="socket-{{ socket.id }}-on-power" name="on_power_w" type="number" value="{{ socket.settings.on_power_w|default(50) }}">
+                            </div>
+                            <div class="field gui-field gui-field-half">
+                                <label for="socket-{{ socket.id }}-standby-power">Leistung aus (W)</label>
+                                <input id="socket-{{ socket.id }}-standby-power" name="standby_power_w" type="number" value="{{ socket.settings.standby_power_w|default(0) }}">
+                            </div>
+                        </div>
+
+                        <div class="actions-row">
+                            <button class="btn btn-primary" type="submit">Speichern</button>
+                            <button class="btn btn-secondary" type="button" data-socket-switch="on" data-socket-id="{{ socket.id }}">Einschalten</button>
+                            <button class="btn btn-secondary" type="button" data-socket-switch="off" data-socket-id="{{ socket.id }}">Ausschalten</button>
+                            <button class="btn btn-danger" type="button" data-socket-delete data-socket-id="{{ socket.id }}">Löschen</button>
+                        </div>
+                    </form>
+                </div>
+            </details>
+            {% endfor %}
+        </section>
+    </main>
+</div>
+</body>
+</html>

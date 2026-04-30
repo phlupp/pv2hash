@@ -8,6 +8,8 @@ from pv2hash.sources.base import EnergySource
 from pv2hash.sources.battery_modbus import BatteryModbusSource, ModbusValueConfig
 from pv2hash.sources.simulator import SimulatorSource
 from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
+from pv2hash.sockets.base import SocketInfo
+from pv2hash.sockets.simulator import SimulatorSocket
 
 logger = get_logger("pv2hash.factory")
 
@@ -399,3 +401,52 @@ def build_miners(config: dict) -> list[MinerAdapter]:
         _apply_runtime_flags(adapter, monitor_enabled, control_enabled)
 
     return miner_adapters
+
+
+def _normalize_socket_driver(driver: str | None) -> str:
+    normalized = str(driver or "simulator").strip().lower()
+    return normalized or "simulator"
+
+
+def build_sockets(config: dict) -> list[SimulatorSocket]:
+    socket_adapters = []
+    socket_items = sorted(
+        config.get("sockets", []) or [],
+        key=lambda s: (s.get("priority", 100), s.get("name", "")),
+    )
+
+    for socket_cfg in socket_items:
+        enabled = bool(socket_cfg.get("enabled", True))
+        monitor_enabled = bool(socket_cfg.get("monitor_enabled", True))
+        if not enabled or not monitor_enabled:
+            continue
+
+        driver = _normalize_socket_driver(socket_cfg.get("driver", "simulator"))
+        info = SocketInfo(
+            id=str(socket_cfg.get("id") or ""),
+            uuid=str(socket_cfg.get("uuid") or ""),
+            name=str(socket_cfg.get("name") or "Socket"),
+            driver=driver,
+            host=str(socket_cfg.get("host") or ""),
+            priority=int(socket_cfg.get("priority", 100) or 100),
+            enabled=enabled,
+            monitor_enabled=monitor_enabled,
+            control_enabled=bool(socket_cfg.get("control_enabled", False)),
+        )
+        settings = socket_cfg.get("settings", {}) or {}
+
+        logger.info(
+            "Building socket adapter: id=%s name=%s driver=%s host=%s",
+            info.id,
+            info.name,
+            driver,
+            info.host,
+        )
+
+        if driver == "simulator":
+            socket_adapters.append(SimulatorSocket(info=info, settings=settings))
+            continue
+
+        raise ValueError(f"Unsupported socket driver: {driver}")
+
+    return socket_adapters
