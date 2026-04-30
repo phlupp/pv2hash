@@ -19,11 +19,17 @@ class SimulatorSocket(SocketAdapter):
 
     def _update_info(self) -> SocketInfo:
         self.info.reachable = self._reachable and self.info.monitor_enabled and self.info.enabled
+        self.info.quality = "live" if self.info.reachable else ("offline" if self.info.last_seen else "no_data")
         self.info.is_on = self._is_on if self.info.reachable else None
         self.info.power_w = (self._on_power_w if self._is_on else self._standby_power_w) if self.info.reachable else None
         self.info.runtime_state = "on" if self._is_on and self.info.reachable else "off" if self.info.reachable else "unreachable"
         self.info.last_seen = datetime.now(UTC) if self.info.reachable else self.info.last_seen
         self.info.last_error = None if self.info.reachable else "Simulator Socket nicht erreichbar."
+        self.info.details = {
+            "driver": "Simulator",
+            "configured_on_power_w": self._on_power_w,
+            "configured_standby_power_w": self._standby_power_w,
+        }
         return self.info
 
     def get_status(self) -> SocketInfo:
@@ -48,3 +54,7 @@ class SimulatorSocket(SocketAdapter):
         self._is_on = False
         self._update_info()
         return {"ok": True, "message": "Socket ausgeschaltet."}
+
+    def reboot(self) -> dict[str, Any]:
+        self._update_info()
+        return {"ok": True, "message": "Simulator Socket neu gestartet."}

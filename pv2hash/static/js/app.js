@@ -560,6 +560,15 @@
     return String(value).replace(/"/g, '\"');
   }
 
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function setPillState(element, text, stateClass) {
     if (!element) return;
     element.textContent = text || '';
@@ -2891,6 +2900,8 @@
     const stateEl = card.querySelector('[data-socket-state]');
     const connectionEl = card.querySelector('[data-socket-connection]');
     const powerEl = card.querySelector('[data-socket-power]');
+    const qualityEl = card.querySelector('[data-socket-quality]');
+    const detailsEl = card.querySelector('[data-socket-details]');
 
     let stateText = 'Nicht erreichbar';
     let stateClass = 'bad';
@@ -2906,7 +2917,14 @@
     }
     setPillState(stateEl, stateText, stateClass);
     setPillState(connectionEl, item.reachable ? 'Verbindung OK' : 'Keine Verbindung', item.reachable ? 'ok' : 'bad');
+    const quality = item.quality || (item.reachable ? 'live' : 'no_data');
+    setPillState(qualityEl, quality, quality === 'live' ? 'ok' : quality === 'offline' ? 'bad' : 'neutral');
     if (powerEl) powerEl.textContent = item.power_w == null ? '—' : `${Number(item.power_w).toFixed(0)} W`;
+    if (detailsEl && item.details) {
+      const entries = Object.entries(item.details || {});
+      detailsEl.hidden = entries.length === 0;
+      detailsEl.innerHTML = entries.map(([key, value]) => `<div class="socket-detail-item"><span>${escapeHtml(key)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('');
+    }
   }
 
   async function refreshSockets() {
@@ -2943,10 +2961,67 @@
     }
   }
 
+  function updateSocketDriverPanels(form) {
+    if (!form) return;
+    const select = form.querySelector('[data-socket-driver-select]');
+    const driver = select ? select.value : 'simulator';
+    for (const panel of form.querySelectorAll('[data-socket-driver-panel]')) {
+      panel.hidden = panel.dataset.socketDriverPanel !== driver;
+    }
+    if (form.matches('[data-socket-create-form]')) {
+      const name = form.querySelector('input[name="name"]');
+      const host = form.querySelector('input[name="host"]');
+      if (driver === 'tasmota_http') {
+        if (name && name.value === 'Simulator Socket') name.value = 'Tasmota Socket';
+        if (host && host.value === 'simulator.local') host.value = '';
+      } else {
+        if (name && !name.value) name.value = 'Simulator Socket';
+        if (host && !host.value) host.value = 'simulator.local';
+      }
+    }
+  }
+
+  function renderTasmotaDiscoveryResults(container, results) {
+    if (!container) return;
+    container.hidden = false;
+    if (!results || results.length === 0) {
+      container.innerHTML = '<p class="muted">Keine Tasmota-Geräte gefunden. Host/IP kann manuell eingetragen werden.</p>';
+      return;
+    }
+    container.innerHTML = results.map((item) => {
+      const power = item.power_w == null ? '—' : `${Number(item.power_w).toFixed(0)} W`;
+      const state = item.is_on === true ? 'ON' : item.is_on === false ? 'OFF' : '—';
+      const label = `${item.host} · ${item.name || item.device_name || item.friendly_name || 'Tasmota'} · ${state} · ${power}`;
+      return `<button class="socket-discovery-item" type="button" data-tasmota-select data-host="${escapeHtml(item.host)}" data-name="${escapeHtml(item.name || item.device_name || item.friendly_name || '')}" data-port="${escapeHtml(item.port || 80)}">${escapeHtml(label)}</button>`;
+    }).join('');
+  }
+
+  function applyTasmotaDiscoveryResult(button) {
+    const form = button.closest('form');
+    if (!form) return;
+    const driver = form.querySelector('[data-socket-driver-select]');
+    const host = form.querySelector('input[name="host"]');
+    const name = form.querySelector('input[name="name"]');
+    const port = form.querySelector('input[name="port"]');
+    if (driver) driver.value = 'tasmota_http';
+    if (host) host.value = button.dataset.host || '';
+    if (name && button.dataset.name) name.value = button.dataset.name;
+    if (port && button.dataset.port) port.value = button.dataset.port;
+    updateSocketDriverPanels(form);
+  }
+
   function setupSocketsPage() {
     const root = document.querySelector('[data-sockets-root]');
     if (!root || root.dataset.socketsReady === '1') return;
     root.dataset.socketsReady = '1';
+
+    root.querySelectorAll('form').forEach(updateSocketDriverPanels);
+
+    root.addEventListener('change', (event) => {
+      const select = event.target.closest('[data-socket-driver-select]');
+      if (!select) return;
+      updateSocketDriverPanels(select.closest('form'));
+    });
 
     root.addEventListener('submit', async (event) => {
       const createForm = event.target.closest('[data-socket-create-form]');
@@ -2969,15 +3044,45 @@
     });
 
     root.addEventListener('click', async (event) => {
+      const selectButton = event.target.closest('[data-tasmota-select]');
+      if (selectButton) {
+        event.preventDefault();
+        applyTasmotaDiscoveryResult(selectButton);
+        return;
+      }
+
+      const discoverButton = event.target.closest('[data-tasmota-discover]');
+      if (discoverButton) {
+        event.preventDefault();
+        const form = discoverButton.closest('form');
+        const results = form ? form.querySelector('[data-tasmota-discovery-results]') : null;
+        const restore = setButtonBusy(discoverButton, 'Suche …');
+        try {
+          const payload = new FormData();
+          const portInput = form ? form.querySelector('input[name="port"]') : null;
+          payload.set('port', portInput && portInput.value ? portInput.value : '80');
+          const response = await fetch('/api/sockets/discover/tasmota', { method: 'POST', body: payload });
+          const data = await readJsonResponse(response, 'Tasmota-Suche fehlgeschlagen.');
+          renderTasmotaDiscoveryResults(results, data.results || []);
+          window.showToast('success', `${(data.results || []).length} Tasmota-Gerät(e) gefunden.`);
+        } catch (error) {
+          window.showToast('error', error.message || 'Tasmota-Suche fehlgeschlagen.');
+        } finally {
+          restore();
+        }
+        return;
+      }
+
       const switchButton = event.target.closest('[data-socket-switch]');
       if (switchButton) {
         event.preventDefault();
         const socketId = switchButton.dataset.socketId;
         const action = switchButton.dataset.socketSwitch;
-        const restore = setButtonBusy(switchButton, action === 'on' ? 'Schaltet ein …' : 'Schaltet aus …');
+        const busy = action === 'on' ? 'Schaltet ein …' : action === 'off' ? 'Schaltet aus …' : 'Startet neu …';
+        const restore = setButtonBusy(switchButton, busy);
         try {
           const data = await postJson(`/api/socket/${encodeURIComponent(socketId)}/switch`, { action });
-          window.showToast('success', data.message || 'Socket geschaltet.');
+          window.showToast(data.status === 'ok' ? 'success' : 'error', data.message || 'Socket-Aktion ausgeführt.');
           await refreshSockets();
         } catch (error) {
           window.showToast('error', error.message || 'Socket-Aktion fehlgeschlagen.');

@@ -2075,3 +2075,57 @@ form.is-busy {
 .socket-card-body { padding: 0 1.25rem 1.25rem; }
 .socket-create-form { margin-top: .75rem; }
 .socket-empty { border-style: dashed; }
+
+.socket-driver-panel {
+  margin-top: 1rem;
+}
+
+.socket-discovery-results {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.socket-discovery-item {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  border-radius: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.socket-discovery-item:hover {
+  border-color: rgba(168, 85, 247, 0.6);
+  background: rgba(168, 85, 247, 0.12);
+}
+
+.socket-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.6rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.socket-detail-item {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.socket-detail-item span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-bottom: 0.2rem;
+}
+
+.socket-detail-item strong {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 700;
+  word-break: break-word;
+}

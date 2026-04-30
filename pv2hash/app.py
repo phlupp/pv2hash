@@ -41,6 +41,8 @@ from pv2hash.self_update import SelfUpdateManager
 from pv2hash.services import RuntimeServices
 from pv2hash.update_check import UpdateChecker
 from pv2hash.version import APP_VERSION, APP_VERSION_FULL
+from pv2hash.netutils import get_local_ipv4_networks
+from pv2hash.sockets.tasmota_http import discover_tasmota_http
 
 initial_config = load_config()
 setup_logging(initial_config.get("system", {}).get("log_level", "INFO"))
@@ -195,11 +197,13 @@ def _socket_status_payload(info) -> dict[str, Any]:
         "monitor_enabled": bool(getattr(info, "monitor_enabled", True)),
         "control_enabled": bool(getattr(info, "control_enabled", False)),
         "reachable": bool(getattr(info, "reachable", False)),
+        "quality": str(getattr(info, "quality", "no_data") or "no_data"),
         "is_on": getattr(info, "is_on", None),
         "power_w": getattr(info, "power_w", None),
         "runtime_state": str(getattr(info, "runtime_state", "unknown") or "unknown"),
         "last_seen": _json_safe_datetime(getattr(info, "last_seen", None)),
         "last_error": getattr(info, "last_error", None),
+        "details": dict(getattr(info, "details", None) or {}),
     }
 
 
@@ -224,11 +228,13 @@ def _build_socket_snapshot_items() -> list[dict[str, Any]]:
                 "monitor_enabled": bool(socket_cfg.get("monitor_enabled", True)),
                 "control_enabled": bool(socket_cfg.get("control_enabled", False)),
                 "reachable": False,
+                "quality": "no_data",
                 "is_on": None,
                 "power_w": None,
                 "runtime_state": "unknown",
                 "last_seen": None,
                 "last_error": None,
+                "details": {},
             }
         items.append(payload)
     return items
@@ -2737,28 +2743,78 @@ async def api_sockets_status():
     return JSONResponse({"status": "ok", "sockets": _build_socket_snapshot_items()})
 
 
+
+def _socket_driver_from_form(form: Any, fallback: str = "simulator") -> str:
+    driver = str(form.get("driver") or fallback or "simulator").strip().lower()
+    if driver not in {"simulator", "tasmota_http"}:
+        driver = "simulator"
+    return driver
+
+
+def _socket_settings_from_form(form: Any, driver: str, current: dict[str, Any] | None = None) -> dict[str, Any]:
+    settings = dict(current or {})
+    if driver == "tasmota_http":
+        def as_int(name: str, default: int) -> int:
+            try:
+                return int(form.get(name) or settings.get(name, default) or default)
+            except Exception:
+                return default
+
+        def as_float(name: str, default: float) -> float:
+            try:
+                return float(form.get(name) or settings.get(name, default) or default)
+            except Exception:
+                return default
+
+        password_value = form.get("password")
+        if password_value is None or str(password_value) == "__KEEP__":
+            password = str(settings.get("password", "") or "")
+        else:
+            password = str(password_value or "")
+
+        return {
+            "port": as_int("port", 80),
+            "relay": as_int("relay", 1),
+            "username": str(form.get("username") or settings.get("username", "") or "").strip(),
+            "password": password,
+            "timeout_s": as_float("timeout_s", 2.0),
+            "use_energy": form.get("use_energy") == "on" or bool(settings.get("use_energy", True)) and form.get("use_energy") is None,
+        }
+
+    def as_float(name: str, default: float) -> float:
+        try:
+            return float(form.get(name) or settings.get(name, default) or default)
+        except Exception:
+            return default
+
+    return {
+        "initial_on": bool(settings.get("initial_on", False)),
+        "on_power_w": as_float("on_power_w", 50.0),
+        "standby_power_w": as_float("standby_power_w", 0.0),
+        "reachable": form.get("reachable") == "on",
+    }
+
+
 @app.post("/api/sockets/add")
 async def api_add_socket(request: Request):
     form = await request.form()
+    driver = _socket_driver_from_form(form)
     socket_id = f"s-{uuid4().hex[:8]}"
-    name = str(form.get("name") or "Simulator Socket").strip() or "Simulator Socket"
-    host = str(form.get("host") or "simulator.local").strip() or "simulator.local"
+    default_name = "Tasmota Socket" if driver == "tasmota_http" else "Simulator Socket"
+    name = str(form.get("name") or default_name).strip() or default_name
+    host_default = "" if driver == "tasmota_http" else "simulator.local"
+    host = str(form.get("host") or host_default).strip()
     socket_cfg = {
         "id": socket_id,
         "uuid": str(uuid4()),
         "name": name,
-        "driver": "simulator",
+        "driver": driver,
         "host": host,
         "enabled": True,
         "monitor_enabled": True,
         "control_enabled": False,
         "priority": 100,
-        "settings": {
-            "initial_on": False,
-            "on_power_w": 50.0,
-            "standby_power_w": 0.0,
-            "reachable": True,
-        },
+        "settings": _socket_settings_from_form(form, driver),
     }
     state.config.setdefault("sockets", []).append(socket_cfg)
     save_config(state.config)
@@ -2773,6 +2829,8 @@ async def api_update_socket_config(socket_id: str, request: Request):
     for socket_cfg in state.config.get("sockets", []) or []:
         if socket_cfg.get("id") != socket_id:
             continue
+        driver = _socket_driver_from_form(form, str(socket_cfg.get("driver") or "simulator"))
+        socket_cfg["driver"] = driver
         socket_cfg["name"] = str(form.get("name") or socket_cfg.get("name") or "Socket").strip() or "Socket"
         socket_cfg["host"] = str(form.get("host") or "").strip()
         socket_cfg["monitor_enabled"] = form.get("monitor_enabled") == "on"
@@ -2781,13 +2839,7 @@ async def api_update_socket_config(socket_id: str, request: Request):
             socket_cfg["priority"] = int(form.get("priority") or socket_cfg.get("priority", 100) or 100)
         except Exception:
             socket_cfg["priority"] = 100
-        settings = socket_cfg.setdefault("settings", {})
-        for key, default in (("on_power_w", 50.0), ("standby_power_w", 0.0)):
-            try:
-                settings[key] = float(form.get(key) or settings.get(key, default) or default)
-            except Exception:
-                settings[key] = default
-        settings["reachable"] = form.get("reachable") == "on"
+        socket_cfg["settings"] = _socket_settings_from_form(form, driver, socket_cfg.get("settings", {}) or {})
         save_config(state.config)
         reload_runtime()
         return JSONResponse({"status": "ok", "message": "Socket-Konfiguration gespeichert.", "socket_id": socket_id})
@@ -2806,16 +2858,38 @@ async def api_switch_socket(socket_id: str, request: Request):
             result = await asyncio.to_thread(adapter.switch_on)
         elif action == "off":
             result = await asyncio.to_thread(adapter.switch_off)
+        elif action == "reboot":
+            result = await asyncio.to_thread(adapter.reboot)
         else:
             return JSONResponse({"status": "error", "message": "Unbekannte Socket-Aktion."}, status_code=400)
     except Exception as exc:
-        return JSONResponse({"status": "error", "message": f"Socket-Aktion fehlgeschlagen: {exc}"}, status_code=400)
+        logger.exception("Socket action failed: id=%s action=%s", socket_id, action)
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=500)
+
     try:
         state.sockets = [await asyncio.to_thread(socket.get_status) for socket in services.sockets]
     except Exception:
-        logger.debug("Could not refresh sockets after switch", exc_info=True)
-    return JSONResponse({"status": "ok" if result.get("ok") else "error", "message": result.get("message", "")}, status_code=200 if result.get("ok") else 400)
+        logger.debug("Could not refresh sockets after action", exc_info=True)
+    status = "ok" if result.get("ok") else "error"
+    return JSONResponse({"status": status, **result})
 
+
+@app.post("/api/sockets/discover/tasmota")
+async def api_discover_tasmota(request: Request):
+    form = await request.form()
+    cidr = str(form.get("cidr") or "").strip()
+    port = int(form.get("port") or 80)
+    if not cidr:
+        networks = get_local_ipv4_networks()
+        cidr = str((networks[0] or {}).get("cidr") if networks else "")
+    if not cidr:
+        return JSONResponse({"status": "error", "message": "Kein lokales IPv4-Netz für die Suche gefunden."}, status_code=400)
+    try:
+        results = await asyncio.to_thread(discover_tasmota_http, cidr, port=port)
+    except Exception as exc:
+        logger.exception("Tasmota discovery failed")
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=500)
+    return JSONResponse({"status": "ok", "cidr": cidr, "results": results})
 
 @app.post("/api/socket/{socket_id}/delete")
 async def api_delete_socket(socket_id: str):

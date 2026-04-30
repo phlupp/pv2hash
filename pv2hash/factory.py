@@ -10,6 +10,7 @@ from pv2hash.sources.simulator import SimulatorSource
 from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
 from pv2hash.sockets.base import SocketInfo
 from pv2hash.sockets.simulator import SimulatorSocket
+from pv2hash.sockets.tasmota_http import TasmotaHttpSocket
 
 logger = get_logger("pv2hash.factory")
 
@@ -408,7 +409,7 @@ def _normalize_socket_driver(driver: str | None) -> str:
     return normalized or "simulator"
 
 
-def build_sockets(config: dict) -> list[SimulatorSocket]:
+def build_sockets(config: dict) -> list[SimulatorSocket | TasmotaHttpSocket]:
     socket_adapters = []
     socket_items = sorted(
         config.get("sockets", []) or [],
@@ -445,6 +446,10 @@ def build_sockets(config: dict) -> list[SimulatorSocket]:
 
         if driver == "simulator":
             socket_adapters.append(SimulatorSocket(info=info, settings=settings))
+            continue
+
+        if driver == "tasmota_http":
+            socket_adapters.append(TasmotaHttpSocket(info=info, settings=settings))
             continue
 
         raise ValueError(f"Unsupported socket driver: {driver}")

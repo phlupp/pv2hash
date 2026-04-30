@@ -96,3 +96,33 @@ def get_local_ipv4_addresses() -> list[dict[str, Any]]:
     Nutzt die allgemeine Funktion, filtert aber auf IPv4.
     """
     return [item for item in get_local_ip_addresses() if item["family"] == "ipv4"]
+
+def get_local_ipv4_networks() -> list[dict[str, Any]]:
+    """Return active local IPv4 networks from `ip -j addr show up`."""
+    networks: list[dict[str, Any]] = []
+    try:
+        result = subprocess.run(
+            ["ip", "-j", "addr", "show", "up"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        data = json.loads(result.stdout)
+        for iface in data:
+            ifname = iface.get("ifname", "?")
+            for addr in iface.get("addr_info", []) or []:
+                if addr.get("family") != "inet" or not addr.get("local"):
+                    continue
+                local = str(addr.get("local"))
+                prefixlen = int(addr.get("prefixlen", 24) or 24)
+                cidr = f"{local}/{prefixlen}"
+                networks.append({
+                    "ifname": ifname,
+                    "address": local,
+                    "prefixlen": prefixlen,
+                    "cidr": cidr,
+                    "label": f"{ifname} — {cidr}",
+                })
+    except Exception:
+        pass
+    return networks

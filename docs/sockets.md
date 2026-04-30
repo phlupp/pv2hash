@@ -66,3 +66,54 @@ The simulator supports:
 - `standby_power_w`
 
 These values are useful for testing the GUI and future controller integration without real hardware.
+
+## Socket quality
+
+Sockets use the same quality vocabulary as sources and batteries:
+
+- `live`: the device answered and the current state is usable
+- `offline`: the last poll failed after at least one previous successful value or a concrete connection attempt failed
+- `no_data`: no usable status has been read yet
+- `stale`: reserved for future drivers that keep a last value but can detect outdated data
+
+The runtime snapshot and `/api/sockets/status` expose `quality` for every socket. Future automation should only make safety-relevant decisions when the socket quality is `live`.
+
+## Tasmota HTTP driver
+
+The `tasmota_http` socket driver talks to local Tasmota devices through the HTTP command endpoint `/cm?cmnd=...`.
+
+Core values used by PV2Hash:
+
+- reachable / quality
+- on/off state from `Power` or `PowerN`
+- optional measured power from `Status 8` / `ENERGY.Power`
+- last seen timestamp and last error
+
+The driver also reads dynamic detail values when available. These are display-only and depend on the concrete Tasmota device/build:
+
+- `DeviceName` and `FriendlyName`
+- firmware/hardware
+- uptime
+- WLAN RSSI/signal
+- voltage/current/energy counters
+- ESP temperature or generic temperature values
+
+`DeviceName` is preferred as the discovered PV2Hash socket name. If it is missing, `FriendlyName` or the IP address is used.
+
+Supported manual actions:
+
+- switch on
+- switch off
+- reboot device (`Restart 1`)
+
+## Tasmota discovery
+
+The socket page provides a manual Tasmota discovery action. It scans the first active local IPv4 network and probes devices through the Tasmota HTTP API. If nothing is found, Host/IP can still be entered manually.
+
+The scan is intentionally manual and bounded so PV2Hash does not continuously scan the LAN.
+
+## Future driver ideas
+
+- Shelly HTTP
+- Home Assistant bridge
+- Matter, much later, likely through an existing local controller/bridge instead of direct Matter commissioning inside PV2Hash
