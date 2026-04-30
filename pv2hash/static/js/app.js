@@ -3010,6 +3010,44 @@
     updateSocketDriverPanels(form);
   }
 
+  function socketCardById(socketId) {
+    if (!socketId) return null;
+    return document.querySelector(`[data-socket-card][data-socket-id="${cssEscape(socketId)}"]`);
+  }
+
+  function highlightSocketElement(element) {
+    if (!element) return;
+    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    element.classList.remove('socket-card-highlight');
+    // Force a reflow so repeated saves on the same card restart the animation.
+    void element.offsetWidth;
+    element.classList.add('socket-card-highlight');
+    window.setTimeout(() => element.classList.remove('socket-card-highlight'), 2600);
+  }
+
+  async function reloadSocketList(focusSocketId = '') {
+    const root = document.querySelector('[data-sockets-root]');
+    const currentList = root ? root.querySelector('[data-socket-list]') : null;
+    if (!root || !currentList) return null;
+
+    const response = await fetch('/api/sockets/list', {
+      headers: { 'Accept': 'text/html' },
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      throw new Error(`Socket-Liste konnte nicht neu geladen werden (${response.status}).`);
+    }
+
+    const html = await response.text();
+    currentList.outerHTML = html;
+    root.querySelectorAll('form').forEach(updateSocketDriverPanels);
+    await refreshSockets();
+
+    const target = focusSocketId ? socketCardById(focusSocketId) : root.querySelector('[data-socket-list]');
+    if (target) highlightSocketElement(target);
+    return target;
+  }
+
   function setupSocketsPage() {
     const root = document.querySelector('[data-sockets-root]');
     if (!root || root.dataset.socketsReady === '1') return;
@@ -3035,7 +3073,7 @@
         const url = createForm ? '/api/sockets/add' : `/api/socket/${encodeURIComponent(form.dataset.socketId || '')}/config`;
         const data = await postForm(url, form);
         window.showToast('success', data.message || 'Socket gespeichert.');
-        window.setTimeout(() => { window.location.href = data.socket_id ? `/sockets#${encodeURIComponent(data.socket_id)}` : '/sockets'; }, 300);
+        await reloadSocketList(data.socket_id || form.dataset.socketId || '');
       } catch (error) {
         window.showToast('error', error.message || 'Socket konnte nicht gespeichert werden.');
       } finally {
@@ -3087,6 +3125,9 @@
           const data = await postJson(`/api/socket/${encodeURIComponent(socketId)}/switch`, { action });
           window.showToast(data.status === 'ok' ? 'success' : 'error', data.message || 'Socket-Aktion ausgeführt.');
           await refreshSockets();
+          const card = socketCardById(socketId);
+          if (card) card.classList.add('socket-card-pulse');
+          window.setTimeout(() => card && card.classList.remove('socket-card-pulse'), 1200);
         } catch (error) {
           window.showToast('error', error.message || 'Socket-Aktion fehlgeschlagen.');
         } finally {
@@ -3104,8 +3145,7 @@
         try {
           const data = await postJson(`/api/socket/${encodeURIComponent(socketId)}/delete`, {});
           window.showToast('success', data.message || 'Socket gelöscht.');
-          const card = deleteButton.closest('[data-socket-card]');
-          if (card) card.remove();
+          await reloadSocketList('');
         } catch (error) {
           window.showToast('error', error.message || 'Socket konnte nicht gelöscht werden.');
         } finally {

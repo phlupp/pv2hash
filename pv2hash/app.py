@@ -2744,6 +2744,14 @@ async def api_sockets_status():
     return JSONResponse({"status": "ok", "sockets": _build_socket_snapshot_items()})
 
 
+@app.get("/api/sockets/list")
+async def api_sockets_list(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/sockets_list.html",
+        context=_sockets_context(request),
+    )
+
 
 def _socket_driver_from_form(form: Any, fallback: str = "simulator") -> str:
     driver = str(form.get("driver") or fallback or "simulator").strip().lower()
