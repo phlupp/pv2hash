@@ -85,10 +85,14 @@
                             <label>Passwort optional</label>
                             <input name="password" type="password" autocomplete="current-password">
                         </div>
+                        <div class="field gui-field gui-field-half">
+                            <label>Suchnetz optional</label>
+                            <input name="cidr" type="text" placeholder="z. B. 192.168.10.0/23">
+                        </div>
                     </div>
                     <div class="actions-row">
                         <button class="btn btn-secondary" type="button" data-tasmota-discover> Tasmota-Geräte suchen</button>
-                        <span class="muted small">Scannt das lokale IPv4-Netz. Host/IP kann immer manuell eingetragen werden.</span>
+                        <span class="muted small">Scannt alle erkannten lokalen IPv4-Netze oder das optionale Suchnetz. Host/IP kann immer manuell eingetragen werden.</span>
                     </div>
                     <div class="socket-discovery-results" data-tasmota-discovery-results hidden></div>
                 </div>

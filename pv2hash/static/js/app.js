@@ -2981,11 +2981,11 @@
     }
   }
 
-  function renderTasmotaDiscoveryResults(container, results) {
+  function renderTasmotaDiscoveryResults(container, results, cidrs) {
     if (!container) return;
     container.hidden = false;
     if (!results || results.length === 0) {
-      container.innerHTML = '<p class="muted">Keine Tasmota-Geräte gefunden. Host/IP kann manuell eingetragen werden.</p>';
+      container.innerHTML = `<p class="muted">Keine Tasmota-Geräte gefunden. Host/IP kann manuell eingetragen werden.${cidrs && cidrs.length ? ` Gescannt: ${escapeHtml(cidrs.join(', '))}` : ''}</p>`;
       return;
     }
     container.innerHTML = results.map((item) => {
@@ -3060,11 +3060,14 @@
         try {
           const payload = new FormData();
           const portInput = form ? form.querySelector('input[name="port"]') : null;
+          const cidrInput = form ? form.querySelector('input[name="cidr"]') : null;
           payload.set('port', portInput && portInput.value ? portInput.value : '80');
+          if (cidrInput && cidrInput.value) payload.set('cidr', cidrInput.value);
           const response = await fetch('/api/sockets/discover/tasmota', { method: 'POST', body: payload });
           const data = await readJsonResponse(response, 'Tasmota-Suche fehlgeschlagen.');
-          renderTasmotaDiscoveryResults(results, data.results || []);
-          window.showToast('success', `${(data.results || []).length} Tasmota-Gerät(e) gefunden.`);
+          renderTasmotaDiscoveryResults(results, data.results || [], data.cidrs || (data.cidr ? [data.cidr] : []));
+          const scanned = data.cidrs && data.cidrs.length ? ` in ${data.cidrs.length} Netz(en)` : "";
+          window.showToast('success', `${(data.results || []).length} Tasmota-Gerät(e)${scanned} gefunden.`);
         } catch (error) {
           window.showToast('error', error.message || 'Tasmota-Suche fehlgeschlagen.');
         } finally {

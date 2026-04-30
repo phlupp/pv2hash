@@ -117,3 +117,8 @@ The scan is intentionally manual and bounded so PV2Hash does not continuously sc
 - Shelly HTTP
 - Home Assistant bridge
 - Matter, much later, likely through an existing local controller/bridge instead of direct Matter commissioning inside PV2Hash
+
+
+### Tasmota Discovery
+
+Die Tasmota-Suche scannt manuell alle plausiblen lokalen privaten IPv4-Netze und ignoriert typische Loopback-, Docker-, Bridge- und VPN-Interfaces. Optional kann im Socket-Formular ein Suchnetz wie `192.168.10.0/23` angegeben werden. Wenn kein Gerät gefunden wird, bleibt die manuelle Host/IP-Eingabe immer möglich.

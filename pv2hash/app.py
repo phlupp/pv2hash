@@ -13,6 +13,7 @@ from typing import Any
 from datetime import UTC, datetime
 from time import monotonic
 from pathlib import Path
+from ipaddress import ip_network, ip_address
 from urllib.parse import quote_plus
 from uuid import uuid4
 
@@ -2874,22 +2875,68 @@ async def api_switch_socket(socket_id: str, request: Request):
     return JSONResponse({"status": status, **result})
 
 
+def _candidate_tasmota_discovery_networks() -> list[str]:
+    """Return local IPv4 CIDRs that are useful for active Tasmota discovery.
+
+    The first socket discovery implementation used the first active interface.
+    On systems with loopback, Docker, bridges or VPNs this can easily be the
+    wrong network. For discovery we therefore scan all plausible private LAN
+    networks and exclude obvious non-LAN interfaces.
+    """
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for item in get_local_ipv4_networks():
+        ifname = str(item.get("ifname") or "").lower()
+        cidr = str(item.get("cidr") or "").strip()
+        if not cidr:
+            continue
+        if ifname == "lo" or ifname.startswith(("docker", "br-", "veth", "virbr", "tailscale", "zt")):
+            continue
+        try:
+            network = ip_network(cidr, strict=False)
+            local = ip_address(str(item.get("address") or "0.0.0.0"))
+        except Exception:
+            continue
+        if network.is_loopback or network.is_link_local or network.is_multicast:
+            continue
+        if not (network.is_private or local.is_private):
+            continue
+        normalized = str(network)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        candidates.append(normalized)
+    return candidates
+
+
 @app.post("/api/sockets/discover/tasmota")
 async def api_discover_tasmota(request: Request):
     form = await request.form()
     cidr = str(form.get("cidr") or "").strip()
     port = int(form.get("port") or 80)
-    if not cidr:
-        networks = get_local_ipv4_networks()
-        cidr = str((networks[0] or {}).get("cidr") if networks else "")
-    if not cidr:
+    cidrs = [cidr] if cidr else _candidate_tasmota_discovery_networks()
+    if not cidrs:
         return JSONResponse({"status": "error", "message": "Kein lokales IPv4-Netz für die Suche gefunden."}, status_code=400)
+
+    all_results: list[dict[str, Any]] = []
+    scanned_cidrs: list[str] = []
+    seen_hosts: set[str] = set()
     try:
-        results = await asyncio.to_thread(discover_tasmota_http, cidr, port=port)
+        for network_cidr in cidrs:
+            scanned_cidrs.append(network_cidr)
+            results = await asyncio.to_thread(discover_tasmota_http, network_cidr, port=port)
+            for item in results:
+                host = str(item.get("host") or "")
+                if host and host in seen_hosts:
+                    continue
+                if host:
+                    seen_hosts.add(host)
+                all_results.append(item)
     except Exception as exc:
         logger.exception("Tasmota discovery failed")
         return JSONResponse({"status": "error", "message": str(exc)}, status_code=500)
-    return JSONResponse({"status": "ok", "cidr": cidr, "results": results})
+
+    return JSONResponse({"status": "ok", "cidrs": scanned_cidrs, "cidr": scanned_cidrs[0] if scanned_cidrs else "", "results": all_results})
 
 @app.post("/api/socket/{socket_id}/delete")
 async def api_delete_socket(socket_id: str):
