@@ -174,6 +174,14 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
 
 
 
+def _json_safe_datetime(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
 def _socket_status_payload(info) -> dict[str, Any]:
     return {
         "id": str(getattr(info, "uuid", "") or ""),
@@ -190,7 +198,7 @@ def _socket_status_payload(info) -> dict[str, Any]:
         "is_on": getattr(info, "is_on", None),
         "power_w": getattr(info, "power_w", None),
         "runtime_state": str(getattr(info, "runtime_state", "unknown") or "unknown"),
-        "last_seen": getattr(info, "last_seen", None),
+        "last_seen": _json_safe_datetime(getattr(info, "last_seen", None)),
         "last_error": getattr(info, "last_error", None),
     }
 
