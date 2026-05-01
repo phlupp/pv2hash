@@ -2689,6 +2689,7 @@
           title: { display: Boolean(tempTitle), text: tempTitle, color: textColor },
           ticks: { color: textColor },
           grid: { drawOnChartArea: false },
+          min: 0,
         },
       },
     };
