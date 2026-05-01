@@ -2308,101 +2308,70 @@ body.sidebar-collapsed .nav-icon {
     }
 }
 
-/* Compact Data Logger miner filter */
+/* Data Logger miner filter */
 .datalogger-filter-card {
-    padding-bottom: 1rem;
-}
-
-.datalogger-filter-card.is-collapsed {
-    padding-bottom: 0.9rem;
+  overflow: hidden;
 }
 
 .datalogger-filter-head {
-    align-items: center;
-    gap: 1rem;
+  gap: 1rem;
 }
 
 .datalogger-filter-head-actions {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.6rem;
-    flex-wrap: wrap;
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .datalogger-filter-body {
-    margin-top: 0.85rem;
-    padding-top: 0.85rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: .85rem;
+  padding-top: .85rem;
+  border-top: 1px solid rgba(255, 255, 255, .08);
 }
 
 .datalogger-miner-filter {
-    display: grid;
-    gap: 0.65rem;
+  display: grid;
+  gap: .75rem;
 }
 
 .datalogger-miner-options {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 0.55rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
 }
 
 .datalogger-miner-option {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    min-height: 38px;
-    padding: 0.5rem 0.65rem;
-    border: 1px solid rgba(255, 255, 255, 0.10);
-    border-radius: 0.8rem;
-    background: rgba(255, 255, 255, 0.035);
-    cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  min-height: 2rem;
+  padding: .35rem .6rem;
+  border: 1px solid rgba(255, 255, 255, .10);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .035);
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
 }
 
 .datalogger-miner-option:hover {
-    border-color: rgba(168, 85, 247, 0.44);
-    background: rgba(168, 85, 247, 0.10);
+  background: rgba(255, 255, 255, .065);
+  border-color: rgba(155, 126, 255, .35);
 }
 
 .datalogger-miner-option input {
-    accent-color: var(--accent);
-}
-
-.datalogger-miner-option span {
-    display: flex;
-    flex-direction: column;
-    gap: 0.05rem;
-    min-width: 0;
-}
-
-.datalogger-miner-option strong {
-    font-size: 0.9rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  accent-color: var(--accent);
 }
 
 .datalogger-miner-option small {
-    color: var(--muted);
-    font-size: 0.75rem;
+  color: var(--muted);
+  font-size: .72rem;
 }
 
 .datalogger-miner-option-all {
-    width: fit-content;
-}
-
-@media (max-width: 900px) {
-    .datalogger-filter-head,
-    .datalogger-filter-head-actions {
-        align-items: flex-start;
-        justify-content: flex-start;
-    }
-
-    .datalogger-filter-head-actions {
-        width: 100%;
-    }
-
-    .datalogger-miner-options {
-        grid-template-columns: 1fr;
-    }
+  justify-self: start;
+  background: rgba(155, 126, 255, .08);
+  border-color: rgba(155, 126, 255, .22);
 }

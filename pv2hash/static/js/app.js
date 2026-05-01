@@ -2513,6 +2513,8 @@
     range: '12h',
     refreshTimer: null,
     refreshIntervalMs: 30000,
+    selectedMinerIds: [],
+    miners: [],
   };
 
   function formatDataLoggerNumber(value, suffix = '') {
@@ -2627,9 +2629,12 @@
   function dataLoggerChartOptions({ leftTitle = '', rightTitle = '', rangeName = '1h', leftMin = undefined, leftMax = undefined } = {}) {
     const textColor = 'rgba(242, 245, 255, 0.78)';
     const gridColor = 'rgba(255, 255, 255, 0.08)';
+    const rightAxisMax = rightTitle === 'SOC %' ? 100 : undefined;
+    const rightAxisMin = rightTitle === 'SOC %' ? 0 : undefined;
     return {
       responsive: true,
       maintainAspectRatio: false,
+      animation: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { labels: { color: textColor, boxWidth: 12, boxHeight: 12 } },
@@ -2675,8 +2680,8 @@
           title: { display: Boolean(rightTitle), text: rightTitle, color: textColor },
           ticks: { color: textColor },
           grid: { drawOnChartArea: false },
-          min: rightTitle === 'SOC %' ? 0 : undefined,
-          max: rightTitle === 'SOC %' ? 100 : undefined,
+          min: rightAxisMin,
+          max: rightAxisMax,
         },
       },
     };
@@ -2712,13 +2717,67 @@
     };
   }
 
-  function destroyDataLoggerCharts() {
-    for (const key of ['energy', 'battery', 'mining']) {
-      if (dataloggerCharts[key]) {
-        dataloggerCharts[key].destroy();
-        dataloggerCharts[key] = null;
+  function hasAnyData(data) {
+    return Array.isArray(data) && data.some((value) => value !== null && value !== undefined && Number.isFinite(Number(value)));
+  }
+
+  function updateChartInstance(key, canvas, config, points, mappedMarkers) {
+    if (!canvas) return;
+    if (!dataloggerCharts[key]) {
+      dataloggerCharts[key] = new Chart(canvas, config);
+    } else {
+      dataloggerCharts[key].data.labels = config.data.labels;
+      dataloggerCharts[key].data.datasets = config.data.datasets;
+      dataloggerCharts[key].options = config.options;
+      dataloggerCharts[key].update('none');
+    }
+    dataloggerCharts[key].$pv2hashPoints = points;
+    dataloggerCharts[key].$pv2hashMarkers = mappedMarkers.markers;
+    dataloggerCharts[key].$pv2hashMarkersByIndex = mappedMarkers.byIndex;
+  }
+
+  function updateDataLoggerMinerFilter(miners, selectedMinerIds = dataloggerCharts.selectedMinerIds) {
+    const container = document.querySelector('[data-datalogger-miner-options]');
+    const allCheckbox = document.querySelector('[data-datalogger-miner-all]');
+    const summary = document.querySelector('[data-datalogger-miner-filter-summary]');
+    const safeMiners = Array.isArray(miners) ? miners : [];
+    dataloggerCharts.miners = safeMiners;
+
+    const availableIds = new Set(safeMiners.map((miner) => String(miner.id || '')).filter(Boolean));
+    const validSelected = (Array.isArray(selectedMinerIds) ? selectedMinerIds : [])
+      .map((id) => String(id))
+      .filter((id) => availableIds.has(id));
+    dataloggerCharts.selectedMinerIds = validSelected;
+
+    if (container) {
+      if (!safeMiners.length) {
+        container.innerHTML = '<span class="muted">Noch keine Miner-Samples im ausgewählten Zeitraum.</span>';
+      } else {
+        container.innerHTML = safeMiners.map((miner) => {
+          const id = String(miner.id || '');
+          const name = escapeHtml(miner.name || miner.key || id);
+          const meta = escapeHtml(miner.driver || '');
+          const checked = validSelected.includes(id) ? ' checked' : '';
+          return `<label class="datalogger-miner-option"><input type="checkbox" data-datalogger-miner-id="${escapeHtml(id)}"${checked}><span>${name}</span>${meta ? `<small>${meta}</small>` : ''}</label>`;
+        }).join('');
       }
     }
+
+    if (allCheckbox) allCheckbox.checked = validSelected.length === 0;
+    if (summary) {
+      if (validSelected.length === 0) {
+        summary.textContent = 'Alle Miner';
+      } else if (validSelected.length === 1) {
+        const miner = safeMiners.find((item) => String(item.id || '') === validSelected[0]);
+        summary.textContent = miner ? (miner.name || miner.key || '1 Miner') : '1 Miner';
+      } else {
+        summary.textContent = `${validSelected.length} Miner`;
+      }
+    }
+  }
+
+  function getSelectedDataLoggerMinerIds() {
+    return dataloggerCharts.selectedMinerIds || [];
   }
 
   function renderDataLoggerCharts(series) {
@@ -2733,6 +2792,8 @@
 
     const points = series?.points || [];
     const rangeName = series?.range || dataloggerCharts.range;
+    updateDataLoggerMinerFilter(series?.miners || [], series?.selected_miner_ids || dataloggerCharts.selectedMinerIds);
+
     const empty = document.querySelector('[data-datalogger-empty]');
     if (empty) empty.hidden = points.length > 0;
     const pointBadge = document.querySelector('[data-datalogger-points]');
@@ -2752,73 +2813,66 @@
       ...batteryDischargeValues.filter((value) => value !== null).map((value) => Math.abs(value)),
       0,
     ));
-    destroyDataLoggerCharts();
 
     const energyCanvas = document.getElementById('dataloggerEnergyChart');
-    if (energyCanvas) {
-      dataloggerCharts.energy = new Chart(energyCanvas, {
-        type: 'line',
-        plugins: [dataLoggerProfileMarkersPlugin],
-        data: {
-          labels,
-          datasets: [
-            makeDataLoggerDataset('Netzanschluss W (+Bezug/-Einspeisung)', values('grid_power_w'), 'rgba(98, 211, 255, 0.95)'),
-            makeDataLoggerDataset('Minerleistung W', values('miner_power_w_total'), 'rgba(141, 99, 255, 0.95)'),
-            makeDataLoggerDataset('Batterie lädt W', batteryChargeValues, 'rgba(67, 227, 165, 0.95)'),
-            makeDataLoggerDataset('Batterie entlädt W', batteryDischargeValues, 'rgba(255, 177, 92, 0.95)'),
-          ],
-        },
-        options: dataLoggerChartOptions({ leftTitle: 'Watt', rangeName }),
-      });
-      dataloggerCharts.energy.$pv2hashPoints = points;
-      dataloggerCharts.energy.$pv2hashMarkers = mappedMarkers.markers;
-      dataloggerCharts.energy.$pv2hashMarkersByIndex = mappedMarkers.byIndex;
-    }
+    updateChartInstance('energy', energyCanvas, {
+      type: 'line',
+      plugins: [dataLoggerProfileMarkersPlugin],
+      data: {
+        labels,
+        datasets: [
+          makeDataLoggerDataset('Netzanschluss W (+Bezug/-Einspeisung)', values('grid_power_w'), 'rgba(98, 211, 255, 0.95)'),
+          makeDataLoggerDataset('Minerleistung W', values('miner_power_w_total'), 'rgba(141, 99, 255, 0.95)'),
+          makeDataLoggerDataset('Batterie lädt W', batteryChargeValues, 'rgba(67, 227, 165, 0.95)'),
+          makeDataLoggerDataset('Batterie entlädt W', batteryDischargeValues, 'rgba(255, 177, 92, 0.95)'),
+        ],
+      },
+      options: dataLoggerChartOptions({ leftTitle: 'Watt', rangeName }),
+    }, points, mappedMarkers);
 
     const batteryCanvas = document.getElementById('dataloggerBatteryChart');
-    if (batteryCanvas) {
-      dataloggerCharts.battery = new Chart(batteryCanvas, {
-        type: 'line',
-        plugins: [dataLoggerProfileMarkersPlugin],
-        data: {
-          labels,
-          datasets: [
-            makeDataLoggerDataset('SOC %', values('battery_soc_pct'), 'rgba(242, 245, 255, 0.95)', 'y1'),
-            makeDataLoggerDataset('Ladeleistung W', batteryChargeValues, 'rgba(67, 227, 165, 0.95)'),
-            makeDataLoggerDataset('Entladeleistung W', batteryDischargeNegativeValues, 'rgba(255, 177, 92, 0.95)'),
-          ],
-        },
-        options: dataLoggerChartOptions({
-          leftTitle: 'Watt',
-          rightTitle: 'SOC %',
-          rangeName,
-          leftMin: batteryPowerAxisMax ? -batteryPowerAxisMax : undefined,
-          leftMax: batteryPowerAxisMax || undefined,
-        }),
-      });
-      dataloggerCharts.battery.$pv2hashPoints = points;
-      dataloggerCharts.battery.$pv2hashMarkers = mappedMarkers.markers;
-      dataloggerCharts.battery.$pv2hashMarkersByIndex = mappedMarkers.byIndex;
+    updateChartInstance('battery', batteryCanvas, {
+      type: 'line',
+      plugins: [dataLoggerProfileMarkersPlugin],
+      data: {
+        labels,
+        datasets: [
+          makeDataLoggerDataset('SOC %', values('battery_soc_pct'), 'rgba(242, 245, 255, 0.95)', 'y1'),
+          makeDataLoggerDataset('Ladeleistung W', batteryChargeValues, 'rgba(67, 227, 165, 0.95)'),
+          makeDataLoggerDataset('Entladeleistung W', batteryDischargeNegativeValues, 'rgba(255, 177, 92, 0.95)'),
+        ],
+      },
+      options: dataLoggerChartOptions({
+        leftTitle: 'Watt',
+        rightTitle: 'SOC %',
+        rangeName,
+        leftMin: batteryPowerAxisMax ? -batteryPowerAxisMax : undefined,
+        leftMax: batteryPowerAxisMax || undefined,
+      }),
+    }, points, mappedMarkers);
+
+    const tempValues = values('miner_temp_c');
+    const tempMinValues = values('miner_temp_asic_min_c');
+    const tempMaxValues = values('miner_temp_asic_max_c');
+    const miningDatasets = [
+      makeDataLoggerDataset('Hashrate GH/s', values('miner_hashrate_ghs_total'), 'rgba(98, 211, 255, 0.95)', 'y1'),
+      makeDataLoggerDataset('Minerleistung W', values('miner_power_w_total'), 'rgba(141, 99, 255, 0.95)'),
+    ];
+    if (hasAnyData(tempValues)) miningDatasets.push(makeDataLoggerDataset('Temperatur °C', tempValues, 'rgba(255, 196, 87, 0.95)', 'y1'));
+    if (dataloggerCharts.selectedMinerIds.length === 1 && hasAnyData(tempMinValues)) {
+      miningDatasets.push(makeDataLoggerDataset('ASIC min °C', tempMinValues, 'rgba(67, 227, 165, 0.95)', 'y1'));
+    }
+    if (dataloggerCharts.selectedMinerIds.length === 1 && hasAnyData(tempMaxValues)) {
+      miningDatasets.push(makeDataLoggerDataset('ASIC max °C', tempMaxValues, 'rgba(255, 132, 170, 0.95)', 'y1'));
     }
 
     const miningCanvas = document.getElementById('dataloggerMiningChart');
-    if (miningCanvas) {
-      dataloggerCharts.mining = new Chart(miningCanvas, {
-        type: 'line',
-        plugins: [dataLoggerProfileMarkersPlugin],
-        data: {
-          labels,
-          datasets: [
-            makeDataLoggerDataset('Hashrate GH/s', values('miner_hashrate_ghs_total'), 'rgba(98, 211, 255, 0.95)', 'y1'),
-            makeDataLoggerDataset('Minerleistung W', values('miner_power_w_total'), 'rgba(141, 99, 255, 0.95)'),
-          ],
-        },
-        options: dataLoggerChartOptions({ leftTitle: 'Watt', rightTitle: 'GH/s', rangeName }),
-      });
-      dataloggerCharts.mining.$pv2hashPoints = points;
-      dataloggerCharts.mining.$pv2hashMarkers = mappedMarkers.markers;
-      dataloggerCharts.mining.$pv2hashMarkersByIndex = mappedMarkers.byIndex;
-    }
+    updateChartInstance('mining', miningCanvas, {
+      type: 'line',
+      plugins: [dataLoggerProfileMarkersPlugin],
+      data: { labels, datasets: miningDatasets },
+      options: dataLoggerChartOptions({ leftTitle: 'Watt', rightTitle: 'GH/s / °C', rangeName }),
+    }, points, mappedMarkers);
   }
 
   async function loadDataLoggerCharts(rangeName = dataloggerCharts.range) {
@@ -2828,12 +2882,16 @@
       button.classList.toggle('active', button.dataset.dataloggerRange === rangeName);
     }
 
+    const params = new URLSearchParams({ range: rangeName, max_points: '720' });
+    const selectedMinerIds = getSelectedDataLoggerMinerIds();
+    if (selectedMinerIds.length) params.set('miner_ids', selectedMinerIds.join(','));
+
     const root = document.querySelector('[data-datalogger-root]');
     if (root) root.dataset.loading = '1';
     try {
       const [statusResponse, seriesResponse] = await Promise.all([
         fetch('/api/datalogger/status', { headers: { 'Accept': 'application/json' }, cache: 'no-store' }),
-        fetch(`/api/datalogger/series?range=${encodeURIComponent(rangeName)}&max_points=720`, { headers: { 'Accept': 'application/json' }, cache: 'no-store' }),
+        fetch(`/api/datalogger/series?${params.toString()}`, { headers: { 'Accept': 'application/json' }, cache: 'no-store' }),
       ]);
       if (!statusResponse.ok) throw new Error(`Status konnte nicht geladen werden (${statusResponse.status})`);
       if (!seriesResponse.ok) throw new Error(`Zeitreihe konnte nicht geladen werden (${seriesResponse.status})`);
@@ -2874,9 +2932,41 @@
 
     root.addEventListener('click', (event) => {
       const rangeButton = event.target.closest('[data-datalogger-range]');
-      if (!rangeButton) return;
-      event.preventDefault();
-      loadDataLoggerCharts(rangeButton.dataset.dataloggerRange || '12h');
+      if (rangeButton) {
+        event.preventDefault();
+        loadDataLoggerCharts(rangeButton.dataset.dataloggerRange || '12h');
+        return;
+      }
+      const filterToggle = event.target.closest('[data-datalogger-filter-toggle]');
+      if (filterToggle) {
+        event.preventDefault();
+        const card = root.querySelector('[data-datalogger-filter-card]');
+        const body = root.querySelector('[data-datalogger-filter-body]');
+        const isOpen = filterToggle.getAttribute('aria-expanded') === 'true';
+        filterToggle.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+        filterToggle.textContent = isOpen ? 'Auswahl anzeigen' : 'Auswahl ausblenden';
+        if (body) body.hidden = isOpen;
+        if (card) card.classList.toggle('is-collapsed', isOpen);
+      }
+    });
+
+    root.addEventListener('change', (event) => {
+      const allCheckbox = event.target.closest('[data-datalogger-miner-all]');
+      if (allCheckbox) {
+        dataloggerCharts.selectedMinerIds = [];
+        updateDataLoggerMinerFilter(dataloggerCharts.miners, []);
+        loadDataLoggerCharts(dataloggerCharts.range);
+        return;
+      }
+      const minerCheckbox = event.target.closest('[data-datalogger-miner-id]');
+      if (minerCheckbox) {
+        const checkedIds = Array.from(root.querySelectorAll('[data-datalogger-miner-id]:checked'))
+          .map((item) => item.getAttribute('data-datalogger-miner-id'))
+          .filter(Boolean);
+        dataloggerCharts.selectedMinerIds = checkedIds;
+        updateDataLoggerMinerFilter(dataloggerCharts.miners, checkedIds);
+        loadDataLoggerCharts(dataloggerCharts.range);
+      }
     });
 
     document.addEventListener('visibilitychange', () => {
@@ -2891,7 +2981,6 @@
     loadDataLoggerCharts(dataloggerCharts.range);
     startDataLoggerRefresh();
   }
-
 
   function updateSocketCard(item) {
     const socketKey = item.key || item.id;
