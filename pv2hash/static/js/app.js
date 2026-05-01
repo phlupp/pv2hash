@@ -2513,8 +2513,6 @@
     range: '12h',
     refreshTimer: null,
     refreshIntervalMs: 30000,
-    selectedMinerIds: [],
-    knownMiners: [],
   };
 
   function formatDataLoggerNumber(value, suffix = '') {
@@ -2626,14 +2624,13 @@
     }
   }
 
-  function dataLoggerChartOptions({ leftTitle = '', rightTitle = '', tempTitle = '', rangeName = '1h', leftMin = undefined, leftMax = undefined } = {}) {
+  function dataLoggerChartOptions({ leftTitle = '', rightTitle = '', rangeName = '1h', leftMin = undefined, leftMax = undefined } = {}) {
     const textColor = 'rgba(242, 245, 255, 0.78)';
     const gridColor = 'rgba(255, 255, 255, 0.08)';
     return {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
-      animation: { duration: 500 },
       plugins: {
         legend: { labels: { color: textColor, boxWidth: 12, boxHeight: 12 } },
         tooltip: {
@@ -2681,13 +2678,6 @@
           min: rightTitle === 'SOC %' ? 0 : undefined,
           max: rightTitle === 'SOC %' ? 100 : undefined,
         },
-        y2: {
-          position: 'right',
-          display: Boolean(tempTitle),
-          title: { display: Boolean(tempTitle), text: tempTitle, color: textColor },
-          ticks: { color: textColor },
-          grid: { drawOnChartArea: false },
-        },
       },
     };
   }
@@ -2722,99 +2712,12 @@
     };
   }
 
-  function updateOrCreateDataLoggerChart(key, canvas, config, points, mappedMarkers) {
-    if (!canvas) return;
-    const existing = dataloggerCharts[key];
-    if (existing) {
-      existing.data.labels = config.data.labels;
-      existing.data.datasets = config.data.datasets;
-      existing.options = config.options;
-      existing.$pv2hashPoints = points;
-      existing.$pv2hashMarkers = mappedMarkers.markers;
-      existing.$pv2hashMarkersByIndex = mappedMarkers.byIndex;
-      existing.update('none');
-      return;
-    }
-    dataloggerCharts[key] = new Chart(canvas, config);
-    dataloggerCharts[key].$pv2hashPoints = points;
-    dataloggerCharts[key].$pv2hashMarkers = mappedMarkers.markers;
-    dataloggerCharts[key].$pv2hashMarkersByIndex = mappedMarkers.byIndex;
-  }
-
   function destroyDataLoggerCharts() {
     for (const key of ['energy', 'battery', 'mining']) {
       if (dataloggerCharts[key]) {
         dataloggerCharts[key].destroy();
         dataloggerCharts[key] = null;
       }
-    }
-  }
-
-  function setDataLoggerFilterExpanded(expanded) {
-    const card = document.querySelector('[data-datalogger-filter-card]');
-    const body = document.querySelector('[data-datalogger-filter-body]');
-    const toggle = document.querySelector('[data-datalogger-filter-toggle]');
-    const isExpanded = Boolean(expanded);
-    if (card) card.classList.toggle('is-collapsed', !isExpanded);
-    if (body) body.hidden = !isExpanded;
-    if (toggle) {
-      toggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
-      toggle.textContent = isExpanded ? 'Auswahl ausblenden' : 'Auswahl anzeigen';
-    }
-  }
-
-  function updateDataLoggerFilterSummary(miners, selectedIds) {
-    const summary = document.querySelector('[data-datalogger-miner-filter-summary]');
-    if (!summary) return;
-    const safeMiners = Array.isArray(miners) ? miners : [];
-    const selected = Array.isArray(selectedIds) ? selectedIds.filter(Boolean) : [];
-    if (!safeMiners.length) {
-      summary.textContent = 'Keine Miner-Daten';
-      summary.title = '';
-      return;
-    }
-    if (!selected.length) {
-      summary.textContent = 'Alle Miner';
-      summary.title = safeMiners.map((miner) => miner.name || miner.key || miner.id).filter(Boolean).join(', ');
-      return;
-    }
-    const selectedNames = safeMiners
-      .filter((miner) => selected.includes(String(miner.id || '')))
-      .map((miner) => miner.name || miner.key || miner.id)
-      .filter(Boolean);
-    summary.textContent = selectedNames.length === 1 ? selectedNames[0] : `${selectedNames.length || selected.length} Miner`;
-    summary.title = selectedNames.join(', ');
-  }
-
-  function updateDataLoggerMinerFilter(miners, selectedIds) {
-    const container = document.querySelector('[data-datalogger-miner-options]');
-    const allInput = document.querySelector('[data-datalogger-miner-all]');
-    const safeMiners = Array.isArray(miners) ? miners : [];
-    const currentSelected = new Set(Array.isArray(selectedIds) ? selectedIds : []);
-    dataloggerCharts.knownMiners = safeMiners;
-
-    if (allInput) allInput.checked = currentSelected.size === 0;
-    updateDataLoggerFilterSummary(safeMiners, Array.from(currentSelected));
-    if (!container) return;
-
-    const previous = container.dataset.renderedMinerIds || '';
-    const next = safeMiners.map((miner) => miner.id).join(',');
-    if (previous !== next) {
-      container.dataset.renderedMinerIds = next;
-      if (!safeMiners.length) {
-        container.innerHTML = '<span class="muted">Noch keine Miner-Samples im ausgewählten Zeitraum.</span>';
-      } else {
-        container.innerHTML = safeMiners.map((miner) => {
-          const id = String(miner.id || '');
-          const label = String(miner.name || miner.key || id);
-          const driver = miner.driver ? ` · ${miner.driver}` : '';
-          return `<label class="datalogger-miner-option"><input type="checkbox" data-datalogger-miner-id="${escapeHtml(id)}" value="${escapeHtml(id)}"><span>${escapeHtml(label)}<small>${escapeHtml(driver)}</small></span></label>`;
-        }).join('');
-      }
-    }
-
-    for (const input of container.querySelectorAll('[data-datalogger-miner-id]')) {
-      input.checked = currentSelected.has(input.value);
     }
   }
 
@@ -2830,7 +2733,6 @@
 
     const points = series?.points || [];
     const rangeName = series?.range || dataloggerCharts.range;
-    updateDataLoggerMinerFilter(series?.miners || [], series?.selected_miner_ids || []);
     const empty = document.querySelector('[data-datalogger-empty]');
     if (empty) empty.hidden = points.length > 0;
     const pointBadge = document.querySelector('[data-datalogger-points]');
@@ -2850,66 +2752,73 @@
       ...batteryDischargeValues.filter((value) => value !== null).map((value) => Math.abs(value)),
       0,
     ));
+    destroyDataLoggerCharts();
 
-    const tempValues = values('miner_temp_c');
-    const tempMinValues = values('miner_temp_asic_min_c');
-    const tempMaxValues = values('miner_temp_asic_max_c');
-    const hasTemp = tempValues.some((value) => value !== null)
-      || tempMinValues.some((value) => value !== null)
-      || tempMaxValues.some((value) => value !== null);
-    const selectedCount = Array.isArray(series?.selected_miner_ids) ? series.selected_miner_ids.length : 0;
-
-    updateOrCreateDataLoggerChart('energy', document.getElementById('dataloggerEnergyChart'), {
-      type: 'line',
-      plugins: [dataLoggerProfileMarkersPlugin],
-      data: {
-        labels,
-        datasets: [
-          makeDataLoggerDataset('Netzanschluss W (+Bezug/-Einspeisung)', values('grid_power_w'), 'rgba(98, 211, 255, 0.95)'),
-          makeDataLoggerDataset(selectedCount ? 'Minerleistung Auswahl W' : 'Minerleistung W', values('miner_power_w_total'), 'rgba(141, 99, 255, 0.95)'),
-          makeDataLoggerDataset('Batterie lädt W', batteryChargeValues, 'rgba(67, 227, 165, 0.95)'),
-          makeDataLoggerDataset('Batterie entlädt W', batteryDischargeValues, 'rgba(255, 177, 92, 0.95)'),
-        ],
-      },
-      options: dataLoggerChartOptions({ leftTitle: 'Watt', rangeName }),
-    }, points, mappedMarkers);
-
-    updateOrCreateDataLoggerChart('battery', document.getElementById('dataloggerBatteryChart'), {
-      type: 'line',
-      plugins: [dataLoggerProfileMarkersPlugin],
-      data: {
-        labels,
-        datasets: [
-          makeDataLoggerDataset('SOC %', values('battery_soc_pct'), 'rgba(242, 245, 255, 0.95)', 'y1'),
-          makeDataLoggerDataset('Ladeleistung W', batteryChargeValues, 'rgba(67, 227, 165, 0.95)'),
-          makeDataLoggerDataset('Entladeleistung W', batteryDischargeNegativeValues, 'rgba(255, 177, 92, 0.95)'),
-        ],
-      },
-      options: dataLoggerChartOptions({
-        leftTitle: 'Watt',
-        rightTitle: 'SOC %',
-        rangeName,
-        leftMin: batteryPowerAxisMax ? -batteryPowerAxisMax : undefined,
-        leftMax: batteryPowerAxisMax || undefined,
-      }),
-    }, points, mappedMarkers);
-
-    const miningDatasets = [
-      makeDataLoggerDataset(selectedCount ? 'Hashrate Auswahl GH/s' : 'Hashrate GH/s', values('miner_hashrate_ghs_total'), 'rgba(98, 211, 255, 0.95)', 'y1'),
-      makeDataLoggerDataset(selectedCount ? 'Minerleistung Auswahl W' : 'Minerleistung W', values('miner_power_w_total'), 'rgba(141, 99, 255, 0.95)'),
-    ];
-    if (hasTemp) {
-      miningDatasets.push(makeDataLoggerDataset(selectedCount === 1 ? 'Temperatur °C' : 'Max. Temperatur °C', tempValues, 'rgba(255, 177, 92, 0.95)', 'y2'));
-      miningDatasets.push({ ...makeDataLoggerDataset('ASIC min °C', tempMinValues, 'rgba(67, 227, 165, 0.95)', 'y2'), borderWidth: 1, hidden: selectedCount !== 1 });
-      miningDatasets.push({ ...makeDataLoggerDataset('ASIC max °C', tempMaxValues, 'rgba(255, 92, 122, 0.95)', 'y2'), borderWidth: 1, hidden: selectedCount !== 1 });
+    const energyCanvas = document.getElementById('dataloggerEnergyChart');
+    if (energyCanvas) {
+      dataloggerCharts.energy = new Chart(energyCanvas, {
+        type: 'line',
+        plugins: [dataLoggerProfileMarkersPlugin],
+        data: {
+          labels,
+          datasets: [
+            makeDataLoggerDataset('Netzanschluss W (+Bezug/-Einspeisung)', values('grid_power_w'), 'rgba(98, 211, 255, 0.95)'),
+            makeDataLoggerDataset('Minerleistung W', values('miner_power_w_total'), 'rgba(141, 99, 255, 0.95)'),
+            makeDataLoggerDataset('Batterie lädt W', batteryChargeValues, 'rgba(67, 227, 165, 0.95)'),
+            makeDataLoggerDataset('Batterie entlädt W', batteryDischargeValues, 'rgba(255, 177, 92, 0.95)'),
+          ],
+        },
+        options: dataLoggerChartOptions({ leftTitle: 'Watt', rangeName }),
+      });
+      dataloggerCharts.energy.$pv2hashPoints = points;
+      dataloggerCharts.energy.$pv2hashMarkers = mappedMarkers.markers;
+      dataloggerCharts.energy.$pv2hashMarkersByIndex = mappedMarkers.byIndex;
     }
 
-    updateOrCreateDataLoggerChart('mining', document.getElementById('dataloggerMiningChart'), {
-      type: 'line',
-      plugins: [dataLoggerProfileMarkersPlugin],
-      data: { labels, datasets: miningDatasets },
-      options: dataLoggerChartOptions({ leftTitle: 'Watt', rightTitle: 'GH/s', tempTitle: hasTemp ? '°C' : '', rangeName }),
-    }, points, mappedMarkers);
+    const batteryCanvas = document.getElementById('dataloggerBatteryChart');
+    if (batteryCanvas) {
+      dataloggerCharts.battery = new Chart(batteryCanvas, {
+        type: 'line',
+        plugins: [dataLoggerProfileMarkersPlugin],
+        data: {
+          labels,
+          datasets: [
+            makeDataLoggerDataset('SOC %', values('battery_soc_pct'), 'rgba(242, 245, 255, 0.95)', 'y1'),
+            makeDataLoggerDataset('Ladeleistung W', batteryChargeValues, 'rgba(67, 227, 165, 0.95)'),
+            makeDataLoggerDataset('Entladeleistung W', batteryDischargeNegativeValues, 'rgba(255, 177, 92, 0.95)'),
+          ],
+        },
+        options: dataLoggerChartOptions({
+          leftTitle: 'Watt',
+          rightTitle: 'SOC %',
+          rangeName,
+          leftMin: batteryPowerAxisMax ? -batteryPowerAxisMax : undefined,
+          leftMax: batteryPowerAxisMax || undefined,
+        }),
+      });
+      dataloggerCharts.battery.$pv2hashPoints = points;
+      dataloggerCharts.battery.$pv2hashMarkers = mappedMarkers.markers;
+      dataloggerCharts.battery.$pv2hashMarkersByIndex = mappedMarkers.byIndex;
+    }
+
+    const miningCanvas = document.getElementById('dataloggerMiningChart');
+    if (miningCanvas) {
+      dataloggerCharts.mining = new Chart(miningCanvas, {
+        type: 'line',
+        plugins: [dataLoggerProfileMarkersPlugin],
+        data: {
+          labels,
+          datasets: [
+            makeDataLoggerDataset('Hashrate GH/s', values('miner_hashrate_ghs_total'), 'rgba(98, 211, 255, 0.95)', 'y1'),
+            makeDataLoggerDataset('Minerleistung W', values('miner_power_w_total'), 'rgba(141, 99, 255, 0.95)'),
+          ],
+        },
+        options: dataLoggerChartOptions({ leftTitle: 'Watt', rightTitle: 'GH/s', rangeName }),
+      });
+      dataloggerCharts.mining.$pv2hashPoints = points;
+      dataloggerCharts.mining.$pv2hashMarkers = mappedMarkers.markers;
+      dataloggerCharts.mining.$pv2hashMarkersByIndex = mappedMarkers.byIndex;
+    }
   }
 
   async function loadDataLoggerCharts(rangeName = dataloggerCharts.range) {
@@ -2922,12 +2831,9 @@
     const root = document.querySelector('[data-datalogger-root]');
     if (root) root.dataset.loading = '1';
     try {
-      const minerParam = dataloggerCharts.selectedMinerIds.length
-        ? `&miner_ids=${encodeURIComponent(dataloggerCharts.selectedMinerIds.join(','))}`
-        : '';
       const [statusResponse, seriesResponse] = await Promise.all([
         fetch('/api/datalogger/status', { headers: { 'Accept': 'application/json' }, cache: 'no-store' }),
-        fetch(`/api/datalogger/series?range=${encodeURIComponent(rangeName)}&max_points=720${minerParam}`, { headers: { 'Accept': 'application/json' }, cache: 'no-store' }),
+        fetch(`/api/datalogger/series?range=${encodeURIComponent(rangeName)}&max_points=720`, { headers: { 'Accept': 'application/json' }, cache: 'no-store' }),
       ]);
       if (!statusResponse.ok) throw new Error(`Status konnte nicht geladen werden (${statusResponse.status})`);
       if (!seriesResponse.ok) throw new Error(`Zeitreihe konnte nicht geladen werden (${seriesResponse.status})`);
@@ -2967,36 +2873,10 @@
     root.dataset.dataloggerReady = '1';
 
     root.addEventListener('click', (event) => {
-      const toggleFilter = event.target.closest('[data-datalogger-filter-toggle]');
-      if (toggleFilter) {
-        event.preventDefault();
-        setDataLoggerFilterExpanded(toggleFilter.getAttribute('aria-expanded') !== 'true');
-        return;
-      }
-
       const rangeButton = event.target.closest('[data-datalogger-range]');
       if (!rangeButton) return;
       event.preventDefault();
       loadDataLoggerCharts(rangeButton.dataset.dataloggerRange || '12h');
-    });
-
-    root.addEventListener('change', (event) => {
-      const allInput = event.target.closest('[data-datalogger-miner-all]');
-      if (allInput) {
-        dataloggerCharts.selectedMinerIds = [];
-        const options = root.querySelectorAll('[data-datalogger-miner-id]');
-        for (const option of options) option.checked = false;
-        allInput.checked = true;
-        loadDataLoggerCharts(dataloggerCharts.range);
-        return;
-      }
-      const minerInput = event.target.closest('[data-datalogger-miner-id]');
-      if (!minerInput) return;
-      const selected = Array.from(root.querySelectorAll('[data-datalogger-miner-id]:checked')).map((input) => input.value).filter(Boolean);
-      dataloggerCharts.selectedMinerIds = selected;
-      const all = root.querySelector('[data-datalogger-miner-all]');
-      if (all) all.checked = selected.length === 0;
-      loadDataLoggerCharts(dataloggerCharts.range);
     });
 
     document.addEventListener('visibilitychange', () => {
@@ -3298,6 +3178,38 @@
     startSocketsRefresh();
   }
 
+  function setupSidebarCollapse() {
+    const toggle = document.querySelector('[data-sidebar-toggle]');
+    if (!toggle) return;
+
+    const storageKey = 'pv2hash.sidebarCollapsed';
+
+    function setCollapsed(collapsed) {
+      document.body.classList.toggle('sidebar-collapsed', collapsed);
+      toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      toggle.setAttribute('aria-label', collapsed ? 'Menü ausklappen' : 'Menü einklappen');
+      toggle.setAttribute('title', collapsed ? 'Menü ausklappen' : 'Menü einklappen');
+    }
+
+    let collapsed = false;
+    try {
+      collapsed = window.localStorage.getItem(storageKey) === '1';
+    } catch (err) {
+      collapsed = false;
+    }
+    setCollapsed(collapsed);
+
+    toggle.addEventListener('click', () => {
+      const nextCollapsed = !document.body.classList.contains('sidebar-collapsed');
+      setCollapsed(nextCollapsed);
+      try {
+        window.localStorage.setItem(storageKey, nextCollapsed ? '1' : '0');
+      } catch (err) {
+        // localStorage may be unavailable in hardened browser modes.
+      }
+    });
+  }
+
   function setupVersionStatusRefresh() {
     const link = document.querySelector('[data-versionstatus]');
     if (!link) return;
@@ -3326,6 +3238,7 @@
 
     const params = new URLSearchParams(window.location.search);
     openAndScrollToMiner(params.get('miner_id'));
+    setupSidebarCollapse();
     setupBackendConnectivityMonitor();
     setupMinerLiveRefresh();
     setupDashboardLiveRefresh();

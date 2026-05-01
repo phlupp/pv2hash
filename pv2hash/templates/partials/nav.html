@@ -1,6 +1,6 @@
 <aside class="sidebar">
     <div class="brand">
-        <a class="brand-mark-link" href="/" aria-label="PV2Hash Dashboard">
+        <a class="brand-mark-link" href="/" aria-label="PV2Hash Dashboard" title="PV2Hash Dashboard">
             <img class="brand-mark" src="/static/img/brand/pv2hash-chip-app-icon-flat-192.png" alt="">
         </a>
         <div class="brand-copy">
@@ -23,22 +23,36 @@
             </a>
             {% endif %}
         </div>
+        <button
+            class="sidebar-toggle"
+            type="button"
+            title="Menü einklappen"
+            aria-label="Menü einklappen"
+            aria-expanded="true"
+            data-sidebar-toggle
+        >
+            <span class="sidebar-toggle-lines" aria-hidden="true"></span>
+        </button>
     </div>
 
-    <nav class="nav">
+    <nav class="nav" aria-label="Hauptnavigation">
         {% if nav_mode|default('main') == 'update' %}
-        <span class="nav-item disabled">Update läuft …</span>
+        <span class="nav-item disabled" title="Update läuft …">
+            <span class="nav-icon" aria-hidden="true">↻</span>
+            <span class="nav-label">Update läuft …</span>
+        </span>
         {% else %}
-        <a class="nav-item{% if nav_active|default('dashboard') == 'dashboard' %} active{% endif %}" href="/">Dashboard</a>
-        <a class="nav-item{% if nav_active|default('dashboard') == 'sources' %} active{% endif %}" href="/sources">Messungen</a>
-        <a class="nav-item{% if nav_active|default('dashboard') == 'miners' %} active{% endif %}" href="/miners">Miner</a>
-        <a class="nav-item{% if nav_active|default('dashboard') == 'sockets' %} active{% endif %}" href="/sockets">Sockets</a>
-        <a class="nav-item{% if nav_active|default('dashboard') == 'settings' %} active{% endif %}" href="/settings">Einstellungen</a>
-        <a class="nav-item{% if nav_active|default('dashboard') == 'datalogger' %} active{% endif %}" href="/datalogger">Data Logger</a>
-        <a class="nav-item{% if nav_active|default('dashboard') == 'system' %} active{% endif %}" href="/system">System</a>
+        <a class="nav-item{% if nav_active|default('dashboard') == 'dashboard' %} active{% endif %}" href="/" title="Dashboard"><span class="nav-icon" aria-hidden="true">▦</span><span class="nav-label">Dashboard</span></a>
+        <a class="nav-item{% if nav_active|default('dashboard') == 'sources' %} active{% endif %}" href="/sources" title="Messungen"><span class="nav-icon" aria-hidden="true">∿</span><span class="nav-label">Messungen</span></a>
+        <a class="nav-item{% if nav_active|default('dashboard') == 'miners' %} active{% endif %}" href="/miners" title="Miner"><span class="nav-icon" aria-hidden="true">◈</span><span class="nav-label">Miner</span></a>
+        <a class="nav-item{% if nav_active|default('dashboard') == 'sockets' %} active{% endif %}" href="/sockets" title="Sockets"><span class="nav-icon" aria-hidden="true">⏻</span><span class="nav-label">Sockets</span></a>
+        <a class="nav-item{% if nav_active|default('dashboard') == 'settings' %} active{% endif %}" href="/settings" title="Einstellungen"><span class="nav-icon" aria-hidden="true">⚙</span><span class="nav-label">Einstellungen</span></a>
+        <a class="nav-item{% if nav_active|default('dashboard') == 'datalogger' %} active{% endif %}" href="/datalogger" title="Data Logger"><span class="nav-icon" aria-hidden="true">▥</span><span class="nav-label">Data Logger</span></a>
+        <a class="nav-item{% if nav_active|default('dashboard') == 'system' %} active{% endif %}" href="/system" title="System"><span class="nav-icon" aria-hidden="true">⌁</span><span class="nav-label">System</span></a>
         {% endif %}
     </nav>
 </aside>
+
 {% include "partials/toasts.html" %}
 
 <div id="backendOfflineOverlay" class="connection-overlay" hidden>
