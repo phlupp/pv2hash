@@ -282,6 +282,7 @@ class BraiinsMiner(MinerAdapter):
         details = bundle.get("details") or {}
         status_first = bundle.get("status_first") or {}
         stats = bundle.get("stats") or {}
+        hashboards = bundle.get("hashboards") or {}
         errors = bundle.get("errors") or {}
         tuner_state = bundle.get("tuner_state") or {}
 
@@ -292,6 +293,8 @@ class BraiinsMiner(MinerAdapter):
         current_target_w = self._extract_watt_from_tuner_state(tuner_state)
         actual_power_w = self._extract_actual_power_w(stats)
         efficiency_j_th = self._extract_efficiency_j_th(stats)
+        board_temp_max_c = self._extract_board_temperature_max_c(hashboards)
+        chip_temp_max_c = self._extract_chip_temperature_max_c(hashboards)
 
         return {
             "sections": [
@@ -314,6 +317,11 @@ class BraiinsMiner(MinerAdapter):
                     {"label": "Hashrate 5s", "value": self._format_hashrate_node(real_hashrate.get("last_5s"))},
                     {"label": "Hashrate 1m", "value": self._format_hashrate_node(real_hashrate.get("last_1m"))},
                     {"label": "Hashrate 5m", "value": self._format_hashrate_node(real_hashrate.get("last_5m"))},
+                ]},
+                {"id": "temperature", "title": "Temperaturen", "items": [
+                    {"label": "Board Temp max", "value": self._format_temperature(board_temp_max_c)},
+                    {"label": "Chip Temp max", "value": self._format_temperature(chip_temp_max_c)},
+                    {"label": "ASIC Temp min", "value": "—"},
                 ]},
                 {"id": "tuner", "title": "Tuner", "items": [
                     {"label": "Control Mode", "value": str(self.info.control_mode or "—")},
@@ -457,6 +465,21 @@ class BraiinsMiner(MinerAdapter):
             )
             stats = self._msg_to_dict(stats_msg)
 
+            hashboards: dict[str, Any] = {}
+            try:
+                hashboards_msg = miner_stub.GetHashboards(
+                    miner_pb2.GetHashboardsRequest(),
+                    metadata=metadata,
+                    timeout=self.timeout_s,
+                )
+                hashboards = self._msg_to_dict(hashboards_msg)
+            except Exception as exc:
+                logger.debug(
+                    "Braiins GetHashboards failed for %s (%s:%s): %s",
+                    self.info.name, self.host, self.port, exc,
+                )
+                hashboards = {}
+
             errors_msg = miner_stub.GetErrors(
                 miner_pb2.GetErrorsRequest(),
                 metadata=metadata,
@@ -482,6 +505,7 @@ class BraiinsMiner(MinerAdapter):
                 "details": details,
                 "status_first": status_first,
                 "stats": stats,
+                "hashboards": hashboards,
                 "errors": errors,
                 "tuner_state": tuner_state,
             }
@@ -533,14 +557,15 @@ class BraiinsMiner(MinerAdapter):
         details = bundle.get("details") or {}
         status_first = bundle.get("status_first") or {}
         stats = bundle.get("stats") or {}
+        hashboards = bundle.get("hashboards") or {}
         errors = bundle.get("errors") or {}
         tuner_state = bundle.get("tuner_state") or {}
 
         self.info.api_version = self._format_api_version(api_version)
         self.info.current_hashrate_ghs = self._extract_hashrate_ghs(stats)
-        self.info.temp_c = self._extract_temperature_c(details)
-        self.info.temp_asic_min_c = self._extract_temperature_min_c(details)
-        self.info.temp_asic_max_c = self._extract_temperature_max_c(details)
+        self.info.temp_c = self._extract_board_temperature_max_c(hashboards)
+        self.info.temp_asic_min_c = None
+        self.info.temp_asic_max_c = self._extract_chip_temperature_max_c(hashboards)
 
         bos_version = details.get("bos_version") or {}
         current_fw = bos_version.get("current")
@@ -712,6 +737,15 @@ class BraiinsMiner(MinerAdapter):
             return "—"
 
     @staticmethod
+    def _format_temperature(value: Any) -> str:
+        try:
+            if value is None:
+                return "—"
+            return f"{float(value):.1f} °C"
+        except Exception:
+            return "—"
+
+    @staticmethod
     def _format_bool(value: Any) -> str:
         if value is True:
             return "Ja"
@@ -778,7 +812,7 @@ class BraiinsMiner(MinerAdapter):
     @staticmethod
     def _temperature_value_c(node: Any) -> float | None:
         if isinstance(node, dict):
-            for key in ("degree_celsius", "degrees_celsius", "celsius", "value", "temperature"):
+            for key in ("degree_c", "degree_celsius", "degrees_celsius", "celsius", "value", "temperature"):
                 value = node.get(key)
                 try:
                     if value is not None:
@@ -786,7 +820,7 @@ class BraiinsMiner(MinerAdapter):
                 except Exception:
                     pass
             for value in node.values():
-                nested = BraiinsAdapter._temperature_value_c(value)
+                nested = BraiinsMiner._temperature_value_c(value)
                 if nested is not None:
                     return nested
         elif isinstance(node, (int, float)):
@@ -794,41 +828,29 @@ class BraiinsMiner(MinerAdapter):
         return None
 
     @staticmethod
-    def _extract_temperature_c(details: dict[str, Any]) -> float | None:
-        boards = details.get("hashboards") if isinstance(details.get("hashboards"), list) else []
-        values: list[float] = []
-        for board in boards:
-            if not isinstance(board, dict):
-                continue
-            for key in ("board_temp", "highest_chip_temp", "highest_outlet_temp"):
-                value = BraiinsAdapter._temperature_value_c(board.get(key))
-                if value is not None:
-                    values.append(value)
-                    break
-        if values:
-            return sum(values) / len(values)
-        return None
+    def _hashboard_items(hashboards: Any) -> list[dict[str, Any]]:
+        if isinstance(hashboards, dict):
+            raw = hashboards.get("hashboards")
+            if isinstance(raw, list):
+                return [item for item in raw if isinstance(item, dict)]
+        if isinstance(hashboards, list):
+            return [item for item in hashboards if isinstance(item, dict)]
+        return []
 
     @staticmethod
-    def _extract_temperature_min_c(details: dict[str, Any]) -> float | None:
-        boards = details.get("hashboards") if isinstance(details.get("hashboards"), list) else []
+    def _extract_board_temperature_max_c(hashboards: Any) -> float | None:
         values: list[float] = []
-        for board in boards:
-            if not isinstance(board, dict):
-                continue
-            value = BraiinsAdapter._temperature_value_c(board.get("lowest_inlet_temp") or board.get("board_temp"))
+        for board in BraiinsMiner._hashboard_items(hashboards):
+            value = BraiinsMiner._temperature_value_c(board.get("board_temp"))
             if value is not None:
                 values.append(value)
-        return min(values) if values else None
+        return max(values) if values else None
 
     @staticmethod
-    def _extract_temperature_max_c(details: dict[str, Any]) -> float | None:
-        boards = details.get("hashboards") if isinstance(details.get("hashboards"), list) else []
+    def _extract_chip_temperature_max_c(hashboards: Any) -> float | None:
         values: list[float] = []
-        for board in boards:
-            if not isinstance(board, dict):
-                continue
-            value = BraiinsAdapter._temperature_value_c(board.get("highest_chip_temp") or board.get("highest_outlet_temp") or board.get("board_temp"))
+        for board in BraiinsMiner._hashboard_items(hashboards):
+            value = BraiinsMiner._temperature_value_c(board.get("highest_chip_temp"))
             if value is not None:
                 values.append(value)
         return max(values) if values else None
