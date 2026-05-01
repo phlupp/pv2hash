@@ -2626,7 +2626,7 @@
     }
   }
 
-  function dataLoggerChartOptions({ leftTitle = '', rightTitle = '', rangeName = '1h', leftMin = undefined, leftMax = undefined } = {}) {
+  function dataLoggerChartOptions({ leftTitle = '', rightTitle = '', tempTitle = '', rangeName = '1h', leftMin = undefined, leftMax = undefined } = {}) {
     const textColor = 'rgba(242, 245, 255, 0.78)';
     const gridColor = 'rgba(255, 255, 255, 0.08)';
     const rightAxisMax = rightTitle === 'SOC %' ? 100 : undefined;
@@ -2682,6 +2682,13 @@
           grid: { drawOnChartArea: false },
           min: rightAxisMin,
           max: rightAxisMax,
+        },
+        y2: {
+          position: 'right',
+          display: Boolean(tempTitle),
+          title: { display: Boolean(tempTitle), text: tempTitle, color: textColor },
+          ticks: { color: textColor },
+          grid: { drawOnChartArea: false },
         },
       },
     };
@@ -2858,12 +2865,12 @@
       makeDataLoggerDataset('Hashrate GH/s', values('miner_hashrate_ghs_total'), 'rgba(98, 211, 255, 0.95)', 'y1'),
       makeDataLoggerDataset('Minerleistung W', values('miner_power_w_total'), 'rgba(141, 99, 255, 0.95)'),
     ];
-    if (hasAnyData(tempValues)) miningDatasets.push(makeDataLoggerDataset('Temperatur °C', tempValues, 'rgba(255, 196, 87, 0.95)', 'y1'));
+    if (hasAnyData(tempValues)) miningDatasets.push(makeDataLoggerDataset('Temperatur °C', tempValues, 'rgba(255, 196, 87, 0.95)', 'y2'));
     if (dataloggerCharts.selectedMinerIds.length === 1 && hasAnyData(tempMinValues)) {
-      miningDatasets.push(makeDataLoggerDataset('ASIC min °C', tempMinValues, 'rgba(67, 227, 165, 0.95)', 'y1'));
+      miningDatasets.push(makeDataLoggerDataset('ASIC min °C', tempMinValues, 'rgba(67, 227, 165, 0.95)', 'y2'));
     }
     if (dataloggerCharts.selectedMinerIds.length === 1 && hasAnyData(tempMaxValues)) {
-      miningDatasets.push(makeDataLoggerDataset('ASIC max °C', tempMaxValues, 'rgba(255, 132, 170, 0.95)', 'y1'));
+      miningDatasets.push(makeDataLoggerDataset('ASIC max °C', tempMaxValues, 'rgba(255, 132, 170, 0.95)', 'y2'));
     }
 
     const miningCanvas = document.getElementById('dataloggerMiningChart');
@@ -2871,7 +2878,7 @@
       type: 'line',
       plugins: [dataLoggerProfileMarkersPlugin],
       data: { labels, datasets: miningDatasets },
-      options: dataLoggerChartOptions({ leftTitle: 'Watt', rightTitle: 'GH/s / °C', rangeName }),
+      options: dataLoggerChartOptions({ leftTitle: 'Watt', rightTitle: 'GH/s', tempTitle: '°C', rangeName }),
     }, points, mappedMarkers);
   }
 
