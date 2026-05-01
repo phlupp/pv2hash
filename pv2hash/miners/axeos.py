@@ -178,6 +178,9 @@ class AxeOsMiner(MinerAdapter):
         self.info.serial_number = self._text(payload.get("macAddr"), "") or self.info.serial_number
         self.info.api_version = self._text(payload.get("axeOSVersion") or payload.get("version"), "") or None
         self.info.current_hashrate_ghs = hashrate_ghs
+        self.info.temp_c = self._num(payload.get("temp"), None)
+        self.info.temp_asic_min_c = self._num(payload.get("temp2"), None) or self.info.temp_c
+        self.info.temp_asic_max_c = max([v for v in (self.info.temp_c, self.info.temp_asic_min_c) if v is not None], default=None)
         self.info.power_w = 0.0 if paused else (live_power or self.get_profile_power_w("p1"))
         self.info.runtime_state = "paused" if paused else "running"
         self.info.profile = "off" if paused else (self.target_profile if self.target_profile in {"p1", "p2", "p3", "p4"} else "p1")

@@ -141,16 +141,30 @@ class SimulatorMiner(MinerAdapter):
         if profile == "off":
             self.info.power_w = 0.0
             self.info.runtime_state = "paused"
+            self.info.temp_c = 31.5
+            self.info.temp_asic_min_c = 31.0
+            self.info.temp_asic_max_c = 32.0
             return
 
         desired_w = self.get_profile_power_w(profile)
         if desired_w <= 0:
             self.info.power_w = 0.0
             self.info.runtime_state = "paused"
+            self.info.temp_c = 31.5
+            self.info.temp_asic_min_c = 31.0
+            self.info.temp_asic_max_c = 32.0
             return
 
         self.info.power_w = desired_w
         self.info.runtime_state = "running"
+        board_temps = [
+            round(42.0 + desired_w / 180.0, 1),
+            round(43.5 + desired_w / 190.0, 1),
+            round(44.5 + desired_w / 200.0, 1),
+        ]
+        self.info.temp_c = sum(board_temps) / len(board_temps)
+        self.info.temp_asic_min_c = min(board_temps)
+        self.info.temp_asic_max_c = max(board_temps)
 
     def get_details(self) -> dict:
         power = float(self.info.power_w or 0.0)
@@ -168,6 +182,10 @@ class SimulatorMiner(MinerAdapter):
             board_temps = [31.5, 31.0, 32.0]
             fan_in = 450
             fan_out = 900
+
+        self.info.temp_c = sum(board_temps) / len(board_temps)
+        self.info.temp_asic_min_c = min(board_temps)
+        self.info.temp_asic_max_c = max(board_temps)
 
         return {
             "sections": [

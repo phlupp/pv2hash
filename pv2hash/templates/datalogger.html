@@ -38,6 +38,25 @@
             <div class="update-error top-gap" data-datalogger-error hidden></div>
             {% endif %}
 
+            <section class="card datalogger-filter-card top-gap">
+                <div class="card-head compact">
+                    <div>
+                        <h2>Gerätefilter</h2>
+                        <p class="card-subtitle">Wähle aus, welche Miner im Mining-Chart berücksichtigt werden.</p>
+                    </div>
+                    <span class="status-pill" data-datalogger-miner-filter-summary>Alle Miner</span>
+                </div>
+                <div class="datalogger-miner-filter" data-datalogger-miner-filter>
+                    <label class="datalogger-miner-option datalogger-miner-option-all">
+                        <input type="checkbox" data-datalogger-miner-all checked>
+                        <span>Alle Miner</span>
+                    </label>
+                    <div class="datalogger-miner-options" data-datalogger-miner-options>
+                        <span class="muted">Miner werden geladen …</span>
+                    </div>
+                </div>
+            </section>
+
             <section class="card datalogger-chart-card top-gap">
                 <div class="card-head">
                     <div>
@@ -68,7 +87,7 @@
                 <div class="card-head">
                     <div>
                         <h2>Mining</h2>
-                        <p class="card-subtitle">Gesamthashrate und gemessene Minerleistung.</p>
+                        <p class="card-subtitle">Hashrate, Minerleistung und Miner-Temperaturen für die gewählten Geräte.</p>
                     </div>
                 </div>
                 <div class="chart-wrap">

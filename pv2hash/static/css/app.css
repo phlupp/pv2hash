@@ -2158,3 +2158,53 @@ form.is-busy {
     cursor: not-allowed;
     border-style: dashed;
 }
+
+.datalogger-filter-card {
+    background: rgba(14, 22, 38, .72);
+}
+
+.datalogger-filter-card .card-head.compact {
+    align-items: center;
+    gap: 16px;
+}
+
+.datalogger-miner-filter {
+    margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.datalogger-miner-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.datalogger-miner-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 999px;
+    background: rgba(255,255,255,.04);
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+}
+
+.datalogger-miner-option input {
+    accent-color: var(--accent);
+}
+
+.datalogger-miner-option small {
+    color: var(--muted);
+    margin-left: 4px;
+}
+
+.datalogger-miner-option:has(input:checked) {
+    border-color: rgba(141, 99, 255, .5);
+    background: rgba(141, 99, 255, .16);
+}

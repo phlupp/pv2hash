@@ -84,6 +84,33 @@ def _last_text(values: list[Any]) -> str | None:
                 return text
     return None
 
+def _max(values: list[float | None]) -> float | None:
+    cleaned = [float(v) for v in values if v is not None and math.isfinite(float(v))]
+    return max(cleaned) if cleaned else None
+
+
+def _min(values: list[float | None]) -> float | None:
+    cleaned = [float(v) for v in values if v is not None and math.isfinite(float(v))]
+    return min(cleaned) if cleaned else None
+
+
+def _parse_id_csv(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw_values = value
+    else:
+        raw_values = str(value).split(',')
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in raw_values:
+        text = str(item or '').strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
 def normalize_datalogger_config(config: dict[str, Any] | None) -> dict[str, Any]:
     raw = dict(config or {})
     enabled = bool(raw.get("enabled", True))
@@ -237,8 +264,33 @@ class DataLogger:
                 )
                 """
             )
+            self._ensure_column(con, "history_miner_samples", "temp_c", "REAL")
+            self._ensure_column(con, "history_miner_samples", "temp_asic_min_c", "REAL")
+            self._ensure_column(con, "history_miner_samples", "temp_asic_max_c", "REAL")
             con.execute("CREATE INDEX IF NOT EXISTS idx_history_miner_samples_ts ON history_miner_samples(ts)")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_history_miner_samples_miner_ts ON history_miner_samples(miner_id, ts)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_history_events_ts ON history_events(ts)")
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
+            con.execute(
+                "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
+                ("datalogger_schema_version", "2"),
+            )
+
+    @staticmethod
+    def _table_columns(con: sqlite3.Connection, table: str) -> set[str]:
+        rows = con.execute(f"PRAGMA table_info({table})").fetchall()
+        return {str(row[1]) for row in rows}
+
+    def _ensure_column(self, con: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        if column not in self._table_columns(con, table):
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def _write_snapshot(self, snapshot: dict[str, Any], cfg: dict[str, Any]) -> None:
         self._ensure_schema()
@@ -297,9 +349,9 @@ class DataLogger:
                     """
                     INSERT OR REPLACE INTO history_miner_samples (
                         ts, instance_id, miner_id, miner_key, name, driver, profile,
-                        power_w, hashrate_ghs, reachable, monitor_enabled,
-                        control_enabled, runtime_state
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        power_w, hashrate_ghs, temp_c, temp_asic_min_c, temp_asic_max_c,
+                        reachable, monitor_enabled, control_enabled, runtime_state
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         ts,
@@ -311,6 +363,9 @@ class DataLogger:
                         miner.get("profile"),
                         _float_or_none(miner.get("power_w")),
                         _float_or_none(miner.get("hashrate_ghs")),
+                        _float_or_none(miner.get("temp_c")),
+                        _float_or_none(miner.get("temp_asic_min_c")),
+                        _float_or_none(miner.get("temp_asic_max_c")),
                         _int_bool(miner.get("reachable")),
                         _int_bool(miner.get("monitor_enabled")),
                         _int_bool(miner.get("control_enabled")),
@@ -355,10 +410,11 @@ class DataLogger:
             "last_error": self._last_error,
         }
 
-    def series(self, *, range_name: str = "24h", max_points: int = 720) -> dict[str, Any]:
+    def series(self, *, range_name: str = "24h", max_points: int = 720, miner_ids: Any = None) -> dict[str, Any]:
         self._ensure_schema()
         selected_range, range_seconds = _parse_range_seconds(range_name)
         max_points = max(120, min(1200, int(max_points or 720)))
+        selected_miner_ids = _parse_id_csv(miner_ids)
         end = datetime.now(UTC)
         start = end - timedelta(seconds=range_seconds)
         start_iso = start.isoformat()
@@ -396,8 +452,15 @@ class DataLogger:
             ).fetchall()
 
         raw_rows = [dict(row) for row in rows]
+        available_miners = self._available_miners(start_iso=start_iso, end_iso=end_iso)
+        miner_aggregates = self._miner_aggregates_by_ts(
+            start_iso=start_iso,
+            end_iso=end_iso,
+            miner_ids=selected_miner_ids if selected_miner_ids else None,
+        )
+        raw_rows = self._merge_miner_aggregates(raw_rows, miner_aggregates, override_totals=bool(selected_miner_ids))
         points = self._downsample_rows(raw_rows, max_points=max_points, start=start, end=end)
-        markers = self._profile_switch_markers(start_iso=start_iso, end_iso=end_iso)
+        markers = self._profile_switch_markers(start_iso=start_iso, end_iso=end_iso, miner_ids=selected_miner_ids if selected_miner_ids else None)
         return {
             "range": selected_range,
             "range_seconds": range_seconds,
@@ -407,23 +470,127 @@ class DataLogger:
             "point_count": len(points),
             "marker_count": len(markers),
             "max_points": max_points,
+            "selected_miner_ids": selected_miner_ids,
+            "miners": available_miners,
             "points": points,
             "markers": markers,
         }
 
-    def _profile_switch_markers(self, *, start_iso: str, end_iso: str, max_markers: int = 300) -> list[dict[str, Any]]:
-        """Derive profile switch markers from per-miner samples."""
+    def _available_miners(self, *, start_iso: str, end_iso: str) -> list[dict[str, Any]]:
         self._ensure_schema()
         with self._connect() as con:
             con.row_factory = sqlite3.Row
             rows = con.execute(
                 """
-                SELECT ts, miner_id, miner_key, name, driver, profile, power_w, hashrate_ghs, runtime_state
+                SELECT miner_id, miner_key, name, driver, MAX(ts) AS last_sample_at, COUNT(*) AS sample_count
                 FROM history_miner_samples
                 WHERE ts >= ? AND ts <= ?
-                ORDER BY miner_id ASC, ts ASC
+                GROUP BY miner_id, miner_key, name, driver
+                ORDER BY LOWER(COALESCE(name, miner_key, miner_id)) ASC
                 """,
                 (start_iso, end_iso),
+            ).fetchall()
+        return [
+            {
+                "id": row["miner_id"],
+                "key": row["miner_key"],
+                "name": row["name"] or row["miner_key"] or row["miner_id"],
+                "driver": row["driver"],
+                "last_sample_at": row["last_sample_at"],
+                "sample_count": int(row["sample_count"] or 0),
+            }
+            for row in rows
+        ]
+
+    def _miner_aggregates_by_ts(self, *, start_iso: str, end_iso: str, miner_ids: list[str] | None = None) -> dict[str, dict[str, Any]]:
+        self._ensure_schema()
+        selected = _parse_id_csv(miner_ids)
+        where = "ts >= ? AND ts <= ?"
+        params: list[Any] = [start_iso, end_iso]
+        if selected:
+            where += f" AND miner_id IN ({','.join('?' for _ in selected)})"
+            params.extend(selected)
+        with self._connect() as con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                f"""
+                SELECT ts, miner_id, power_w, hashrate_ghs, temp_c, temp_asic_min_c, temp_asic_max_c
+                FROM history_miner_samples
+                WHERE {where}
+                ORDER BY ts ASC
+                """,
+                params,
+            ).fetchall()
+
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row_obj in rows:
+            row = dict(row_obj)
+            ts = str(row.get("ts") or "")
+            if not ts:
+                continue
+            grouped.setdefault(ts, []).append(row)
+
+        aggregates: dict[str, dict[str, Any]] = {}
+        for ts, items in grouped.items():
+            aggregates[ts] = {
+                "miner_power_w_total": sum(float(item.get("power_w") or 0.0) for item in items),
+                "miner_hashrate_ghs_total": sum(float(item.get("hashrate_ghs") or 0.0) for item in items),
+                "miner_temp_c": _max([_float_or_none(item.get("temp_c")) for item in items]),
+                "miner_temp_asic_min_c": _min([_float_or_none(item.get("temp_asic_min_c")) for item in items]),
+                "miner_temp_asic_max_c": _max([_float_or_none(item.get("temp_asic_max_c")) for item in items]),
+                "selected_miner_count": len({str(item.get("miner_id")) for item in items if item.get("miner_id")}),
+            }
+        return aggregates
+
+    def _merge_miner_aggregates(
+        self,
+        rows: list[dict[str, Any]],
+        aggregates: dict[str, dict[str, Any]],
+        *,
+        override_totals: bool,
+    ) -> list[dict[str, Any]]:
+        merged: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            aggregate = aggregates.get(str(item.get("ts") or ""))
+            if aggregate:
+                item["miner_temp_c"] = aggregate.get("miner_temp_c")
+                item["miner_temp_asic_min_c"] = aggregate.get("miner_temp_asic_min_c")
+                item["miner_temp_asic_max_c"] = aggregate.get("miner_temp_asic_max_c")
+                if override_totals:
+                    item["miner_power_w_total"] = aggregate.get("miner_power_w_total")
+                    item["miner_hashrate_ghs_total"] = aggregate.get("miner_hashrate_ghs_total")
+                    item["monitor_enabled_miner_count"] = aggregate.get("selected_miner_count")
+                    item["reachable_miner_count"] = aggregate.get("selected_miner_count")
+            else:
+                item.setdefault("miner_temp_c", None)
+                item.setdefault("miner_temp_asic_min_c", None)
+                item.setdefault("miner_temp_asic_max_c", None)
+                if override_totals:
+                    item["miner_power_w_total"] = 0.0
+                    item["miner_hashrate_ghs_total"] = 0.0
+            merged.append(item)
+        return merged
+
+    def _profile_switch_markers(self, *, start_iso: str, end_iso: str, miner_ids: list[str] | None = None, max_markers: int = 300) -> list[dict[str, Any]]:
+        """Derive profile switch markers from per-miner samples."""
+        self._ensure_schema()
+        selected = _parse_id_csv(miner_ids)
+        where = "ts >= ? AND ts <= ?"
+        params: list[Any] = [start_iso, end_iso]
+        if selected:
+            where += f" AND miner_id IN ({','.join('?' for _ in selected)})"
+            params.extend(selected)
+        with self._connect() as con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                f"""
+                SELECT ts, miner_id, miner_key, name, driver, profile, power_w, hashrate_ghs, runtime_state
+                FROM history_miner_samples
+                WHERE {where}
+                ORDER BY miner_id ASC, ts ASC
+                """,
+                params,
             ).fetchall()
 
         previous_profile_by_miner: dict[str, str | None] = {}
@@ -498,6 +665,9 @@ class DataLogger:
                 "battery_discharge_power_w": _avg([_float_or_none(row.get("battery_discharge_power_w")) for row in bucket_rows]),
                 "miner_power_w_total": _avg([_float_or_none(row.get("miner_power_w_total")) for row in bucket_rows]),
                 "miner_hashrate_ghs_total": _avg([_float_or_none(row.get("miner_hashrate_ghs_total")) for row in bucket_rows]),
+                "miner_temp_c": _max([_float_or_none(row.get("miner_temp_c")) for row in bucket_rows]),
+                "miner_temp_asic_min_c": _min([_float_or_none(row.get("miner_temp_asic_min_c")) for row in bucket_rows]),
+                "miner_temp_asic_max_c": _max([_float_or_none(row.get("miner_temp_asic_max_c")) for row in bucket_rows]),
                 "host_cpu_percent": _avg([_float_or_none(row.get("host_cpu_percent")) for row in bucket_rows]),
                 "host_memory_percent": _avg([_float_or_none(row.get("host_memory_percent")) for row in bucket_rows]),
                 "host_disk_percent": _avg([_float_or_none(row.get("host_disk_percent")) for row in bucket_rows]),
@@ -520,6 +690,9 @@ class DataLogger:
             "battery_discharge_power_w": _float_or_none(row.get("battery_discharge_power_w")),
             "miner_power_w_total": _float_or_none(row.get("miner_power_w_total")),
             "miner_hashrate_ghs_total": _float_or_none(row.get("miner_hashrate_ghs_total")),
+            "miner_temp_c": _float_or_none(row.get("miner_temp_c")),
+            "miner_temp_asic_min_c": _float_or_none(row.get("miner_temp_asic_min_c")),
+            "miner_temp_asic_max_c": _float_or_none(row.get("miner_temp_asic_max_c")),
             "host_cpu_percent": _float_or_none(row.get("host_cpu_percent")),
             "host_memory_percent": _float_or_none(row.get("host_memory_percent")),
             "host_disk_percent": _float_or_none(row.get("host_disk_percent")),

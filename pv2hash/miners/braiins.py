@@ -538,6 +538,9 @@ class BraiinsMiner(MinerAdapter):
 
         self.info.api_version = self._format_api_version(api_version)
         self.info.current_hashrate_ghs = self._extract_hashrate_ghs(stats)
+        self.info.temp_c = self._extract_temperature_c(details)
+        self.info.temp_asic_min_c = self._extract_temperature_min_c(details)
+        self.info.temp_asic_max_c = self._extract_temperature_max_c(details)
 
         bos_version = details.get("bos_version") or {}
         current_fw = bos_version.get("current")
@@ -771,6 +774,64 @@ class BraiinsMiner(MinerAdapter):
             preserving_proto_field_name=True,
             always_print_fields_with_no_presence=False,
         )
+
+    @staticmethod
+    def _temperature_value_c(node: Any) -> float | None:
+        if isinstance(node, dict):
+            for key in ("degree_celsius", "degrees_celsius", "celsius", "value", "temperature"):
+                value = node.get(key)
+                try:
+                    if value is not None:
+                        return float(value)
+                except Exception:
+                    pass
+            for value in node.values():
+                nested = BraiinsAdapter._temperature_value_c(value)
+                if nested is not None:
+                    return nested
+        elif isinstance(node, (int, float)):
+            return float(node)
+        return None
+
+    @staticmethod
+    def _extract_temperature_c(details: dict[str, Any]) -> float | None:
+        boards = details.get("hashboards") if isinstance(details.get("hashboards"), list) else []
+        values: list[float] = []
+        for board in boards:
+            if not isinstance(board, dict):
+                continue
+            for key in ("board_temp", "highest_chip_temp", "highest_outlet_temp"):
+                value = BraiinsAdapter._temperature_value_c(board.get(key))
+                if value is not None:
+                    values.append(value)
+                    break
+        if values:
+            return sum(values) / len(values)
+        return None
+
+    @staticmethod
+    def _extract_temperature_min_c(details: dict[str, Any]) -> float | None:
+        boards = details.get("hashboards") if isinstance(details.get("hashboards"), list) else []
+        values: list[float] = []
+        for board in boards:
+            if not isinstance(board, dict):
+                continue
+            value = BraiinsAdapter._temperature_value_c(board.get("lowest_inlet_temp") or board.get("board_temp"))
+            if value is not None:
+                values.append(value)
+        return min(values) if values else None
+
+    @staticmethod
+    def _extract_temperature_max_c(details: dict[str, Any]) -> float | None:
+        boards = details.get("hashboards") if isinstance(details.get("hashboards"), list) else []
+        values: list[float] = []
+        for board in boards:
+            if not isinstance(board, dict):
+                continue
+            value = BraiinsAdapter._temperature_value_c(board.get("highest_chip_temp") or board.get("highest_outlet_temp") or board.get("board_temp"))
+            if value is not None:
+                values.append(value)
+        return max(values) if values else None
 
     @staticmethod
     def _extract_hashrate_ghs(stats: dict[str, Any]) -> float | None:

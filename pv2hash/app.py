@@ -114,6 +114,9 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
             "profile": str(runtime_miner.profile or "off") if runtime_miner else "off",
             "power_w": float(runtime_miner.power_w) if runtime_miner else 0.0,
             "hashrate_ghs": getattr(runtime_miner, "current_hashrate_ghs", None) if runtime_miner else None,
+            "temp_c": getattr(runtime_miner, "temp_c", None) if runtime_miner else None,
+            "temp_asic_min_c": getattr(runtime_miner, "temp_asic_min_c", None) if runtime_miner else None,
+            "temp_asic_max_c": getattr(runtime_miner, "temp_asic_max_c", None) if runtime_miner else None,
             "runtime_state": str(getattr(runtime_miner, "runtime_state", "unknown") or "unknown") if runtime_miner else "unknown",
         })
 
@@ -165,6 +168,9 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
         "totals": {
             "miner_power_w": sum(item["power_w"] for item in miners),
             "miner_hashrate_ghs": sum(float(item.get("hashrate_ghs") or 0.0) for item in miners),
+            "miner_temp_c": max((float(item.get("temp_c")) for item in miners if item.get("temp_c") is not None), default=None),
+            "miner_temp_asic_min_c": min((float(item.get("temp_asic_min_c")) for item in miners if item.get("temp_asic_min_c") is not None), default=None),
+            "miner_temp_asic_max_c": max((float(item.get("temp_asic_max_c")) for item in miners if item.get("temp_asic_max_c") is not None), default=None),
             "control_enabled_miner_count": sum(1 for item in miners if item.get("control_enabled")),
             "monitor_enabled_miner_count": sum(1 for item in miners if item.get("monitor_enabled")),
             "reachable_miner_count": sum(1 for item in miners if item.get("reachable")),
@@ -3061,8 +3067,8 @@ async def api_datalogger_status():
 
 
 @app.get("/api/datalogger/series")
-async def api_datalogger_series(range: str = "24h", max_points: int = 720):
-    return JSONResponse(content=jsonable_encoder({"status": "ok", "series": data_logger.series(range_name=range, max_points=max_points)}))
+async def api_datalogger_series(range: str = "24h", max_points: int = 720, miner_ids: str | None = None):
+    return JSONResponse(content=jsonable_encoder({"status": "ok", "series": data_logger.series(range_name=range, max_points=max_points, miner_ids=miner_ids)}))
 
 
 @app.get("/system")

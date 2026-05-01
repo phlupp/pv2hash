@@ -426,6 +426,9 @@ class WhatsminerApi3Miner(MinerAdapter):
         self.info.last_seen = datetime.now(UTC)
         self.info.power_w = float(power_rt or 0.0)
         self.info.current_hashrate_ghs = hash_realtime_ths * 1000.0 if hash_realtime_ths is not None else None
+        self.info.temp_c = self._safe_float(self._summary_cache.get("chip-temp-avg"), None)
+        self.info.temp_asic_min_c = self._safe_float(self._summary_cache.get("chip-temp-min"), None)
+        self.info.temp_asic_max_c = self._safe_float(self._summary_cache.get("chip-temp-max"), None)
         self.info.model = self.info.model or miner.get("type") or self.info.model
         self.info.firmware_version = system.get("fwversion") or self.info.firmware_version
         self.info.api_version = system.get("api") or self.info.api_version

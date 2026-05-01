@@ -93,3 +93,17 @@ Die technischen Details zum lokalen Logger werden auf der Systemseite in einer e
 - Samples
 - DB Size
 - Letztes Sample als relative Zeit mit Sekunden
+
+## Miner-Auswahl und Temperaturen
+
+Die Data-Logger-Seite kann die Mining-Charts nach Minern filtern. Standardmäßig werden alle im gewählten Zeitraum verfügbaren Miner berücksichtigt. Alternativ können ein oder mehrere Miner ausgewählt werden; Leistung, Hashrate, Profilwechsel-Marker und Temperaturwerte werden dann nur für diese Auswahl aggregiert.
+
+Für Miner-Samples werden ab Schema-Version 2 zusätzlich einheitliche Temperaturfelder gespeichert:
+
+- `temp_c`: repräsentative Miner-Temperatur
+- `temp_asic_min_c`: niedrigste bekannte ASIC-/Board-Temperatur
+- `temp_asic_max_c`: höchste bekannte ASIC-/Board-Temperatur
+
+Bestehende `history.sqlite`-Datenbanken werden beim Start automatisch erweitert. Die Migration ergänzt fehlende Spalten per `ALTER TABLE`; ältere Samples behalten für diese Felder `NULL`.
+
+Die Chart.js-Instanzen werden beim Auto-Refresh nicht mehr neu erzeugt, sondern per `chart.update("none")` aktualisiert. Dadurch bleibt das erste Einblenden der Charts erhalten, während zyklische Aktualisierungen ohne erneutes Fading erfolgen.
