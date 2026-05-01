@@ -38,21 +38,26 @@
             <div class="update-error top-gap" data-datalogger-error hidden></div>
             {% endif %}
 
-            <section class="card datalogger-filter-card top-gap">
-                <div class="card-head compact">
+            <section class="card datalogger-filter-card top-gap is-collapsed" data-datalogger-filter-card>
+                <div class="card-head compact datalogger-filter-head">
                     <div>
-                        <h2>Gerätefilter</h2>
-                        <p class="card-subtitle">Wähle aus, welche Miner im Mining-Chart berücksichtigt werden.</p>
+                        <h2>Geräte</h2>
+                        <p class="card-subtitle">Miner-Auswahl für Leistung, Hashrate, Temperatur und Profilwechsel.</p>
                     </div>
-                    <span class="status-pill" data-datalogger-miner-filter-summary>Alle Miner</span>
+                    <div class="datalogger-filter-head-actions">
+                        <span class="status-pill" data-datalogger-miner-filter-summary>Alle Miner</span>
+                        <button class="btn btn-secondary btn-small" type="button" data-datalogger-filter-toggle aria-expanded="false">Auswahl anzeigen</button>
+                    </div>
                 </div>
-                <div class="datalogger-miner-filter" data-datalogger-miner-filter>
-                    <label class="datalogger-miner-option datalogger-miner-option-all">
-                        <input type="checkbox" data-datalogger-miner-all checked>
-                        <span>Alle Miner</span>
-                    </label>
-                    <div class="datalogger-miner-options" data-datalogger-miner-options>
-                        <span class="muted">Miner werden geladen …</span>
+                <div class="datalogger-filter-body" data-datalogger-filter-body hidden>
+                    <div class="datalogger-miner-filter" data-datalogger-miner-filter>
+                        <label class="datalogger-miner-option datalogger-miner-option-all">
+                            <input type="checkbox" data-datalogger-miner-all checked>
+                            <span>Alle Miner</span>
+                        </label>
+                        <div class="datalogger-miner-options" data-datalogger-miner-options>
+                            <span class="muted">Miner werden geladen …</span>
+                        </div>
                     </div>
                 </div>
             </section>

@@ -98,6 +98,8 @@ Die technischen Details zum lokalen Logger werden auf der Systemseite in einer e
 
 Die Data-Logger-Seite kann die Mining-Charts nach Minern filtern. Standardmäßig werden alle im gewählten Zeitraum verfügbaren Miner berücksichtigt. Alternativ können ein oder mehrere Miner ausgewählt werden; Leistung, Hashrate, Profilwechsel-Marker und Temperaturwerte werden dann nur für diese Auswahl aggregiert.
 
+Der Gerätefilter ist kompakt und standardmäßig eingeklappt. Die Kopfzeile zeigt nur die aktuelle Auswahl, z. B. `Alle Miner`, einen einzelnen Minernamen oder `2 Miner`. Die vollständige Checkbox-Auswahl lässt sich über `Auswahl anzeigen` aufklappen.
+
 Für Miner-Samples werden ab Schema-Version 2 zusätzlich einheitliche Temperaturfelder gespeichert:
 
 - `temp_c`: repräsentative Miner-Temperatur

@@ -2750,20 +2750,51 @@
     }
   }
 
+  function setDataLoggerFilterExpanded(expanded) {
+    const card = document.querySelector('[data-datalogger-filter-card]');
+    const body = document.querySelector('[data-datalogger-filter-body]');
+    const toggle = document.querySelector('[data-datalogger-filter-toggle]');
+    const isExpanded = Boolean(expanded);
+    if (card) card.classList.toggle('is-collapsed', !isExpanded);
+    if (body) body.hidden = !isExpanded;
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+      toggle.textContent = isExpanded ? 'Auswahl ausblenden' : 'Auswahl anzeigen';
+    }
+  }
+
+  function updateDataLoggerFilterSummary(miners, selectedIds) {
+    const summary = document.querySelector('[data-datalogger-miner-filter-summary]');
+    if (!summary) return;
+    const safeMiners = Array.isArray(miners) ? miners : [];
+    const selected = Array.isArray(selectedIds) ? selectedIds.filter(Boolean) : [];
+    if (!safeMiners.length) {
+      summary.textContent = 'Keine Miner-Daten';
+      summary.title = '';
+      return;
+    }
+    if (!selected.length) {
+      summary.textContent = 'Alle Miner';
+      summary.title = safeMiners.map((miner) => miner.name || miner.key || miner.id).filter(Boolean).join(', ');
+      return;
+    }
+    const selectedNames = safeMiners
+      .filter((miner) => selected.includes(String(miner.id || '')))
+      .map((miner) => miner.name || miner.key || miner.id)
+      .filter(Boolean);
+    summary.textContent = selectedNames.length === 1 ? selectedNames[0] : `${selectedNames.length || selected.length} Miner`;
+    summary.title = selectedNames.join(', ');
+  }
+
   function updateDataLoggerMinerFilter(miners, selectedIds) {
     const container = document.querySelector('[data-datalogger-miner-options]');
     const allInput = document.querySelector('[data-datalogger-miner-all]');
-    const summary = document.querySelector('[data-datalogger-miner-filter-summary]');
     const safeMiners = Array.isArray(miners) ? miners : [];
     const currentSelected = new Set(Array.isArray(selectedIds) ? selectedIds : []);
     dataloggerCharts.knownMiners = safeMiners;
 
     if (allInput) allInput.checked = currentSelected.size === 0;
-    if (summary) {
-      if (!safeMiners.length) summary.textContent = 'Keine Miner-Daten';
-      else if (!currentSelected.size) summary.textContent = 'Alle Miner';
-      else summary.textContent = `${currentSelected.size} Miner ausgewählt`;
-    }
+    updateDataLoggerFilterSummary(safeMiners, Array.from(currentSelected));
     if (!container) return;
 
     const previous = container.dataset.renderedMinerIds || '';
@@ -2936,6 +2967,13 @@
     root.dataset.dataloggerReady = '1';
 
     root.addEventListener('click', (event) => {
+      const toggleFilter = event.target.closest('[data-datalogger-filter-toggle]');
+      if (toggleFilter) {
+        event.preventDefault();
+        setDataLoggerFilterExpanded(toggleFilter.getAttribute('aria-expanded') !== 'true');
+        return;
+      }
+
       const rangeButton = event.target.closest('[data-datalogger-range]');
       if (!rangeButton) return;
       event.preventDefault();

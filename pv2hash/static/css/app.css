@@ -2161,38 +2161,67 @@ form.is-busy {
 
 .datalogger-filter-card {
     background: rgba(14, 22, 38, .72);
+    padding-block: 14px;
 }
 
 .datalogger-filter-card .card-head.compact {
     align-items: center;
     gap: 16px;
+    margin-bottom: 0;
+}
+
+.datalogger-filter-head h2 {
+    font-size: 1rem;
+    margin-bottom: 2px;
+}
+
+.datalogger-filter-head .card-subtitle {
+    font-size: .85rem;
+}
+
+.datalogger-filter-head-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.datalogger-filter-body {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255,255,255,.08);
+}
+
+.datalogger-filter-card.is-collapsed {
+    padding-block: 12px;
 }
 
 .datalogger-miner-filter {
-    margin-top: 14px;
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
     align-items: center;
 }
 
 .datalogger-miner-options {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
 }
 
 .datalogger-miner-option {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
+    gap: 7px;
+    padding: 6px 9px;
     border: 1px solid rgba(255,255,255,.10);
     border-radius: 999px;
     background: rgba(255,255,255,.04);
     color: var(--text);
     cursor: pointer;
     user-select: none;
+    font-size: .86rem;
 }
 
 .datalogger-miner-option input {
@@ -2202,9 +2231,17 @@ form.is-busy {
 .datalogger-miner-option small {
     color: var(--muted);
     margin-left: 4px;
+    font-size: .78rem;
 }
 
 .datalogger-miner-option:has(input:checked) {
     border-color: rgba(141, 99, 255, .5);
     background: rgba(141, 99, 255, .16);
+}
+
+@media (max-width: 760px) {
+    .datalogger-filter-head-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
 }
