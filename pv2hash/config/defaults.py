@@ -17,6 +17,18 @@ DEFAULT_CONFIG = {
         "interval_seconds": 10,
         "retention_days": 7,
     },
+    "portal": {
+        "enabled": False,
+        "base_url": "https://pv2hash.xyz",
+        "api_token": "",
+        "api_token_prefix": "",
+        "portal_uuid": "",
+        "paired_at": "",
+        "last_success_at": "",
+        "last_error": "",
+        "last_snapshot_at": "",
+        "upload_interval_seconds": 60,
+    },
     "source": {
         "type": "simulator",
         "name": "Simulator Source",

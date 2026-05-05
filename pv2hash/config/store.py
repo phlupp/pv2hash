@@ -191,6 +191,30 @@ def _normalize_datalogger_settings(config: dict[str, Any]) -> None:
     config["datalogger"] = normalize_datalogger_config(config.get("datalogger", {}))
 
 
+
+
+def _normalize_portal_settings(config: dict[str, Any]) -> None:
+    defaults = DEFAULT_CONFIG.get("portal", {})
+    portal = config.setdefault("portal", {})
+    if not isinstance(portal, dict):
+        portal = {}
+        config["portal"] = portal
+
+    portal["enabled"] = bool(portal.get("enabled", defaults.get("enabled", False)))
+
+    base_url = str(portal.get("base_url") or defaults.get("base_url") or "https://pv2hash.xyz").strip()
+    portal["base_url"] = base_url.rstrip("/") or "https://pv2hash.xyz"
+
+    for key in ("api_token", "api_token_prefix", "portal_uuid", "paired_at", "last_success_at", "last_error", "last_snapshot_at"):
+        portal[key] = str(portal.get(key) or "").strip()
+
+    try:
+        interval = int(portal.get("upload_interval_seconds", defaults.get("upload_interval_seconds", 60)) or 60)
+    except Exception:
+        interval = int(defaults.get("upload_interval_seconds", 60) or 60)
+    portal["upload_interval_seconds"] = max(15, min(interval, 3600))
+
+
 def _normalize_sockets(config: dict[str, Any]) -> None:
     sockets = config.setdefault("sockets", [])
     if not isinstance(sockets, list):
@@ -252,6 +276,7 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     _normalize_battery_settings(normalized)
     _normalize_sockets(normalized)
     _normalize_datalogger_settings(normalized)
+    _normalize_portal_settings(normalized)
     return normalized
 
 

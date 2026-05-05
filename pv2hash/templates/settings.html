@@ -31,6 +31,51 @@
                         </article>
                     </section>
 
+                    <section class="card top-gap" data-portal-card>
+                        <div class="card-head">
+                            <div>
+                                <h2>Portal</h2>
+                                <p class="card-subtitle">Pairing, Token-Status und manueller Snapshot-Test für pv2hash.net.</p>
+                            </div>
+                            <span class="badge neutral" data-portal-status-badge>Nicht verbunden</span>
+                        </div>
+
+                        <div class="portal-status-grid">
+                            <div>
+                                <span class="muted">Portal UUID</span>
+                                <strong data-portal-field="portal_uuid">—</strong>
+                            </div>
+                            <div>
+                                <span class="muted">Token Prefix</span>
+                                <strong data-portal-field="api_token_prefix">—</strong>
+                            </div>
+                            <div>
+                                <span class="muted">Letzte Übertragung</span>
+                                <strong data-portal-field="last_success_at">—</strong>
+                            </div>
+                            <div>
+                                <span class="muted">Letzter Fehler</span>
+                                <strong data-portal-field="last_error">—</strong>
+                            </div>
+                        </div>
+
+                        <div class="form-grid gui-field-grid top-gap">
+                            <label class="gui-field gui-field-half">
+                                <span class="field-label">Pairing-Code</span>
+                                <input type="text" data-portal-pairing-code placeholder="XXXX-XXXX" autocomplete="off">
+                                <small class="help">Der API-Token wird nur einmal vom Portal geliefert und lokal gespeichert. Er wird nicht im Klartext angezeigt.</small>
+                            </label>
+                        </div>
+
+                        <div class="actions split top-gap">
+                            <button class="btn secondary" type="button" data-portal-disconnect>Verbindung trennen</button>
+                            <span class="actions">
+                                <button class="btn secondary" type="button" data-portal-test-snapshot>Test-Snapshot senden</button>
+                                <button class="btn" type="button" data-portal-pair>Portal verbinden</button>
+                            </span>
+                        </div>
+                    </section>
+
                     <section class="card top-gap">
                         <div class="actions">
                             <button class="btn" type="button" data-settings-save>Einstellungen speichern</button>

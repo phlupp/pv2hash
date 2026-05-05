@@ -1589,12 +1589,135 @@
       window.showToast('success', data.message || 'Einstellungen gespeichert.');
       const navSubtitle = document.querySelector('[data-nav-subtitle]');
       if (navSubtitle && data.instance_name) navSubtitle.textContent = data.instance_name;
+      loadPortalStatus();
     } catch (error) {
       window.showToast('error', error.message || 'Einstellungen konnten nicht gespeichert werden.');
     } finally {
       setFormBusy(form, false);
       restore();
     }
+  }
+
+  function getPortalBaseUrlFromSettings() {
+    const field = document.querySelector('[name="portal_base_url"]');
+    return field ? field.value : '';
+  }
+
+  function formatPortalDate(value) {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return String(value);
+    return date.toLocaleString();
+  }
+
+  function updatePortalStatusView(portal) {
+    const card = document.querySelector('[data-portal-card]');
+    if (!card) return;
+    const badge = card.querySelector('[data-portal-status-badge]');
+    const connected = Boolean(portal?.connected);
+    if (badge) {
+      badge.textContent = portal?.status_label || (connected ? 'Verbunden' : 'Nicht verbunden');
+      badge.classList.remove('neutral', 'ok', 'bad', 'warn');
+      badge.classList.add(connected ? 'ok' : (portal?.last_error ? 'bad' : 'neutral'));
+    }
+
+    const values = {
+      portal_uuid: portal?.portal_uuid || '—',
+      api_token_prefix: portal?.api_token_prefix || '—',
+      last_success_at: formatPortalDate(portal?.last_success_at || portal?.last_snapshot_at),
+      last_error: portal?.last_error || '—',
+    };
+    for (const [key, value] of Object.entries(values)) {
+      const target = card.querySelector(`[data-portal-field="${key}"]`);
+      if (target) target.textContent = value;
+    }
+
+    const disconnect = card.querySelector('[data-portal-disconnect]');
+    const test = card.querySelector('[data-portal-test-snapshot]');
+    if (disconnect) disconnect.disabled = !connected;
+    if (test) test.disabled = !connected;
+  }
+
+  async function loadPortalStatus() {
+    const card = document.querySelector('[data-portal-card]');
+    if (!card) return;
+    try {
+      const response = await fetch('/api/portal/status', { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+      const data = await readJsonResponse(response, 'Portal-Status konnte nicht geladen werden.');
+      updatePortalStatusView(data.portal || {});
+    } catch (error) {
+      updatePortalStatusView({ connected: false, status_label: 'Fehler', last_error: error.message });
+    }
+  }
+
+  async function pairPortal(button) {
+    const card = document.querySelector('[data-portal-card]');
+    if (!card) return;
+    const codeInput = card.querySelector('[data-portal-pairing-code]');
+    const pairingCode = (codeInput?.value || '').trim();
+    if (!pairingCode) {
+      window.showToast('error', 'Bitte einen Pairing-Code eingeben.');
+      codeInput?.focus();
+      return;
+    }
+    const restore = setButtonBusy(button, 'Verbinde …');
+    try {
+      const data = await postJson('/api/portal/pair', { pairing_code: pairingCode, base_url: getPortalBaseUrlFromSettings() });
+      if (codeInput) codeInput.value = '';
+      updatePortalStatusView(data.portal || {});
+      if (data.model) renderSettingsModel(settingsModelFromPayload(data));
+      window.showToast('success', data.message || 'Portal verbunden.');
+    } catch (error) {
+      window.showToast('error', error.message || 'Portal-Verbindung fehlgeschlagen.');
+      await loadPortalStatus();
+    } finally {
+      restore();
+    }
+  }
+
+  async function sendPortalTestSnapshot(button) {
+    const restore = setButtonBusy(button, 'Sendet …');
+    try {
+      const data = await postJson('/api/portal/snapshot/test', { base_url: getPortalBaseUrlFromSettings() });
+      updatePortalStatusView(data.portal || {});
+      window.showToast('success', data.message || 'Test-Snapshot gesendet.');
+    } catch (error) {
+      window.showToast('error', error.message || 'Test-Snapshot fehlgeschlagen.');
+      await loadPortalStatus();
+    } finally {
+      restore();
+    }
+  }
+
+  async function disconnectPortal(button) {
+    if (!window.confirm('Portal-Verbindung lokal trennen und gespeicherten API-Token löschen?')) return;
+    const restore = setButtonBusy(button, 'Trenne …');
+    try {
+      const data = await postJson('/api/portal/disconnect', {});
+      updatePortalStatusView(data.portal || {});
+      if (data.model) renderSettingsModel(settingsModelFromPayload(data));
+      window.showToast('success', data.message || 'Portal-Verbindung getrennt.');
+    } catch (error) {
+      window.showToast('error', error.message || 'Portal-Verbindung konnte nicht getrennt werden.');
+      await loadPortalStatus();
+    } finally {
+      restore();
+    }
+  }
+
+  function setupPortalSettingsCard() {
+    const card = document.querySelector('[data-portal-card]');
+    if (!card || card.dataset.bound === '1') return;
+    card.dataset.bound = '1';
+
+    const pairButton = card.querySelector('[data-portal-pair]');
+    const testButton = card.querySelector('[data-portal-test-snapshot]');
+    const disconnectButton = card.querySelector('[data-portal-disconnect]');
+    pairButton?.addEventListener('click', (event) => { event.preventDefault(); pairPortal(pairButton); });
+    testButton?.addEventListener('click', (event) => { event.preventDefault(); sendPortalTestSnapshot(testButton); });
+    disconnectButton?.addEventListener('click', (event) => { event.preventDefault(); disconnectPortal(disconnectButton); });
+
+    loadPortalStatus();
   }
 
   function setupSettingsPage() {
@@ -1617,6 +1740,7 @@
     }
 
     loadSettingsModel();
+    setupPortalSettingsCard();
   }
 
 

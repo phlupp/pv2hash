@@ -44,6 +44,7 @@ from pv2hash.update_check import UpdateChecker
 from pv2hash.version import APP_VERSION, APP_VERSION_FULL
 from pv2hash.netutils import get_local_ipv4_networks
 from pv2hash.sockets.tasmota_http import discover_tasmota_http
+from pv2hash.portal import PortalError, claim_pairing_code, normalize_base_url, send_snapshot, utc_now_iso
 
 initial_config = load_config()
 setup_logging(initial_config.get("system", {}).get("log_level", "INFO"))
@@ -69,6 +70,128 @@ data_logger = DataLogger(
     config_provider=lambda: state.config,
     snapshot_provider=lambda: _build_runtime_snapshot_payload(),
 )
+
+
+def _portal_config() -> dict[str, Any]:
+    portal = state.config.setdefault("portal", {})
+    if not isinstance(portal, dict):
+        portal = {}
+        state.config["portal"] = portal
+    portal.setdefault("enabled", False)
+    portal.setdefault("base_url", "https://pv2hash.xyz")
+    portal.setdefault("api_token", "")
+    portal.setdefault("api_token_prefix", "")
+    portal.setdefault("portal_uuid", "")
+    portal.setdefault("paired_at", "")
+    portal.setdefault("last_success_at", "")
+    portal.setdefault("last_error", "")
+    portal.setdefault("last_snapshot_at", "")
+    portal.setdefault("upload_interval_seconds", 60)
+    portal["base_url"] = normalize_base_url(portal.get("base_url"))
+    return portal
+
+
+def _portal_safe_status() -> dict[str, Any]:
+    portal = _portal_config()
+    token_present = bool(str(portal.get("api_token") or "").strip())
+    connected = token_present and bool(str(portal.get("api_token_prefix") or "").strip())
+    return {
+        "enabled": bool(portal.get("enabled", False)),
+        "base_url": normalize_base_url(portal.get("base_url")),
+        "connected": connected,
+        "status": "connected" if connected else "not_connected",
+        "status_label": "Verbunden" if connected else "Nicht verbunden",
+        "api_token_prefix": str(portal.get("api_token_prefix") or ""),
+        "portal_uuid": str(portal.get("portal_uuid") or ""),
+        "paired_at": str(portal.get("paired_at") or ""),
+        "last_success_at": str(portal.get("last_success_at") or ""),
+        "last_snapshot_at": str(portal.get("last_snapshot_at") or ""),
+        "last_error": str(portal.get("last_error") or ""),
+        "upload_interval_seconds": int(portal.get("upload_interval_seconds") or 60),
+        "token_present": token_present,
+    }
+
+
+def _build_portal_instance_payload() -> dict[str, Any]:
+    host = _build_snapshot_host_info()
+    return {
+        "uuid": instance_identity.id,
+        "name": state.config.get("system", {}).get("instance_name", "PV2Hash Node"),
+        "version": APP_VERSION,
+        "version_full": APP_VERSION_FULL,
+        "hostname": str(host.get("hostname") or ""),
+    }
+
+
+def _build_portal_snapshot_payload() -> dict[str, Any]:
+    snapshot = _build_runtime_snapshot_payload()
+    source = snapshot.get("source") or {}
+    battery = snapshot.get("battery") or {}
+    totals = snapshot.get("totals") or {}
+    instance = _build_portal_instance_payload()
+    instance["status"] = "online"
+
+    return {
+        "instance": instance,
+        "totals": {
+            "miner_power_w": totals.get("miner_power_w"),
+            "hashrate_ths": (float(totals.get("miner_hashrate_ghs") or 0.0) / 1000.0),
+            "grid_power_w": source.get("grid_power_w"),
+            "battery_soc": battery.get("soc_pct"),
+        },
+    }
+
+
+def _store_portal_success(response: dict[str, Any] | None = None) -> None:
+    portal = _portal_config()
+    now = utc_now_iso()
+    portal["last_success_at"] = now
+    portal["last_snapshot_at"] = now
+    portal["last_error"] = ""
+    instance = response.get("instance") if isinstance(response, dict) and isinstance(response.get("instance"), dict) else {}
+    if instance.get("portal_uuid"):
+        portal["portal_uuid"] = str(instance.get("portal_uuid") or "")
+    save_config(state.config)
+
+
+def _store_portal_error(message: str) -> None:
+    portal = _portal_config()
+    portal["last_error"] = str(message or "Unbekannter Portal-Fehler")
+    save_config(state.config)
+
+
+async def _send_portal_snapshot_once() -> dict[str, Any]:
+    portal = _portal_config()
+    payload = _build_portal_snapshot_payload()
+    response = await asyncio.to_thread(
+        send_snapshot,
+        portal.get("base_url"),
+        portal.get("api_token"),
+        payload,
+    )
+    _store_portal_success(response)
+    return response
+
+
+async def portal_background_loop() -> None:
+    await asyncio.sleep(10)
+    while True:
+        try:
+            portal = _portal_config()
+            interval = max(15, int(portal.get("upload_interval_seconds") or 60))
+            if bool(portal.get("enabled")) and str(portal.get("api_token") or "").strip():
+                try:
+                    await _send_portal_snapshot_once()
+                except Exception as exc:
+                    message = str(exc)
+                    _store_portal_error(message)
+                    logger.warning("Portal snapshot upload failed: %s", message)
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Unhandled error in portal background loop")
+            await asyncio.sleep(60)
 
 EDITABLE_PROFILE_NAMES = ("p1", "p2", "p3", "p4")
 ALL_PROFILE_NAMES = ("off", "p1", "p2", "p3", "p4")
@@ -619,6 +742,7 @@ def _build_settings_model() -> dict:
     app_cfg = state.config.setdefault("app", {})
     control_cfg = state.config.setdefault("control", {})
     datalogger_cfg = normalize_datalogger_config(state.config.setdefault("datalogger", {}))
+    portal_cfg = _portal_config()
     source_loss = control_cfg.setdefault("source_loss", {})
     stale_loss = source_loss.setdefault("stale", {})
     offline_loss = source_loss.setdefault("offline", {})
@@ -651,6 +775,11 @@ def _build_settings_model() -> dict:
             _setting_field("datalogger_interval_seconds", "Aufzeichnungsintervall", "select", datalogger_cfg.get("interval_seconds", 10), options=_settings_select_options((("10", "10 Sekunden"), ("30", "30 Sekunden"), ("60", "60 Sekunden"))), layout={"width": "half"}),
             _setting_field("datalogger_retention_days", "Aufbewahrung", "number", datalogger_cfg.get("retention_days", 7), min=1, max=30, step=1, unit="Tage", help="Maximal 30 Tage. Standard: 7 Tage.", layout={"width": "half"}),
         ]},
+        {"id": "portal", "title": "PV2Hash Portal", "subtitle": "Lokale Instanz mit pv2hash.net verbinden und Snapshots übertragen.", "fields": [
+            _setting_field("portal_enabled", "Portal-Synchronisierung aktivieren", "checkbox", portal_cfg.get("enabled", False), help="Sendet regelmäßig Snapshots an das verbundene Portal, sobald ein API-Token vorhanden ist.", layout={"width": "full"}),
+            _setting_field("portal_base_url", "Portal URL", "url", portal_cfg.get("base_url", "https://pv2hash.xyz"), required=True, layout={"width": "half"}),
+            _setting_field("portal_upload_interval_seconds", "Übertragungsintervall", "number", portal_cfg.get("upload_interval_seconds", 60), min=15, max=3600, step=15, unit="s", help="Automatischer Snapshot-Upload, wenn Portal-Synchronisierung aktiv ist.", layout={"width": "half"}),
+        ]},
     ]}
 
 
@@ -675,6 +804,10 @@ def _apply_settings_payload(payload: dict[str, Any]) -> None:
         "interval_seconds": _safe_int(payload.get("datalogger_interval_seconds", 10), 10),
         "retention_days": _safe_int(payload.get("datalogger_retention_days", 7), 7),
     })
+    portal = _portal_config()
+    portal["enabled"] = bool(payload.get("portal_enabled", False))
+    portal["base_url"] = normalize_base_url(payload.get("portal_base_url") or portal.get("base_url"))
+    portal["upload_interval_seconds"] = max(15, min(_safe_int(payload.get("portal_upload_interval_seconds", portal.get("upload_interval_seconds", 60)), 60), 3600))
 
 
 def _core_identity_basic_fields() -> list[dict]:
@@ -2223,6 +2356,7 @@ async def startup_event() -> None:
     asyncio.create_task(control_loop())
     asyncio.create_task(update_checker.run_background_loop())
     asyncio.create_task(data_logger.run())
+    asyncio.create_task(portal_background_loop())
 
 
 def reload_runtime() -> None:
@@ -2374,6 +2508,95 @@ async def api_settings_config(request: Request):
     )
     reload_runtime()
     return JSONResponse(content=jsonable_encoder({"status": "ok", "message": "Einstellungen gespeichert.", "instance_name": state.config["system"].get("instance_name", "PV2Hash Node"), "model": _build_settings_model()}))
+
+
+
+@app.get("/api/portal/status")
+async def api_portal_status():
+    return JSONResponse(content=jsonable_encoder({"status": "ok", "portal": _portal_safe_status()}))
+
+
+@app.post("/api/portal/pair")
+async def api_portal_pair(request: Request):
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        return JSONResponse({"status": "error", "message": "Ungültige Portal-Anfrage."}, status_code=400)
+
+    base_url = normalize_base_url(payload.get("base_url") or _portal_config().get("base_url"))
+    pairing_code = str(payload.get("pairing_code") or "").strip().upper()
+    if not pairing_code:
+        return JSONResponse({"status": "error", "message": "Pairing-Code fehlt."}, status_code=400)
+
+    try:
+        result = await asyncio.to_thread(
+            claim_pairing_code,
+            base_url,
+            pairing_code,
+            _build_portal_instance_payload(),
+        )
+    except PortalError as exc:
+        _store_portal_error(str(exc))
+        return JSONResponse(
+            {"status": "error", "message": str(exc), "code": exc.code, "status_code": exc.status_code, "portal": _portal_safe_status()},
+            status_code=400,
+        )
+
+    portal = _portal_config()
+    portal["enabled"] = True
+    portal["base_url"] = base_url
+    portal["api_token"] = result.api_token
+    portal["api_token_prefix"] = result.api_token_prefix
+    portal["portal_uuid"] = result.portal_uuid
+    portal["paired_at"] = utc_now_iso()
+    portal["last_error"] = ""
+    save_config(state.config)
+    logger.info("Portal paired successfully: base_url=%s token_prefix=%s", base_url, result.api_token_prefix)
+    return JSONResponse(content=jsonable_encoder({"status": "ok", "message": "Portal verbunden.", "portal": _portal_safe_status(), "model": _build_settings_model()}))
+
+
+@app.post("/api/portal/snapshot/test")
+async def api_portal_snapshot_test(request: Request):
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    portal = _portal_config()
+    if payload.get("base_url"):
+        portal["base_url"] = normalize_base_url(payload.get("base_url"))
+        save_config(state.config)
+
+    try:
+        response = await _send_portal_snapshot_once()
+    except PortalError as exc:
+        _store_portal_error(str(exc))
+        return JSONResponse(
+            {"status": "error", "message": str(exc), "code": exc.code, "status_code": exc.status_code, "portal": _portal_safe_status()},
+            status_code=400,
+        )
+    except Exception as exc:
+        _store_portal_error(str(exc))
+        return JSONResponse({"status": "error", "message": str(exc), "portal": _portal_safe_status()}, status_code=400)
+
+    return JSONResponse(content=jsonable_encoder({"status": "ok", "message": "Test-Snapshot gesendet.", "portal": _portal_safe_status(), "response": response}))
+
+
+@app.post("/api/portal/disconnect")
+async def api_portal_disconnect():
+    portal = _portal_config()
+    portal["enabled"] = False
+    portal["api_token"] = ""
+    portal["api_token_prefix"] = ""
+    portal["portal_uuid"] = ""
+    portal["paired_at"] = ""
+    portal["last_success_at"] = ""
+    portal["last_snapshot_at"] = ""
+    portal["last_error"] = ""
+    save_config(state.config)
+    logger.info("Portal connection disconnected locally")
+    return JSONResponse(content=jsonable_encoder({"status": "ok", "message": "Portal-Verbindung lokal getrennt.", "portal": _portal_safe_status(), "model": _build_settings_model()}))
 
 
 @app.get("/sources")
