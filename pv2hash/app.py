@@ -44,7 +44,7 @@ from pv2hash.update_check import UpdateChecker
 from pv2hash.version import APP_VERSION, APP_VERSION_FULL
 from pv2hash.netutils import get_local_ipv4_networks
 from pv2hash.sockets.tasmota_http import discover_tasmota_http
-from pv2hash.portal import PortalError, claim_pairing_code, normalize_base_url, send_snapshot, utc_now_iso
+from pv2hash.portal import PortalError, claim_pairing_code, describe_portal_error, normalize_base_url, send_snapshot, utc_now_iso
 
 initial_config = load_config()
 setup_logging(initial_config.get("system", {}).get("log_level", "INFO"))
@@ -183,7 +183,7 @@ async def portal_background_loop() -> None:
                 try:
                     await _send_portal_snapshot_once()
                 except Exception as exc:
-                    message = str(exc)
+                    message = describe_portal_error(exc)
                     _store_portal_error(message)
                     logger.warning("Portal snapshot upload failed: %s", message)
             await asyncio.sleep(interval)
@@ -2535,7 +2535,9 @@ async def api_portal_pair(request: Request):
             _build_portal_instance_payload(),
         )
     except PortalError as exc:
-        _store_portal_error(str(exc))
+        message = describe_portal_error(exc)
+        _store_portal_error(message)
+        logger.warning("Portal pairing failed: base_url=%s error=%s", base_url, message)
         return JSONResponse(
             {"status": "error", "message": str(exc), "code": exc.code, "status_code": exc.status_code, "portal": _portal_safe_status()},
             status_code=400,
@@ -2550,7 +2552,7 @@ async def api_portal_pair(request: Request):
     portal["paired_at"] = utc_now_iso()
     portal["last_error"] = ""
     save_config(state.config)
-    logger.info("Portal paired successfully: base_url=%s token_prefix=%s", base_url, result.api_token_prefix)
+    logger.info("Portal paired successfully: base_url=%s token_prefix=%s portal_uuid=%s", base_url, result.api_token_prefix, result.portal_uuid or "-")
     return JSONResponse(content=jsonable_encoder({"status": "ok", "message": "Portal verbunden.", "portal": _portal_safe_status(), "model": _build_settings_model()}))
 
 
@@ -2571,15 +2573,20 @@ async def api_portal_snapshot_test(request: Request):
     try:
         response = await _send_portal_snapshot_once()
     except PortalError as exc:
-        _store_portal_error(str(exc))
+        message = describe_portal_error(exc)
+        _store_portal_error(message)
+        logger.warning("Portal test snapshot failed: error=%s", message)
         return JSONResponse(
             {"status": "error", "message": str(exc), "code": exc.code, "status_code": exc.status_code, "portal": _portal_safe_status()},
             status_code=400,
         )
     except Exception as exc:
-        _store_portal_error(str(exc))
+        message = describe_portal_error(exc)
+        _store_portal_error(message)
+        logger.exception("Unexpected portal test snapshot error: %s", message)
         return JSONResponse({"status": "error", "message": str(exc), "portal": _portal_safe_status()}, status_code=400)
 
+    logger.info("Portal test snapshot uploaded successfully")
     return JSONResponse(content=jsonable_encoder({"status": "ok", "message": "Test-Snapshot gesendet.", "portal": _portal_safe_status(), "response": response}))
 
 

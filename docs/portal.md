@@ -81,3 +81,15 @@ When `portal.enabled` is active and a token is present, PV2Hash also sends snaps
 ## Disconnect
 
 **Verbindung trennen** clears the local token and portal UUID and disables automatic uploads. It does not delete the instance in the portal.
+
+
+## Logging und Diagnose
+
+Portal-Verbindungsprobleme werden zusätzlich zum UI-Feld `portal.last_error` in das normale PV2Hash-Log geschrieben. Das betrifft insbesondere:
+
+- fehlgeschlagenes Pairing mit HTTP-Status und Portal-Fehlercode
+- fehlgeschlagene Snapshot-Uploads mit HTTP-Status und Portal-Fehlercode
+- Verbindungsfehler, Timeouts und ungültige JSON-Antworten
+- erfolgreiche Pairings, Test-Snapshots und lokale Trennung
+
+Der API-Token wird dabei nicht im Klartext geloggt. In Logs erscheint höchstens der vom Portal gelieferte Token-Prefix. Pairing-Code und Snapshot-Payload werden nicht geloggt.

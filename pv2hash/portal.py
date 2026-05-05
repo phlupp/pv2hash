@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import ssl
 import urllib.error
 import urllib.request
@@ -10,11 +11,36 @@ from typing import Any
 from urllib.parse import urljoin
 
 
+logger = logging.getLogger("pv2hash.portal")
+
+
 class PortalError(RuntimeError):
-    def __init__(self, message: str, *, status_code: int | None = None, code: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        code: str | None = None,
+        path: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
+        self.path = path
+
+
+def describe_portal_error(exc: BaseException) -> str:
+    if isinstance(exc, PortalError):
+        parts: list[str] = []
+        if exc.status_code is not None:
+            parts.append(f"HTTP {exc.status_code}")
+        if exc.code:
+            parts.append(str(exc.code))
+        if exc.path:
+            parts.append(str(exc.path))
+        parts.append(str(exc))
+        return " | ".join(part for part in parts if part)
+    return str(exc)
 
 
 def utc_now_iso() -> str:
@@ -60,8 +86,9 @@ def post_json(
     if bearer_token:
         headers["Authorization"] = f"Bearer {bearer_token}"
 
+    url = _api_url(base_url, path)
     request = urllib.request.Request(
-        _api_url(base_url, path),
+        url,
         data=body,
         headers=headers,
         method="POST",
@@ -74,19 +101,34 @@ def post_json(
                 return {}
             decoded = json.loads(response_body.decode("utf-8"))
             if not isinstance(decoded, dict):
-                raise PortalError("Portal returned an unexpected JSON response.")
+                raise PortalError("Portal returned an unexpected JSON response.", path=path)
+            logger.debug("Portal request succeeded: method=POST path=%s status=%s", path, getattr(response, "status", "?"))
             return decoded
     except urllib.error.HTTPError as exc:
         raw = exc.read() if exc.fp else b""
         code, message = _decode_error_body(raw)
         text = message or code or f"Portal request failed with HTTP {exc.code}."
-        raise PortalError(text, status_code=exc.code, code=code) from exc
+        portal_error = PortalError(text, status_code=exc.code, code=code, path=path)
+        logger.warning(
+            "Portal request failed: method=POST path=%s status=%s code=%s message=%s",
+            path,
+            exc.code,
+            code or "-",
+            text,
+        )
+        raise portal_error from exc
     except urllib.error.URLError as exc:
-        raise PortalError(f"Portal ist nicht erreichbar: {exc.reason}") from exc
+        message = f"Portal ist nicht erreichbar: {exc.reason}"
+        logger.warning("Portal connection failed: method=POST path=%s url=%s error=%s", path, url, message)
+        raise PortalError(message, path=path) from exc
     except TimeoutError as exc:
-        raise PortalError("Portal-Anfrage ist abgelaufen.") from exc
+        message = "Portal-Anfrage ist abgelaufen."
+        logger.warning("Portal request timed out: method=POST path=%s url=%s", path, url)
+        raise PortalError(message, path=path) from exc
     except json.JSONDecodeError as exc:
-        raise PortalError("Portal returned invalid JSON.") from exc
+        message = "Portal returned invalid JSON."
+        logger.warning("Portal returned invalid JSON: method=POST path=%s url=%s", path, url)
+        raise PortalError(message, path=path) from exc
 
 
 @dataclass(frozen=True)
@@ -100,7 +142,7 @@ class PortalClaimResult:
 def claim_pairing_code(base_url: str, pairing_code: str, instance_payload: dict[str, Any]) -> PortalClaimResult:
     code = str(pairing_code or "").strip().upper()
     if not code:
-        raise PortalError("Pairing-Code fehlt.")
+        raise PortalError("Pairing-Code fehlt.", path="/api/v1/pairing/claim/")
 
     response = post_json(
         base_url,
@@ -110,7 +152,7 @@ def claim_pairing_code(base_url: str, pairing_code: str, instance_payload: dict[
     )
     token = str(response.get("api_token") or "").strip()
     if not token:
-        raise PortalError("Portal returned no API token.")
+        raise PortalError("Portal returned no API token.", path="/api/v1/pairing/claim/")
 
     instance = response.get("instance") if isinstance(response.get("instance"), dict) else {}
     return PortalClaimResult(
@@ -124,7 +166,7 @@ def claim_pairing_code(base_url: str, pairing_code: str, instance_payload: dict[
 def send_snapshot(base_url: str, api_token: str, snapshot_payload: dict[str, Any]) -> dict[str, Any]:
     token = str(api_token or "").strip()
     if not token:
-        raise PortalError("Portal API token fehlt.")
+        raise PortalError("Portal API token fehlt.", path="/api/v1/snapshots/")
     return post_json(
         base_url,
         "/api/v1/snapshots/",
