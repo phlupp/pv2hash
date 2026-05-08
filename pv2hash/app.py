@@ -123,23 +123,56 @@ def _build_portal_instance_payload() -> dict[str, Any]:
     }
 
 
+def _portal_json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _portal_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_portal_json_safe(item) for item in value]
+    return str(value)
+
+
 def _build_portal_snapshot_payload() -> dict[str, Any]:
-    snapshot = _build_runtime_snapshot_payload()
-    source = snapshot.get("source") or {}
-    battery = snapshot.get("battery") or {}
-    totals = snapshot.get("totals") or {}
-    instance = _build_portal_instance_payload()
+    payload = _portal_json_safe(_build_runtime_snapshot_payload())
+    if not isinstance(payload, dict):
+        payload = {}
+
+    payload["schema_version"] = 1
+
+    instance = payload.get("instance")
+    if not isinstance(instance, dict):
+        instance = {}
+        payload["instance"] = instance
+    host = payload.get("host") if isinstance(payload.get("host"), dict) else {}
+
+    instance.setdefault("id", instance_identity.id)
+    instance["uuid"] = str(instance.get("uuid") or instance.get("id") or instance_identity.id)
+    instance["name"] = str(instance.get("name") or state.config.get("system", {}).get("instance_name", "PV2Hash Node"))
+    instance["version"] = str(instance.get("version") or APP_VERSION)
+    instance["version_full"] = str(instance.get("version_full") or APP_VERSION_FULL)
+    instance["hostname"] = str(instance.get("hostname") or host.get("hostname") or "")
     instance["status"] = "online"
 
-    return {
-        "instance": instance,
-        "totals": {
-            "miner_power_w": totals.get("miner_power_w"),
-            "hashrate_ths": (float(totals.get("miner_hashrate_ghs") or 0.0) / 1000.0),
-            "grid_power_w": source.get("grid_power_w"),
-            "battery_soc": battery.get("soc_pct"),
-        },
-    }
+    source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+    battery = payload.get("battery") if isinstance(payload.get("battery"), dict) else {}
+    totals = payload.get("totals")
+    if not isinstance(totals, dict):
+        totals = {}
+        payload["totals"] = totals
+
+    miner_hashrate_ghs = float(totals.get("miner_hashrate_ghs") or 0.0)
+    totals.setdefault("hashrate_ths", miner_hashrate_ghs / 1000.0)
+    totals.setdefault("grid_power_w", source.get("grid_power_w"))
+    totals.setdefault("battery_soc", battery.get("soc_pct"))
+
+    return payload
 
 
 def _store_portal_success(response: dict[str, Any] | None = None) -> None:

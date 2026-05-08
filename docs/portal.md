@@ -54,26 +54,39 @@ POST /api/v1/snapshots/
 Authorization: Bearer <api_token>
 ```
 
-PV2Hash currently sends the instance identity and compact totals:
+PV2Hash sends the internal runtime snapshot as a JSON-safe portal payload. The top-level structure includes the same operational sections that are exposed by the local status snapshot:
 
 ```json
 {
+  "schema_version": 1,
+  "status": "ok",
+  "timestamp": "2026-05-08T12:00:00+00:00",
   "instance": {
+    "id": "<local instance UUID>",
     "uuid": "<local instance UUID>",
     "name": "PV2Hash Node",
-    "version": "0.6.x",
-    "version_full": "0.6.x",
+    "version": "0.7.x",
+    "version_full": "0.7.x",
     "hostname": "testvm02",
     "status": "online"
   },
+  "host": {},
+  "controller": {},
+  "source": {},
+  "battery": {},
+  "miners": [],
+  "sockets": [],
   "totals": {
     "miner_power_w": 1234,
+    "miner_hashrate_ghs": 98500,
     "hashrate_ths": 98.5,
     "grid_power_w": -350,
     "battery_soc": 82
   }
 }
 ```
+
+`host`, `controller`, `source`, `battery`, `miners`, `sockets` and `totals` are intentionally sent to the portal so the portal can build dashboards without needing separate local API calls. The compact compatibility fields `instance.uuid`, `instance.status`, `totals.hashrate_ths`, `totals.grid_power_w` and `totals.battery_soc` remain available for older portal consumers.
 
 A manual **Test-Snapshot senden** button is available in the Portal settings card.
 When `portal.enabled` is active and a token is present, PV2Hash also sends snapshots periodically.
