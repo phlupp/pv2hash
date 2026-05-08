@@ -1869,7 +1869,7 @@
   function systemUpdateMessage(status, data) {
     if (status === 'disabled') return 'Update-Prüfung ist in der Konfiguration deaktiviert.';
     if (status === 'checking') return 'PV2Hash Update-Feed wird gerade geprüft …';
-    if (status === 'update_available') return `Es ist ein neueres Release verfügbar: ${data.release_version_full || data.release_tag || '—'}.`;
+    if (status === 'update_available') return `Es ist ein neueres Release verfügbar: ${data.release_version_full || '—'}.`;
     if (status === 'up_to_date') return 'Die lokale Installation entspricht dem aktuellen Stable-Release.';
     if (status === 'ahead_of_release') return 'Der lokale Stand ist neuer als das aktuelle Stable-Release im PV2Hash Update-Feed.';
     if (status === 'error') return data.error || 'Die Update-Prüfung ist fehlgeschlagen.';
@@ -2015,7 +2015,6 @@
     const kvRows = [
       { label: 'Lokale Version', value: updateStatus.local_version_full || '—' },
       { label: 'Release-Version', value: updateStatus.release_version_full || '—' },
-      { label: 'Release-Tag', value: updateStatus.release_tag || '—' },
       { label: 'Geprüft am', value: systemFormatDate(updateStatus.checked_at) },
       { label: 'Veröffentlicht am', value: systemFormatDate(updateStatus.release_published_at) },
     ];
@@ -2026,38 +2025,6 @@
     message.textContent = systemUpdateMessage(updateStatus.status, updateStatus);
     card.appendChild(message);
 
-    if (runner && runner.progress_percent !== null && runner.progress_percent !== undefined) {
-      const progressWrap = document.createElement('div');
-      progressWrap.className = 'update-progress-inline top-gap';
-      progressWrap.innerHTML = `
-        <div class="update-progress-inline-head">
-          <span>Fortschritt</span>
-          <strong data-system-update-progress-percent>—</strong>
-        </div>
-        <div class="update-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-          <div class="update-progress-fill" data-system-update-progress-fill></div>
-        </div>
-      `;
-      systemSetProgress(
-        progressWrap.querySelector('[data-system-update-progress-fill]'),
-        progressWrap.querySelector('[data-system-update-progress-percent]'),
-        runner.progress_percent,
-      );
-      card.appendChild(progressWrap);
-    }
-
-    if (updateStatus.release_url) {
-      const links = document.createElement('div');
-      links.className = 'update-links';
-      const link = document.createElement('a');
-      link.className = 'link-muted';
-      link.href = updateStatus.release_url;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      link.textContent = 'Release-Manifest öffnen';
-      links.appendChild(link);
-      card.appendChild(links);
-    }
 
     const hasDetails = !!(details.name || details.body || details.asset_name || details.asset_size_text);
     if (hasDetails) {
@@ -2078,19 +2045,17 @@
       card.appendChild(detailBlock);
     }
 
-    if (updateStatus.release_tag) {
-      const commandWrap = document.createElement('div');
-      commandWrap.className = 'update-command-wrap';
-      const label = document.createElement('div');
-      label.className = 'update-command-label';
-      label.textContent = 'Installationsbefehl für dieses Release';
-      const command = document.createElement('code');
-      command.className = 'update-command';
-      command.textContent = `curl -fsSL https://get.pv2hash.xyz/install.sh | sudo env TAG=${updateStatus.release_tag} bash`;
-      commandWrap.appendChild(label);
-      commandWrap.appendChild(command);
-      card.appendChild(commandWrap);
-    }
+    const commandWrap = document.createElement('div');
+    commandWrap.className = 'update-command-wrap';
+    const label = document.createElement('div');
+    label.className = 'update-command-label';
+    label.textContent = 'Installationsbefehl für die aktuelle Stable-Version';
+    const command = document.createElement('code');
+    command.className = 'update-command';
+    command.textContent = 'curl -fsSL https://get.pv2hash.xyz/install.sh | sudo bash';
+    commandWrap.appendChild(label);
+    commandWrap.appendChild(command);
+    card.appendChild(commandWrap);
 
     const footer = document.createElement('div');
     footer.className = 'actions end wrap top-gap system-update-footer';
@@ -2106,7 +2071,7 @@
       install.textContent = 'Update läuft …';
     } else if (runner.can_start && updateAvailable) {
       install.disabled = false;
-      install.textContent = `Jetzt auf ${updateStatus.release_version_full || updateStatus.release_tag || 'Latest'} aktualisieren`;
+      install.textContent = `Jetzt auf ${updateStatus.release_version_full || 'neue Version'} aktualisieren`;
     } else {
       install.disabled = true;
       install.textContent = 'Update starten';
