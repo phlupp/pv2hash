@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${REPO:-phlupp/pv2hash}"
+PV2HASH_UPDATE_BASE_URL="${PV2HASH_UPDATE_BASE_URL:-https://get.pv2hash.xyz}"
+PV2HASH_UPDATE_BASE_URL="${UPDATE_BASE_URL:-${PV2HASH_UPDATE_BASE_URL}}"
+PV2HASH_UPDATE_CHANNEL="${PV2HASH_UPDATE_CHANNEL:-stable}"
+PV2HASH_UPDATE_CHANNEL="${CHANNEL:-${PV2HASH_UPDATE_CHANNEL}}"
 TAG="${TAG:-latest}"
 
 APP_USER="${APP_USER:-pv2hash}"
@@ -27,7 +30,7 @@ HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"
 
 TMP_DIR=""
-API_URL=""
+FEED_URL=""
 TAG_NAME=""
 VERSION_SLUG=""
 FULL_VERSION=""
@@ -102,89 +105,121 @@ ensure_user_and_dirs() {
     chown -R "${APP_USER}:${APP_GROUP}" "${DATA_ROOT}"
 }
 
-github_api_get() {
-    local url="$1"
-
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        curl -fsSL \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            "${url}"
-    else
-        curl -fsSL \
-            -H "Accept: application/vnd.github+json" \
-            "${url}"
-    fi
-}
-
 download_file() {
     local url="$1"
     local outfile="$2"
 
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        curl -fsSL \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -o "${outfile}" \
-            "${url}"
-    else
-        curl -fsSL \
-            -o "${outfile}" \
-            "${url}"
+    curl -fsSL \
+        -o "${outfile}" \
+        "${url}"
+}
+
+normalize_tag() {
+    local raw="$1"
+    if [[ "${raw}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        if [[ "${raw}" == v* ]]; then
+            printf '%s' "${raw}"
+        else
+            printf 'v%s' "${raw}"
+        fi
+        return 0
     fi
+
+    printf '%s' "${raw}"
 }
 
 fetch_release_metadata() {
+    local base_url="${PV2HASH_UPDATE_BASE_URL%/}"
+
     if [[ "${TAG}" == "latest" ]]; then
-        API_URL="https://api.github.com/repos/${REPO}/releases/latest"
-    else
-        API_URL="https://api.github.com/repos/${REPO}/releases/tags/${TAG}"
-    fi
+        FEED_URL="${base_url}/channels/${PV2HASH_UPDATE_CHANNEL}.json"
+        download_file "${FEED_URL}" "${TMP_DIR}/channel.json"
 
-    github_api_get "${API_URL}" > "${TMP_DIR}/release.json"
-
-    readarray -t RELEASE_INFO < <(python3 - "${TMP_DIR}/release.json" <<'PY'
+        readarray -t RELEASE_INFO < <(python3 - "${TMP_DIR}/channel.json" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-release = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+feed = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 
-tag_name = release.get("tag_name") or ""
+if feed.get("updates_enabled") is False:
+    raise SystemExit(feed.get("message") or "Updates sind serverseitig deaktiviert")
+
+latest = feed.get("latest")
+if not isinstance(latest, dict):
+    raise SystemExit("Update-Feed enthält kein latest-Release")
+
+tag_name = str(latest.get("version_full") or latest.get("tag") or latest.get("version") or "").strip()
 if not tag_name:
-    raise SystemExit("Release hat keinen tag_name")
+    raise SystemExit("Update-Feed enthält keinen Release-Tag")
+if not tag_name.startswith("v"):
+    tag_name = "v" + tag_name
 
-assets = release.get("assets") or []
+asset = latest.get("asset") or {}
+archive_name = str(asset.get("name") or "").strip()
+archive_url = str(asset.get("url") or "").strip()
+manifest_url = str(latest.get("manifest_url") or "").strip()
+sha256_url = str(latest.get("checksums_url") or "").strip()
 
-archive = None
-manifest = None
-sha256 = None
-
-for asset in assets:
-    name = asset.get("name") or ""
-    if name.startswith("pv2hash-") and name.endswith(".tar.gz"):
-        archive = asset
-    elif name == "manifest.json":
-        manifest = asset
-    elif name == "SHA256SUMS":
-        sha256 = asset
-
-if archive is None:
-    raise SystemExit("Release-Asset pv2hash-*.tar.gz nicht gefunden")
-if manifest is None:
-    raise SystemExit("Release-Asset manifest.json nicht gefunden")
-if sha256 is None:
-    raise SystemExit("Release-Asset SHA256SUMS nicht gefunden")
+if not archive_name:
+    raise SystemExit("Update-Feed enthält keinen Paketnamen")
+if not archive_url:
+    raise SystemExit("Update-Feed enthält keine Paket-URL")
+if not manifest_url:
+    raise SystemExit("Update-Feed enthält keine manifest_url")
+if not sha256_url:
+    raise SystemExit("Update-Feed enthält keine checksums_url")
 
 version_slug = tag_name[1:] if tag_name.startswith("v") else tag_name
 
 print(tag_name)
 print(version_slug)
-print(archive["name"])
-print(archive["browser_download_url"])
-print(manifest["browser_download_url"])
-print(sha256["browser_download_url"])
+print(archive_name)
+print(archive_url)
+print(manifest_url)
+print(sha256_url)
 PY
 )
+    else
+        TAG="$(normalize_tag "${TAG}")"
+        TAG_NAME="${TAG}"
+        VERSION_SLUG="${TAG_NAME#v}"
+        MANIFEST_URL="${base_url}/releases/${TAG_NAME}/manifest.json"
+        SHA256_URL="${base_url}/releases/${TAG_NAME}/SHA256SUMS"
+
+        download_file "${MANIFEST_URL}" "${TMP_DIR}/manifest.probe.json"
+
+        readarray -t RELEASE_INFO < <(python3 - "${TMP_DIR}/manifest.probe.json" "${MANIFEST_URL}" "${SHA256_URL}" "${base_url}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+manifest_url = sys.argv[2]
+sha256_url = sys.argv[3]
+base_url = sys.argv[4].rstrip("/")
+
+tag_name = str(manifest.get("tag") or "").strip()
+if not tag_name:
+    raise SystemExit("Manifest enthält keinen tag")
+if not tag_name.startswith("v"):
+    tag_name = "v" + tag_name
+
+version_slug = str(manifest.get("version_slug") or (tag_name[1:] if tag_name.startswith("v") else tag_name)).strip()
+archive_name = str(manifest.get("asset_name") or "").strip()
+if not archive_name:
+    raise SystemExit("Manifest enthält keinen asset_name")
+archive_url = f"{base_url}/releases/{tag_name}/{archive_name}"
+
+print(tag_name)
+print(version_slug)
+print(archive_name)
+print(archive_url)
+print(manifest_url)
+print(sha256_url)
+PY
+)
+    fi
 
     TAG_NAME="${RELEASE_INFO[0]}"
     VERSION_SLUG="${RELEASE_INFO[1]}"
@@ -195,7 +230,6 @@ PY
     RELEASE_DIR="${RELEASES_DIR}/${VERSION_SLUG}"
     TMP_RELEASE_DIR="${RELEASE_DIR}.tmp.$$"
 }
-
 download_and_verify_assets() {
     download_file "${ARCHIVE_URL}" "${TMP_DIR}/${ARCHIVE_NAME}"
     download_file "${MANIFEST_URL}" "${TMP_DIR}/manifest.json"
@@ -280,7 +314,8 @@ extract_release() {
 write_install_info() {
     cat > "${INSTALL_INFO_FILE}" <<EOF_INFO
 PV2HASH_INSTALL_MODE=release
-PV2HASH_REPO=${REPO}
+PV2HASH_UPDATE_BASE_URL=${PV2HASH_UPDATE_BASE_URL}
+PV2HASH_UPDATE_CHANNEL=${PV2HASH_UPDATE_CHANNEL}
 PV2HASH_TAG=${TAG_NAME}
 PV2HASH_VERSION=${FULL_VERSION}
 PV2HASH_VERSION_SLUG=${VERSION_SLUG}
@@ -366,6 +401,7 @@ show_result() {
     echo "PV2Hash wurde installiert/aktualisiert."
     echo "Version:      ${FULL_VERSION}"
     echo "Tag:          ${TAG_NAME}"
+    echo "Update-Feed:  ${PV2HASH_UPDATE_BASE_URL%/}/channels/${PV2HASH_UPDATE_CHANNEL}.json"
     echo "Release dir:  ${RELEASE_DIR}"
     echo "Current:      ${CURRENT_LINK}"
     echo "Data dir:     ${APP_DATA_DIR}"

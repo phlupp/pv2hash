@@ -246,3 +246,25 @@ jobs:
 
           ${SSH_CMD} "${REMOTE}" \
             "mv '${REMOTE_PATH}/channels/stable.json.tmp' '${REMOTE_PATH}/channels/stable.json'"
+      - name: Publish installer script atomically
+        shell: bash
+        env:
+          GET_SSH_HOST: ${{ secrets.GET_SSH_HOST }}
+          GET_SSH_PORT: ${{ secrets.GET_SSH_PORT }}
+          GET_SSH_USER: ${{ secrets.GET_SSH_USER }}
+          GET_REMOTE_PATH: ${{ secrets.GET_REMOTE_PATH }}
+        run: |
+          set -euo pipefail
+
+          SSH_CMD="ssh -i ~/.ssh/get_deploy_key -p ${GET_SSH_PORT}"
+          REMOTE="${GET_SSH_USER}@${GET_SSH_HOST}"
+          REMOTE_PATH="${GET_REMOTE_PATH}"
+
+          rsync -avz \
+            -e "${SSH_CMD}" \
+            "scripts/install_release.sh" \
+            "${REMOTE}:${REMOTE_PATH}/install.sh.tmp"
+
+          ${SSH_CMD} "${REMOTE}" \
+            "mv '${REMOTE_PATH}/install.sh.tmp' '${REMOTE_PATH}/install.sh' && chmod 755 '${REMOTE_PATH}/install.sh'"
+

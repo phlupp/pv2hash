@@ -1868,10 +1868,10 @@
 
   function systemUpdateMessage(status, data) {
     if (status === 'disabled') return 'Update-Prüfung ist in der Konfiguration deaktiviert.';
-    if (status === 'checking') return 'GitHub Releases werden gerade geprüft …';
+    if (status === 'checking') return 'PV2Hash Update-Feed wird gerade geprüft …';
     if (status === 'update_available') return `Es ist ein neueres Release verfügbar: ${data.release_version_full || data.release_tag || '—'}.`;
-    if (status === 'up_to_date') return 'Die lokale Installation entspricht dem aktuellen Latest Release.';
-    if (status === 'ahead_of_release') return 'Der lokale Stand ist neuer als das aktuelle Latest Release auf GitHub.';
+    if (status === 'up_to_date') return 'Die lokale Installation entspricht dem aktuellen Stable-Release.';
+    if (status === 'ahead_of_release') return 'Der lokale Stand ist neuer als das aktuelle Stable-Release im PV2Hash Update-Feed.';
     if (status === 'error') return data.error || 'Die Update-Prüfung ist fehlgeschlagen.';
     return 'Kein Update-Status vorhanden.';
   }
@@ -2054,7 +2054,7 @@
       link.href = updateStatus.release_url;
       link.target = '_blank';
       link.rel = 'noopener';
-      link.textContent = 'Release auf GitHub öffnen';
+      link.textContent = 'Release-Manifest öffnen';
       links.appendChild(link);
       card.appendChild(links);
     }
@@ -2086,7 +2086,7 @@
       label.textContent = 'Installationsbefehl für dieses Release';
       const command = document.createElement('code');
       command.className = 'update-command';
-      command.textContent = `curl -fsSL https://raw.githubusercontent.com/phlupp/pv2hash/main/scripts/install_release.sh | sudo env TAG=${updateStatus.release_tag} bash`;
+      command.textContent = `curl -fsSL https://get.pv2hash.xyz/install.sh | sudo env TAG=${updateStatus.release_tag} bash`;
       commandWrap.appendChild(label);
       commandWrap.appendChild(command);
       card.appendChild(commandWrap);

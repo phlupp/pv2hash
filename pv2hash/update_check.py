@@ -4,14 +4,17 @@ import asyncio
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urljoin
 
 import httpx
 
 from pv2hash.logging_ext.setup import get_logger
 from pv2hash.runtime import AppState, UpdateCheckState
 
-DEFAULT_UPDATE_REPO = "phlupp/pv2hash"
-GITHUB_RELEASES_LATEST_URL = "https://api.github.com/repos/{repo}/releases/latest"
+DEFAULT_UPDATE_BASE_URL = "https://get.pv2hash.xyz"
+DEFAULT_UPDATE_CHANNEL = "stable"
+# Kept for older configs/UI fields. New installations use update_base_url + update_channel.
+DEFAULT_UPDATE_REPO = DEFAULT_UPDATE_BASE_URL
 UPDATE_CHECK_INTERVAL_SECONDS = 60 * 60
 UPDATE_CHECK_TIMEOUT_SECONDS = 10.0
 BACKGROUND_TICK_SECONDS = 60
@@ -58,7 +61,7 @@ def _parse_release_tag(tag_name: str) -> dict[str, Any]:
     version = match.group("version")
 
     return {
-        "tag": raw,
+        "tag": raw if raw.startswith("v") else f"v{raw}",
         "version": version,
         "build": build,
         "version_full": version,
@@ -94,7 +97,8 @@ def _serialize_update_check(status: UpdateCheckState) -> dict[str, Any]:
 class UpdateChecker:
     def __init__(self, state: AppState, *, current_version: str) -> None:
         self.state = state
-        self.current_version = _LOCAL_VERSION_RE.match(str(current_version).strip()).group("version") if _LOCAL_VERSION_RE.match(str(current_version).strip()) else current_version
+        match = _LOCAL_VERSION_RE.match(str(current_version).strip())
+        self.current_version = match.group("version") if match else current_version
         self.current_version_full = self.current_version
         self.current_tuple = _parse_version_tuple(self.current_version)
         self._lock = asyncio.Lock()
@@ -102,11 +106,18 @@ class UpdateChecker:
     def _is_enabled(self) -> bool:
         return bool(self.state.config.get("system", {}).get("check_updates", True))
 
+    def _base_url(self) -> str:
+        system = self.state.config.get("system", {})
+        raw = str(system.get("update_base_url") or DEFAULT_UPDATE_BASE_URL).strip()
+        return (raw or DEFAULT_UPDATE_BASE_URL).rstrip("/")
+
+    def _channel(self) -> str:
+        system = self.state.config.get("system", {})
+        raw = str(system.get("update_channel") or DEFAULT_UPDATE_CHANNEL).strip()
+        return raw or DEFAULT_UPDATE_CHANNEL
+
     def _repo(self) -> str:
-        raw = str(
-            self.state.config.get("system", {}).get("update_repo", DEFAULT_UPDATE_REPO)
-        ).strip()
-        return raw or DEFAULT_UPDATE_REPO
+        return f"{self._base_url()}/channels/{self._channel()}.json"
 
     def _is_stale(self) -> bool:
         checked_at = self.state.update_check.checked_at
@@ -182,32 +193,51 @@ class UpdateChecker:
             return self.snapshot()
 
         async with self._lock:
-            repo = self._repo()
+            feed_url = self._repo()
             current = self.state.update_check
             current.enabled = True
             current.checking = True
             current.status = "checking"
-            current.repo = repo
+            current.repo = feed_url
             current.local_version_full = self.current_version_full
             current.error = None
 
             try:
                 headers = {
-                    "Accept": "application/vnd.github+json",
+                    "Accept": "application/json",
                     "User-Agent": f"PV2Hash/{self.current_version_full}",
                 }
-                url = GITHUB_RELEASES_LATEST_URL.format(repo=repo)
 
                 async with httpx.AsyncClient(
                     timeout=UPDATE_CHECK_TIMEOUT_SECONDS,
                     follow_redirects=True,
                     headers=headers,
                 ) as client:
-                    response = await client.get(url)
+                    response = await client.get(feed_url)
                     response.raise_for_status()
-                    release = response.json()
+                    feed = response.json()
 
-                tag_name = str(release.get("tag_name") or "").strip()
+                if not isinstance(feed, dict):
+                    raise ValueError("Update-Feed hat kein gültiges JSON-Objekt geliefert")
+
+                if feed.get("updates_enabled") is False:
+                    message = str(feed.get("message") or "Updates sind serverseitig deaktiviert.")
+                    self.state.update_check = UpdateCheckState(
+                        enabled=True,
+                        checking=False,
+                        status="disabled",
+                        repo=feed_url,
+                        local_version_full=self.current_version_full,
+                        checked_at=datetime.now(UTC),
+                        error=message,
+                    )
+                    return self.snapshot()
+
+                latest = feed.get("latest")
+                if not isinstance(latest, dict):
+                    raise ValueError("Update-Feed enthält kein latest-Release")
+
+                tag_name = str(latest.get("version_full") or latest.get("tag") or latest.get("version") or "").strip()
                 release_info = _parse_release_tag(tag_name)
                 release_tuple = release_info["tuple"]
 
@@ -218,53 +248,55 @@ class UpdateChecker:
                 else:
                     status_value = "ahead_of_release"
 
-                assets = release.get("assets") if isinstance(release.get("assets"), list) else []
-                selected_asset = None
-                for asset in assets:
-                    if not isinstance(asset, dict):
-                        continue
-                    name = str(asset.get("name") or "").strip()
-                    if name.endswith(".zip"):
-                        selected_asset = asset
-                        break
-                if selected_asset is None and assets:
-                    selected_asset = next((asset for asset in assets if isinstance(asset, dict)), None)
+                asset = latest.get("asset") if isinstance(latest.get("asset"), dict) else {}
+                asset_name = str(asset.get("name") or "").strip() or None
+                asset_size = asset.get("size_bytes")
+                try:
+                    asset_size_int = int(asset_size) if asset_size is not None else None
+                except (TypeError, ValueError):
+                    asset_size_int = None
+
+                release_url = str(latest.get("manifest_url") or "").strip()
+                if not release_url:
+                    release_url = urljoin(self._base_url() + "/", f"releases/{release_info['tag']}/manifest.json")
+
+                body = str(latest.get("notes") or latest.get("body") or feed.get("message") or "").strip() or None
 
                 self.state.update_check = UpdateCheckState(
                     enabled=True,
                     checking=False,
                     status=status_value,
-                    repo=repo,
+                    repo=feed_url,
                     local_version_full=self.current_version_full,
                     checked_at=datetime.now(UTC),
                     release_tag=release_info["tag"],
-                    release_name=str(release.get("name") or "").strip() or None,
-                    release_url=str(release.get("html_url") or "").strip() or None,
+                    release_name=str(latest.get("title") or f"PV2Hash {release_info['version']}"),
+                    release_url=release_url,
                     release_version=release_info["version"],
                     release_build=release_info["build"],
                     release_version_full=release_info["version_full"],
-                    release_published_at=_parse_timestamp(release.get("published_at")),
-                    release_body=str(release.get("body") or "").strip() or None,
-                    release_asset_name=(str(selected_asset.get("name") or "").strip() if selected_asset else None),
-                    release_asset_size_bytes=(int(selected_asset.get("size")) if selected_asset and selected_asset.get("size") is not None else None),
-                    release_asset_count=len(assets),
+                    release_published_at=_parse_timestamp(str(latest.get("released_at") or "")),
+                    release_body=body,
+                    release_asset_name=asset_name,
+                    release_asset_size_bytes=asset_size_int,
+                    release_asset_count=1 if asset_name else 0,
                     error=None,
                 )
 
                 logger.info(
-                    "Update check finished: status=%s local=%s remote=%s repo=%s",
+                    "Update check finished: status=%s local=%s remote=%s feed=%s",
                     status_value,
                     self.current_version_full,
                     release_info["version_full"],
-                    repo,
+                    feed_url,
                 )
             except Exception as exc:
-                logger.warning("Update check failed: repo=%s error=%s", repo, exc)
+                logger.warning("Update check failed: feed=%s error=%s", feed_url, exc)
                 self.state.update_check = UpdateCheckState(
                     enabled=True,
                     checking=False,
                     status="error",
-                    repo=repo,
+                    repo=feed_url,
                     local_version_full=self.current_version_full,
                     checked_at=datetime.now(UTC),
                     release_tag=current.release_tag,

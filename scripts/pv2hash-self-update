@@ -165,7 +165,8 @@ main() {
     set +e
     {
         echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Starte Update auf ${TAG}"
-        REPO="${PV2HASH_REPO:-phlupp/pv2hash}" \
+        PV2HASH_UPDATE_BASE_URL="${PV2HASH_UPDATE_BASE_URL:-https://get.pv2hash.xyz}" \
+        PV2HASH_UPDATE_CHANNEL="${PV2HASH_UPDATE_CHANNEL:-stable}" \
         TAG="${TAG}" \
         APP_ROOT="${APP_ROOT}" \
         DATA_ROOT="${DATA_ROOT}" \

@@ -12,7 +12,7 @@ PV2Hash läuft als Webanwendung auf Linux-Systemen wie Debian und ist modular au
 
 PV2Hash hat den Stand einer **ersten voll funktionsfähigen Version** erreicht.
 
-Der aktuelle veröffentlichte Stand ist über die **GitHub Releases** und **Tags** ersichtlich.
+Der aktuelle veröffentlichte Stand wird über den öffentlichen PV2Hash-Distributionsendpunkt `https://get.pv2hash.xyz` bereitgestellt.
 
 Bereits umgesetzt sind unter anderem:
 
@@ -24,7 +24,7 @@ Bereits umgesetzt sind unter anderem:
 - native Braiins gRPC-Anbindung für einen echten Miner
 - Weboberfläche für Dashboard, Quellen, Miner, Einstellungen und System
 - Logging mit Datei-Log, Ringbuffer und Web-Konsole
-- Release-Builds und GitHub-Releases als Grundlage für Installer und Self-Update
+- Release-Builds mit Veröffentlichung auf `get.pv2hash.xyz` als Grundlage für Installer und Self-Update
 
 ---
 
@@ -217,7 +217,7 @@ Liefert den aktuellen Laufzeitstatus als sauber JSON-kompatible API-Antwort.
 
 ## Installation
 
-PV2Hash wird über **GitHub Releases** verteilt.
+PV2Hash wird über den öffentlichen Distributionsendpunkt **`https://get.pv2hash.xyz`** verteilt.
 
 Ein Release enthält mindestens:
 
@@ -228,24 +228,24 @@ Ein Release enthält mindestens:
 ### Neueste Release installieren
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/phlupp/pv2hash/main/scripts/install_release.sh | sudo bash
+curl -fsSL https://get.pv2hash.xyz/install.sh | sudo bash
 ```
 
 ### Bestimmte Version installieren
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/phlupp/pv2hash/main/scripts/install_release.sh | sudo env TAG=<tag> bash
+curl -fsSL https://get.pv2hash.xyz/install.sh | sudo env TAG=<tag> bash
 ```
 
 Beispiel:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/phlupp/pv2hash/main/scripts/install_release.sh | sudo env TAG=v0.2.2 bash
+curl -fsSL https://get.pv2hash.xyz/install.sh | sudo env TAG=v0.2.2 bash
 ```
 
 Der Installer soll:
 
-- die gewünschte Release von GitHub laden
+- die gewünschte Release von `get.pv2hash.xyz` laden
 - Checksummen prüfen
 - nach `/opt/pv2hash/releases/<version>/` entpacken
 - einen `current`-Symlink setzen
@@ -308,7 +308,7 @@ Merkmale:
 - Status- und Fehlerbehandlung pro Miner verfeinern
 - UI- und Runtime-Anzeige weiter verbessern
 - Release-Installer finalisieren
-- Update-Prüfung gegen GitHub Releases
+- Update-Prüfung gegen den PV2Hash Update-Feed auf `get.pv2hash.xyz`
 - Self-Update-Funktion
 
 ### Mittelfristig

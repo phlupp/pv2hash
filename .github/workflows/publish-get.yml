@@ -1,8 +1,6 @@
 name: Publish PV2Hash distribution feed
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -152,8 +150,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # For now we publish the existing installer as install.sh.
-          # It still points to GitHub internally until the PV2Hash update-source migration is done.
           cp scripts/install_release.sh dist/install.sh
 
           SSH_CMD="ssh -i ~/.ssh/get_deploy_key -p ${{ secrets.GET_SSH_PORT }}"
