@@ -139,12 +139,46 @@ def _portal_json_safe(value: Any) -> Any:
     return str(value)
 
 
+def _portal_config_section(name: str) -> dict[str, Any]:
+    section = state.config.get(name, {}) if state.config else {}
+    if not isinstance(section, dict):
+        return {}
+    return _portal_json_safe(deepcopy(section))
+
+
+def _build_portal_instance_settings_payload() -> dict[str, Any]:
+    portal_cfg = _portal_config()
+    portal_settings = {
+        "enabled": bool(portal_cfg.get("enabled", False)),
+        "base_url": normalize_base_url(portal_cfg.get("base_url")),
+        "connected": bool(str(portal_cfg.get("api_token") or "").strip()),
+        "api_token_prefix": str(portal_cfg.get("api_token_prefix") or ""),
+        "portal_uuid": str(portal_cfg.get("portal_uuid") or ""),
+        "paired_at": str(portal_cfg.get("paired_at") or ""),
+        "last_success_at": str(portal_cfg.get("last_success_at") or ""),
+        "last_snapshot_at": str(portal_cfg.get("last_snapshot_at") or ""),
+        "last_error": str(portal_cfg.get("last_error") or ""),
+        "upload_interval_seconds": int(portal_cfg.get("upload_interval_seconds") or 60),
+        "token_present": bool(str(portal_cfg.get("api_token") or "").strip()),
+    }
+
+    return _portal_json_safe({
+        "schema_version": 1,
+        "app": _portal_config_section("app"),
+        "system": _portal_config_section("system"),
+        "control": _portal_config_section("control"),
+        "datalogger": _portal_config_section("datalogger"),
+        "portal": portal_settings,
+    })
+
+
 def _build_portal_snapshot_payload() -> dict[str, Any]:
     payload = _portal_json_safe(_build_runtime_snapshot_payload())
     if not isinstance(payload, dict):
         payload = {}
 
     payload["schema_version"] = 1
+    payload["settings"] = _build_portal_instance_settings_payload()
 
     instance = payload.get("instance")
     if not isinstance(instance, dict):

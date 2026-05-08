@@ -76,6 +76,21 @@ PV2Hash sends the internal runtime snapshot as a JSON-safe portal payload. The t
   "battery": {},
   "miners": [],
   "sockets": [],
+  "settings": {
+    "schema_version": 1,
+    "app": {},
+    "system": {},
+    "control": {},
+    "datalogger": {},
+    "portal": {
+      "enabled": true,
+      "base_url": "https://pv2hash.xyz",
+      "connected": true,
+      "api_token_prefix": "pv2_...",
+      "upload_interval_seconds": 60,
+      "token_present": true
+    }
+  },
   "totals": {
     "miner_power_w": 1234,
     "miner_hashrate_ghs": 98500,
@@ -86,7 +101,9 @@ PV2Hash sends the internal runtime snapshot as a JSON-safe portal payload. The t
 }
 ```
 
-`host`, `controller`, `source`, `battery`, `miners`, `sockets` and `totals` are intentionally sent to the portal so the portal can build dashboards without needing separate local API calls. The compact compatibility fields `instance.uuid`, `instance.status`, `totals.hashrate_ths`, `totals.grid_power_w` and `totals.battery_soc` remain available for older portal consumers.
+`host`, `controller`, `source`, `battery`, `miners`, `sockets`, `settings` and `totals` are intentionally sent to the portal so the portal can build dashboards without needing separate local API calls. The compact compatibility fields `instance.uuid`, `instance.status`, `totals.hashrate_ths`, `totals.grid_power_w` and `totals.battery_soc` remain available for older portal consumers.
+
+The `settings` section contains instance-level settings only: `app`, `system`, `control`, `datalogger` and safe portal metadata. Device-specific configuration for `source`, `battery`, `miners` and `sockets` is intentionally not included yet. Portal secrets are never sent; `portal.api_token` is omitted and only `token_present` plus the safe `api_token_prefix` are included.
 
 A manual **Test-Snapshot senden** button is available in the Portal settings card.
 When `portal.enabled` is active and a token is present, PV2Hash also sends snapshots periodically.
