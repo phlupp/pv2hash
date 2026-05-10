@@ -43,9 +43,13 @@ Ein Gerätesample pro Miner und Aufzeichnungsintervall. Enthält unter anderem:
 - Erreichbarkeit
 - Runtime-State
 
+### controller_events
+
+Echter Event-Log für angewendete Reglerentscheidungen. Enthält unter anderem Zeitpunkt, Miner, altes/neues Profil, Reason-Code, textuelle Flags, relevante Netz-/Batteriewerte und `decision_context_json`. Die Data-Logger-Zeitstrahlansicht und die Chart-Marker verwenden diese Tabelle direkt.
+
 ### history_events
 
-Vorbereitet für spätere Ereignisse wie Profilwechsel, Source-Ausfall oder Portal-Synchronisierung. In Phase 1 wird die Tabelle angelegt, aber noch nicht aktiv befüllt.
+Vorbereitet für spätere allgemeine Ereignisse wie Source-Ausfall oder Portal-Synchronisierung. Controller-Profilwechsel werden nicht mehr hier vorbereitet, sondern in `controller_events` gespeichert.
 
 ## Retention
 
@@ -62,7 +66,8 @@ Die Data-Logger-Seite nutzt die lokal mitgelieferte Chart.js-Datei aus `pv2hash/
 Die Zeitreihen werden über diesen Endpunkt geladen:
 
 ```text
-GET /api/datalogger/series?range=1h|6h|12h|24h|7d&max_points=720
+GET /api/datalogger/series?range=1h|3h|6h|12h|24h|7d&max_points=720
+GET /api/datalogger/series?range=1h&end=2026-05-10T12:00:00Z&max_points=720
 ```
 
 Der Endpunkt liest aus `history.sqlite` und reduziert größere Zeiträume serverseitig auf eine begrenzte Punktzahl. Dadurch bleiben 24h- und 7d-Ansichten auch bei 10-Sekunden-Sampling browserfreundlich.
@@ -73,9 +78,9 @@ Die erste Chart-Ausbaustufe zeigt:
 - **Batterie:** SOC sowie Lade-/Entladeleistung; Ladeleistung wird positiv und Entladeleistung negativ dargestellt, die Watt-Achse wird symmetrisch um 0 skaliert
 - **Mining:** Gesamthashrate und Minerleistung
 
-Profilwechsel-Marker werden aus `history_miner_samples` abgeleitet. Wenn sich das Profil eines Miners im ausgewählten Zeitraum ändert, liefert die Series-API einen Marker mit Zeitpunkt, Minername sowie altem und neuem Profil. Die Chart-Oberfläche zeichnet diese Marker als vertikale Linien in die Charts ein; im Tooltip am nächstgelegenen Datenpunkt wird der Profilwechsel angezeigt.
+Profilwechsel-Marker und der Zeitstrahl `Reglerentscheidungen` werden ausschließlich aus echten `controller_events` mit `event_type=applied` gelesen. Es gibt keinen errechneten Fallback über `history_miner_samples`; fehlende Marker zeigen damit bewusst an, dass kein Controller-Event gespeichert wurde.
 
-Die Data-Logger-Seite lädt standardmäßig den Bereich `12h` und aktualisiert die Charts bei sichtbarem Browser-Tab automatisch alle 30 Sekunden. Beim Wechsel zurück in einen sichtbaren Tab wird sofort neu geladen.
+Die Data-Logger-Seite lädt standardmäßig den Live-Bereich `1h` und aktualisiert die Charts bei sichtbarem Browser-Tab automatisch alle 30 Sekunden. Über die Zeitraum-Auswahl stehen zusätzlich `3h`, `6h`, `12h`, `24h` und `7d` zur Verfügung. Die Buttons `← Zurück` und `Weiter →` verschieben das aktuell gewählte Zeitfenster jeweils um die gewählte Auflösung. In dieser Historienansicht läuft kein Auto-Refresh. Mit `Live` springt die Ansicht wieder auf das aktuelle Zeitfenster der gewählten Auflösung und aktiviert den Auto-Refresh.
 
 ## Platzierung der Statusinformationen
 
@@ -98,7 +103,7 @@ Die technischen Details zum lokalen Logger werden auf der Systemseite in einer e
 
 Die Data-Logger-Seite kann die Mining-Charts nach Minern filtern. Standardmäßig werden alle im gewählten Zeitraum verfügbaren Miner berücksichtigt. Alternativ können ein oder mehrere Miner ausgewählt werden; Leistung, Hashrate, Profilwechsel-Marker und Temperaturwerte werden dann nur für diese Auswahl aggregiert.
 
-Der Gerätefilter ist kompakt und standardmäßig eingeklappt. Die Kopfzeile zeigt nur die aktuelle Auswahl, z. B. `Alle Miner`, einen einzelnen Minernamen oder `2 Miner`. Die vollständige Checkbox-Auswahl lässt sich über `Auswahl anzeigen` aufklappen.
+Der Gerätefilter steht oben auf der Data-Logger-Seite vor dem Regler-Zeitstrahl, ist kompakt und standardmäßig eingeklappt. Die Kopfzeile zeigt nur die aktuelle Auswahl, z. B. `Alle Miner`, einen einzelnen Minernamen oder `2 Miner`. Die vollständige Checkbox-Auswahl lässt sich über `Auswahl anzeigen` aufklappen.
 
 Für Miner-Samples werden ab Schema-Version 2 zusätzlich einheitliche Temperaturfelder gespeichert:
 

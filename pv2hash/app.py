@@ -3653,8 +3653,8 @@ async def api_datalogger_status():
 
 
 @app.get("/api/datalogger/series")
-async def api_datalogger_series(range: str = "24h", max_points: int = 720, miner_ids: str | None = None):
-    return JSONResponse(content=jsonable_encoder({"status": "ok", "series": data_logger.series(range_name=range, max_points=max_points, miner_ids=miner_ids)}))
+async def api_datalogger_series(range: str = "1h", max_points: int = 720, miner_ids: str | None = None, end: str | None = None):
+    return JSONResponse(content=jsonable_encoder({"status": "ok", "series": data_logger.series(range_name=range, max_points=max_points, miner_ids=miner_ids, end_iso=end)}))
 
 
 @app.get("/system")

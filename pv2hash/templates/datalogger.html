@@ -17,12 +17,20 @@
                     <h1>Data Logger</h1>
                     <p>Lokale Messwertaufzeichnung für Regleranalyse, Charts und spätere Portal-Synchronisierung.</p>
                 </div>
-                <div class="datalogger-range" role="group" aria-label="Zeitraum auswählen">
-                    <button class="btn btn-secondary" type="button" data-datalogger-range="1h">1h</button>
-                    <button class="btn btn-secondary" type="button" data-datalogger-range="6h">6h</button>
-                    <button class="btn btn-secondary active" type="button" data-datalogger-range="12h">12h</button>
-                    <button class="btn btn-secondary" type="button" data-datalogger-range="24h">24h</button>
-                    <button class="btn btn-secondary" type="button" data-datalogger-range="7d">7d</button>
+                <div class="datalogger-topbar-actions">
+                    <div class="datalogger-range" role="group" aria-label="Zeitraum auswählen">
+                        <button class="btn btn-secondary active" type="button" data-datalogger-range="1h">1h</button>
+                        <button class="btn btn-secondary" type="button" data-datalogger-range="3h">3h</button>
+                        <button class="btn btn-secondary" type="button" data-datalogger-range="6h">6h</button>
+                        <button class="btn btn-secondary" type="button" data-datalogger-range="12h">12h</button>
+                        <button class="btn btn-secondary" type="button" data-datalogger-range="24h">24h</button>
+                        <button class="btn btn-secondary" type="button" data-datalogger-range="7d">7d</button>
+                    </div>
+                    <div class="datalogger-window-controls" role="group" aria-label="Zeitfenster steuern">
+                        <button class="btn btn-secondary btn-small" type="button" data-datalogger-window-prev title="Vorheriges Zeitfenster">← Zurück</button>
+                        <button class="btn btn-secondary btn-small" type="button" data-datalogger-window-next title="Nächstes Zeitfenster">Weiter →</button>
+                        <button class="btn btn-primary btn-small active" type="button" data-datalogger-window-live>Live</button>
+                    </div>
                 </div>
             </header>
 
@@ -30,6 +38,7 @@
                 <span class="badge {{ 'status-good' if status.enabled else 'status-muted' }}" data-datalogger-badge="enabled">{{ 'Aktiv' if status.enabled else 'Inaktiv' }}</span>
                 <span class="badge" data-datalogger-badge="interval">Intervall: {{ status.interval_seconds }} s</span>
                 <span class="badge" data-datalogger-badge="retention">Aufbewahrung: {{ status.retention_days }} Tage</span>
+                <span class="badge" data-datalogger-window-label>Live · 1h</span>
             </section>
 
             {% if status.last_error %}
@@ -37,20 +46,6 @@
             {% else %}
             <div class="update-error top-gap" data-datalogger-error hidden></div>
             {% endif %}
-
-            <section class="card datalogger-timeline-card top-gap">
-                <div class="card-head datalogger-timeline-head">
-                    <div>
-                        <h2>Reglerentscheidungen</h2>
-                        <p class="card-subtitle">Echte angewendete Regler-Events aus der lokalen Controller-Event-Tabelle.</p>
-                    </div>
-                    <span class="status-pill" data-datalogger-timeline-count>— Events</span>
-                </div>
-                <div class="datalogger-timeline" data-datalogger-timeline>
-                    <div class="datalogger-timeline-empty">Reglerentscheidungen werden geladen …</div>
-                </div>
-                <p class="datalogger-timeline-help">Mouseover oder Fokus zeigt Details zur Entscheidung. Die Chart-Marker darunter verwenden dieselben Events.</p>
-            </section>
 
             <section class="card datalogger-filter-card top-gap is-collapsed" data-datalogger-filter-card>
                 <div class="card-head compact datalogger-filter-head">
@@ -75,6 +70,22 @@
                     </div>
                 </div>
             </section>
+
+            <section class="card datalogger-timeline-card top-gap">
+                <div class="card-head datalogger-timeline-head">
+                    <div>
+                        <h2>Reglerentscheidungen</h2>
+                        <p class="card-subtitle">Echte angewendete Regler-Events aus der lokalen Controller-Event-Tabelle.</p>
+                    </div>
+                    <span class="status-pill" data-datalogger-timeline-count>— Events</span>
+                </div>
+                <div class="datalogger-timeline" data-datalogger-timeline>
+                    <div class="datalogger-timeline-empty">Reglerentscheidungen werden geladen …</div>
+                </div>
+                <p class="datalogger-timeline-help">Mouseover oder Fokus zeigt Details zur Entscheidung. Die Chart-Marker darunter verwenden dieselben Events.</p>
+            </section>
+
+
 
             <section class="card datalogger-chart-card top-gap">
                 <div class="card-head">

@@ -2600,7 +2600,10 @@
     energy: null,
     battery: null,
     mining: null,
-    range: '12h',
+    range: '1h',
+    isLive: true,
+    windowEndIso: null,
+    lastSeriesEndIso: null,
     refreshTimer: null,
     refreshIntervalMs: 30000,
     selectedMinerIds: [],
@@ -2629,6 +2632,39 @@
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) return String(iso);
     return new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'medium' }).format(date);
+  }
+
+  function dataLoggerRangeSeconds(rangeName) {
+    const allowed = {
+      '1h': 3600,
+      '3h': 3 * 3600,
+      '6h': 6 * 3600,
+      '12h': 12 * 3600,
+      '24h': 24 * 3600,
+      '7d': 7 * 24 * 3600,
+    };
+    return allowed[String(rangeName || '').toLowerCase()] || 3600;
+  }
+
+  function updateDataLoggerWindowControls(series = null) {
+    const liveButton = document.querySelector('[data-datalogger-window-live]');
+    const nextButton = document.querySelector('[data-datalogger-window-next]');
+    const label = document.querySelector('[data-datalogger-window-label]');
+    const endIso = series?.end || dataloggerCharts.lastSeriesEndIso || dataloggerCharts.windowEndIso;
+    if (liveButton) liveButton.classList.toggle('active', Boolean(dataloggerCharts.isLive));
+    if (nextButton) {
+      nextButton.disabled = Boolean(dataloggerCharts.isLive);
+      nextButton.title = dataloggerCharts.isLive ? 'Live-Ansicht ist bereits am aktuellen Zeitraum' : 'Nächstes Zeitfenster';
+    }
+    if (label) {
+      if (dataloggerCharts.isLive) {
+        label.textContent = `Live · ${dataloggerCharts.range}`;
+      } else {
+        const startLabel = series?.start ? formatDataLoggerTime(series.start, dataloggerCharts.range) : '';
+        const endLabel = endIso ? formatDataLoggerTime(endIso, dataloggerCharts.range) : '';
+        label.textContent = `Historie · ${dataloggerCharts.range}${startLabel && endLabel ? ` · ${startLabel}–${endLabel}` : ''}`;
+      }
+    }
   }
 
   function dataLoggerMarkerDirection(marker) {
@@ -3003,6 +3039,9 @@
 
     const points = series?.points || [];
     const rangeName = series?.range || dataloggerCharts.range;
+    dataloggerCharts.lastSeriesEndIso = series?.end || dataloggerCharts.lastSeriesEndIso;
+    if (!dataloggerCharts.isLive && series?.end) dataloggerCharts.windowEndIso = series.end;
+    updateDataLoggerWindowControls(series);
     updateDataLoggerMinerFilter(series?.miners || [], series?.selected_miner_ids || dataloggerCharts.selectedMinerIds);
 
     const empty = document.querySelector('[data-datalogger-empty]');
@@ -3087,14 +3126,24 @@
     }, points, mappedMarkers);
   }
 
-  async function loadDataLoggerCharts(rangeName = dataloggerCharts.range) {
+  async function loadDataLoggerCharts(rangeName = dataloggerCharts.range, options = {}) {
     dataloggerCharts.range = rangeName;
+    if (Object.prototype.hasOwnProperty.call(options, 'live')) {
+      dataloggerCharts.isLive = Boolean(options.live);
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'endIso')) {
+      dataloggerCharts.windowEndIso = options.endIso || null;
+      dataloggerCharts.isLive = !dataloggerCharts.windowEndIso;
+    }
+
     const buttons = document.querySelectorAll('[data-datalogger-range]');
     for (const button of buttons) {
       button.classList.toggle('active', button.dataset.dataloggerRange === rangeName);
     }
+    updateDataLoggerWindowControls();
 
     const params = new URLSearchParams({ range: rangeName, max_points: '720' });
+    if (!dataloggerCharts.isLive && dataloggerCharts.windowEndIso) params.set('end', dataloggerCharts.windowEndIso);
     const selectedMinerIds = getSelectedDataLoggerMinerIds();
     if (selectedMinerIds.length) params.set('miner_ids', selectedMinerIds.join(','));
 
@@ -3125,8 +3174,9 @@
 
   function startDataLoggerRefresh() {
     stopDataLoggerRefresh();
+    if (!dataloggerCharts.isLive) return;
     dataloggerCharts.refreshTimer = window.setInterval(() => {
-      if (!document.hidden) loadDataLoggerCharts(dataloggerCharts.range);
+      if (!document.hidden && dataloggerCharts.isLive) loadDataLoggerCharts(dataloggerCharts.range, { live: true });
     }, dataloggerCharts.refreshIntervalMs);
   }
 
@@ -3135,6 +3185,24 @@
       window.clearInterval(dataloggerCharts.refreshTimer);
       dataloggerCharts.refreshTimer = null;
     }
+  }
+
+  function shiftDataLoggerWindow(direction) {
+    const rangeSeconds = dataLoggerRangeSeconds(dataloggerCharts.range);
+    const baseIso = dataloggerCharts.isLive
+      ? (dataloggerCharts.lastSeriesEndIso || new Date().toISOString())
+      : (dataloggerCharts.windowEndIso || dataloggerCharts.lastSeriesEndIso || new Date().toISOString());
+    const baseMs = Date.parse(baseIso);
+    if (!Number.isFinite(baseMs)) return;
+    const nextMs = baseMs + (Number(direction || 0) * rangeSeconds * 1000);
+    const nowMs = Date.now();
+    if (nextMs >= nowMs - 5000) {
+      loadDataLoggerCharts(dataloggerCharts.range, { live: true, endIso: null });
+      startDataLoggerRefresh();
+      return;
+    }
+    loadDataLoggerCharts(dataloggerCharts.range, { live: false, endIso: new Date(nextMs).toISOString() });
+    stopDataLoggerRefresh();
   }
 
   function setupDataLoggerPage() {
@@ -3146,7 +3214,28 @@
       const rangeButton = event.target.closest('[data-datalogger-range]');
       if (rangeButton) {
         event.preventDefault();
-        loadDataLoggerCharts(rangeButton.dataset.dataloggerRange || '12h');
+        const nextRange = rangeButton.dataset.dataloggerRange || '1h';
+        loadDataLoggerCharts(nextRange, dataloggerCharts.isLive ? { live: true } : { live: false, endIso: dataloggerCharts.windowEndIso || dataloggerCharts.lastSeriesEndIso });
+        if (dataloggerCharts.isLive) startDataLoggerRefresh();
+        return;
+      }
+      const prevButton = event.target.closest('[data-datalogger-window-prev]');
+      if (prevButton) {
+        event.preventDefault();
+        shiftDataLoggerWindow(-1);
+        return;
+      }
+      const nextButton = event.target.closest('[data-datalogger-window-next]');
+      if (nextButton) {
+        event.preventDefault();
+        shiftDataLoggerWindow(1);
+        return;
+      }
+      const liveButton = event.target.closest('[data-datalogger-window-live]');
+      if (liveButton) {
+        event.preventDefault();
+        loadDataLoggerCharts(dataloggerCharts.range, { live: true, endIso: null });
+        startDataLoggerRefresh();
         return;
       }
       const filterToggle = event.target.closest('[data-datalogger-filter-toggle]');
@@ -3167,7 +3256,8 @@
       if (allCheckbox) {
         dataloggerCharts.selectedMinerIds = [];
         updateDataLoggerMinerFilter(dataloggerCharts.miners, []);
-        loadDataLoggerCharts(dataloggerCharts.range);
+        loadDataLoggerCharts(dataloggerCharts.range, dataloggerCharts.isLive ? { live: true } : { live: false, endIso: dataloggerCharts.windowEndIso || dataloggerCharts.lastSeriesEndIso });
+        if (dataloggerCharts.isLive) startDataLoggerRefresh();
         return;
       }
       const minerCheckbox = event.target.closest('[data-datalogger-miner-id]');
@@ -3177,20 +3267,21 @@
           .filter(Boolean);
         dataloggerCharts.selectedMinerIds = checkedIds;
         updateDataLoggerMinerFilter(dataloggerCharts.miners, checkedIds);
-        loadDataLoggerCharts(dataloggerCharts.range);
+        loadDataLoggerCharts(dataloggerCharts.range, dataloggerCharts.isLive ? { live: true } : { live: false, endIso: dataloggerCharts.windowEndIso || dataloggerCharts.lastSeriesEndIso });
+        if (dataloggerCharts.isLive) startDataLoggerRefresh();
       }
     });
 
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         stopDataLoggerRefresh();
-      } else {
-        loadDataLoggerCharts(dataloggerCharts.range);
+      } else if (dataloggerCharts.isLive) {
+        loadDataLoggerCharts(dataloggerCharts.range, { live: true });
         startDataLoggerRefresh();
       }
     });
 
-    loadDataLoggerCharts(dataloggerCharts.range);
+    loadDataLoggerCharts(dataloggerCharts.range, { live: true });
     startDataLoggerRefresh();
   }
 

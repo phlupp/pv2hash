@@ -1978,11 +1978,29 @@ form.is-busy {
     align-items: center;
 }
 
-.datalogger-range {
+.datalogger-topbar-actions {
+    display: grid;
+    gap: .55rem;
+    justify-items: end;
+}
+
+.datalogger-range,
+.datalogger-window-controls {
     display: inline-flex;
     gap: 8px;
     flex-wrap: wrap;
     justify-content: flex-end;
+}
+
+.datalogger-window-controls .btn.active {
+    border-color: rgba(67, 227, 165, .45);
+    background: rgba(67, 227, 165, .16);
+    color: var(--text);
+}
+
+.datalogger-window-controls .btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
 }
 
 .datalogger-range .btn {
@@ -2044,7 +2062,13 @@ form.is-busy {
         align-items: flex-start;
     }
 
-    .datalogger-range {
+    .datalogger-topbar-actions {
+        justify-items: start;
+        width: 100%;
+    }
+
+    .datalogger-range,
+    .datalogger-window-controls {
         justify-content: flex-start;
         width: 100%;
     }

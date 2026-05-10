@@ -41,16 +41,17 @@ def _int_bool(value: Any) -> int:
 
 
 def _parse_range_seconds(value: str | None) -> tuple[str, int]:
-    raw = str(value or "24h").strip().lower()
+    raw = str(value or "1h").strip().lower()
     allowed = {
         "1h": 3600,
+        "3h": 3 * 3600,
         "6h": 6 * 3600,
         "12h": 12 * 3600,
         "24h": 24 * 3600,
         "7d": 7 * 24 * 3600,
     }
     if raw not in allowed:
-        raw = "24h"
+        raw = "1h"
     return raw, allowed[raw]
 
 
@@ -617,12 +618,16 @@ class DataLogger:
             "last_error": self._last_error,
         }
 
-    def series(self, *, range_name: str = "24h", max_points: int = 720, miner_ids: Any = None) -> dict[str, Any]:
+    def series(self, *, range_name: str = "1h", max_points: int = 720, miner_ids: Any = None, end_iso: str | None = None) -> dict[str, Any]:
         self._ensure_schema()
         selected_range, range_seconds = _parse_range_seconds(range_name)
         max_points = max(120, min(1200, int(max_points or 720)))
         selected_miner_ids = _parse_id_csv(miner_ids)
-        end = datetime.now(UTC)
+        now = datetime.now(UTC)
+        requested_end = _parse_iso_datetime(end_iso)
+        end = requested_end if requested_end is not None else now
+        if end > now:
+            end = now
         start = end - timedelta(seconds=range_seconds)
         start_iso = start.isoformat()
         end_iso = end.isoformat()
@@ -673,6 +678,7 @@ class DataLogger:
             "range_seconds": range_seconds,
             "start": start_iso,
             "end": end_iso,
+            "is_live": requested_end is None,
             "raw_count": len(raw_rows),
             "point_count": len(points),
             "marker_count": len(markers),
