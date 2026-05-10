@@ -38,11 +38,25 @@
             <div class="update-error top-gap" data-datalogger-error hidden></div>
             {% endif %}
 
+            <section class="card datalogger-timeline-card top-gap">
+                <div class="card-head datalogger-timeline-head">
+                    <div>
+                        <h2>Reglerentscheidungen</h2>
+                        <p class="card-subtitle">Echte angewendete Regler-Events aus der lokalen Controller-Event-Tabelle.</p>
+                    </div>
+                    <span class="status-pill" data-datalogger-timeline-count>— Events</span>
+                </div>
+                <div class="datalogger-timeline" data-datalogger-timeline>
+                    <div class="datalogger-timeline-empty">Reglerentscheidungen werden geladen …</div>
+                </div>
+                <p class="datalogger-timeline-help">Mouseover oder Fokus zeigt Details zur Entscheidung. Die Chart-Marker darunter verwenden dieselben Events.</p>
+            </section>
+
             <section class="card datalogger-filter-card top-gap is-collapsed" data-datalogger-filter-card>
                 <div class="card-head compact datalogger-filter-head">
                     <div>
                         <h2>Geräte</h2>
-                        <p class="card-subtitle">Miner-Auswahl für Leistung, Hashrate, Temperatur und Profilwechsel.</p>
+                        <p class="card-subtitle">Miner-Auswahl für Leistung, Hashrate, Temperatur und Regler-Events.</p>
                     </div>
                     <div class="datalogger-filter-head-actions">
                         <span class="status-pill" data-datalogger-miner-filter-summary>Alle Miner</span>

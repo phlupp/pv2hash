@@ -1,6 +1,6 @@
 # PV2Hash-Regler
 
-Stand: PV2Hash 0.7.7 mit Regler-Anpassung für stufenweises Batterie-Entladen und lokalem Regler-Event-Log.
+Stand: PV2Hash 0.7.9 mit Regler-Anpassung für stufenweises Batterie-Entladen, lokalem Regler-Event-Log und DataLogger-Zeitstrahl.
 
 Diese Dokumentation beschreibt den aktuellen Aufbau des Reglers, die Prioritäten und typische Beispiele. Ziel ist, spätere Änderungen am Regler nachvollziehbar und sicher durchführen zu können.
 
@@ -687,3 +687,45 @@ Batterieentladung: stufenweise reduziert · Netz -80 W · SOC 82.4 % · Batterie
 Wenn noch kein Event in der Datenbank vorhanden ist, wird `Letzte Regleraktion: —` angezeigt. Als Fallback kann der aktuelle Runtime-State genutzt werden, falls ein Event gerade erst erzeugt wurde und der asynchrone Datenbank-Writer noch nicht fertig ist.
 
 Der Ring für das Mindest-Schaltintervall bleibt weiterhin Runtime-basiert, weil er die aktuelle laufende Sperrzeit darstellen soll. Die Textzeile für die letzte Aktion kommt dagegen bevorzugt aus dem lokalen Event-Log.
+
+### DataLogger-Zeitstrahl und Chart-Marker
+
+Die DataLogger-Seite verwendet für Profilwechsel-Marker nicht mehr die abgeleiteten Miner-Samples aus `history_miner_samples`. Stattdessen werden ausschließlich echte angewendete Regler-Events aus `controller_events` verwendet:
+
+```text
+SELECT *
+FROM controller_events
+WHERE event_type = 'applied'
+AND ts BETWEEN <start> AND <end>
+ORDER BY ts ASC, id ASC
+```
+
+Dadurch ist die Anzeige schneller und nachvollziehbarer:
+
+```text
+Was angezeigt wird, wurde vom Regler wirklich geloggt.
+Was fehlt, wurde nicht geloggt.
+```
+
+Die DataLogger-Seite zeigt oben eine Karte **Reglerentscheidungen** mit einem Zeitstrahl. Die Symbole bedeuten:
+
+```text
+↑ Profil wurde erhöht / Miner wurde hochgeregelt
+↓ Profil wurde reduziert / Miner wurde heruntergeregelt
+• neutrale oder nicht eindeutig bewertbare Profiländerung
+```
+
+Mouseover beziehungsweise Fokus auf einem Marker zeigt die kompakten Entscheidungsdetails:
+
+```text
+Zeitpunkt
+Miner: altes Profil → neues Profil
+Grund / reason_text
+Netzleistung
+SOC
+Batterierichtung und Lade-/Entladeleistung
+Flags
+```
+
+Die Chart-Marker unterhalb des Zeitstrahls verwenden dieselben `controller_events`. Es gibt bewusst keinen Fallback auf errechnete Profilwechsel mehr, damit Fehler oder Lücken im Event-Logging sichtbar bleiben.
+

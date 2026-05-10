@@ -2624,6 +2624,110 @@
     return new Intl.DateTimeFormat('de-DE', options).format(date);
   }
 
+  function formatDataLoggerDateTime(iso) {
+    if (!iso) return '—';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return String(iso);
+    return new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'medium' }).format(date);
+  }
+
+  function dataLoggerMarkerDirection(marker) {
+    const direction = String(marker?.direction || '').toLowerCase();
+    if (direction === 'up' || direction === 'down') return direction;
+    const order = { off: 0, p0: 1, p1: 2, p2: 3, p3: 4, p4: 5 };
+    const rank = (value) => {
+      const text = String(value || '').trim().toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(order, text)) return order[text];
+      if (text.startsWith('p')) {
+        const parsed = Number.parseInt(text.slice(1), 10);
+        return Number.isFinite(parsed) ? parsed + 1 : null;
+      }
+      return null;
+    };
+    const oldRank = rank(marker?.old_profile);
+    const newRank = rank(marker?.new_profile);
+    if (oldRank === null || newRank === null || oldRank === newRank) return 'neutral';
+    return newRank > oldRank ? 'up' : 'down';
+  }
+
+  function dataLoggerMarkerSymbol(marker) {
+    const direction = dataLoggerMarkerDirection(marker);
+    if (direction === 'up') return '↑';
+    if (direction === 'down') return '↓';
+    return '•';
+  }
+
+  function dataLoggerMarkerDetails(marker) {
+    const rows = [];
+    rows.push(formatDataLoggerDateTime(marker?.ts || marker?.at));
+    rows.push(`${marker?.miner_name || marker?.miner_key || marker?.miner_id || 'Miner'}: ${marker?.old_profile || '?'} → ${marker?.new_profile || '?'}`);
+    if (marker?.reason_text || marker?.reason_code) rows.push(`Grund: ${marker.reason_text || marker.reason_code}`);
+    if (marker?.grid_power_w !== null && marker?.grid_power_w !== undefined) rows.push(`Netz: ${formatDataLoggerNumber(marker.grid_power_w, ' W')}`);
+    if (marker?.battery_soc_pct !== null && marker?.battery_soc_pct !== undefined) rows.push(`SOC: ${formatDataLoggerNumber(marker.battery_soc_pct, ' %')}`);
+    const direction = marker?.battery_direction ? String(marker.battery_direction) : '';
+    if (direction) {
+      const power = direction === 'charging' ? marker?.battery_charge_power_w : marker?.battery_discharge_power_w;
+      const label = direction === 'charging' ? 'Batterie lädt' : direction === 'discharging' ? 'Batterie entlädt' : `Batterie ${direction}`;
+      rows.push(`${label}${power !== null && power !== undefined ? `: ${formatDataLoggerNumber(power, ' W')}` : ''}`);
+    }
+    if (Array.isArray(marker?.flags) && marker.flags.length) rows.push(`Flags: ${marker.flags.slice(0, 5).join(', ')}`);
+    return rows.filter(Boolean);
+  }
+
+  function renderDataLoggerTimeline(markers, series) {
+    const container = document.querySelector('[data-datalogger-timeline]');
+    const countBadge = document.querySelector('[data-datalogger-timeline-count]');
+    const safeMarkers = Array.isArray(markers) ? markers : [];
+    if (countBadge) countBadge.textContent = `${safeMarkers.length.toLocaleString('de-DE')} Events`;
+    if (!container) return;
+    container.innerHTML = '';
+    if (!safeMarkers.length) {
+      container.innerHTML = '<div class="datalogger-timeline-empty">Keine Reglerentscheidungen im gewählten Zeitraum gespeichert.</div>';
+      return;
+    }
+
+    const startMs = Date.parse(series?.start || '');
+    const endMs = Date.parse(series?.end || '');
+    const firstMs = Date.parse(safeMarkers[0]?.ts || safeMarkers[0]?.at || '');
+    const lastMs = Date.parse(safeMarkers[safeMarkers.length - 1]?.ts || safeMarkers[safeMarkers.length - 1]?.at || '');
+    const rangeStart = Number.isFinite(startMs) ? startMs : firstMs;
+    const rangeEnd = Number.isFinite(endMs) ? endMs : lastMs;
+    const span = Math.max(1, rangeEnd - rangeStart);
+
+    const rail = document.createElement('div');
+    rail.className = 'datalogger-timeline-rail';
+    const ticks = document.createElement('div');
+    ticks.className = 'datalogger-timeline-ticks';
+    ticks.innerHTML = `<span>${escapeHtml(formatDataLoggerTime(series?.start, series?.range || dataloggerCharts.range))}</span><span>${escapeHtml(formatDataLoggerTime(series?.end, series?.range || dataloggerCharts.range))}</span>`;
+
+    for (const marker of safeMarkers) {
+      const markerMs = Date.parse(marker.ts || marker.at || '');
+      if (!Number.isFinite(markerMs)) continue;
+      const direction = dataLoggerMarkerDirection(marker);
+      const left = Math.max(0, Math.min(100, ((markerMs - rangeStart) / span) * 100));
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = `datalogger-timeline-event is-${direction}`;
+      item.style.left = `${left}%`;
+      const details = dataLoggerMarkerDetails(marker);
+      const title = details.join('\n');
+      item.title = title;
+      item.setAttribute('aria-label', title);
+      item.innerHTML = `<span>${escapeHtml(dataLoggerMarkerSymbol(marker))}</span>`;
+      rail.appendChild(item);
+    }
+
+    const latest = safeMarkers[safeMarkers.length - 1];
+    const latestInfo = document.createElement('div');
+    latestInfo.className = 'datalogger-timeline-latest';
+    const latestDetails = dataLoggerMarkerDetails(latest);
+    latestInfo.textContent = latestDetails.slice(0, 3).join(' · ');
+
+    container.appendChild(rail);
+    container.appendChild(ticks);
+    container.appendChild(latestInfo);
+  }
+
   function mapDataLoggerMarkersToPoints(points, markers) {
     const safePoints = Array.isArray(points) ? points : [];
     const safeMarkers = Array.isArray(markers) ? markers : [];
@@ -2680,10 +2784,19 @@
         ctx.moveTo(x, chartArea.top);
         ctx.lineTo(x, chartArea.bottom);
         ctx.stroke();
+        const direction = dataLoggerMarkerDirection(marker);
         ctx.beginPath();
-        ctx.moveTo(x, chartArea.top + 2);
-        ctx.lineTo(x - 4, chartArea.top + 10);
-        ctx.lineTo(x + 4, chartArea.top + 10);
+        if (direction === 'down') {
+          ctx.moveTo(x, chartArea.top + 11);
+          ctx.lineTo(x - 5, chartArea.top + 3);
+          ctx.lineTo(x + 5, chartArea.top + 3);
+        } else if (direction === 'up') {
+          ctx.moveTo(x, chartArea.top + 3);
+          ctx.lineTo(x - 5, chartArea.top + 11);
+          ctx.lineTo(x + 5, chartArea.top + 11);
+        } else {
+          ctx.arc(x, chartArea.top + 7, 4, 0, Math.PI * 2);
+        }
         ctx.closePath();
         ctx.fill();
       }
@@ -2740,9 +2853,9 @@
               const chart = items && items[0] ? items[0].chart : null;
               const markers = chart && chart.$pv2hashMarkersByIndex ? chart.$pv2hashMarkersByIndex.get(index) : null;
               if (!markers || !markers.length) return [];
-              return ['', 'Profilwechsel:', ...markers.slice(0, 6).map((marker) => {
+              return ['', 'Reglerentscheidungen:', ...markers.slice(0, 6).map((marker) => {
                 const fallback = `${marker.old_profile || '?'} -> ${marker.new_profile || '?'}`;
-                return `• ${marker.label || fallback}`;
+                return `${dataLoggerMarkerSymbol(marker)} ${marker.label || fallback}${marker.reason_text ? ` · ${marker.reason_text}` : ''}`;
               })];
             }
           }
@@ -2899,7 +3012,8 @@
     const markers = Array.isArray(series?.markers) ? series.markers : [];
     const mappedMarkers = mapDataLoggerMarkersToPoints(points, markers);
     const markerBadge = document.querySelector('[data-datalogger-markers]');
-    if (markerBadge) markerBadge.textContent = `${markers.length.toLocaleString('de-DE')} Profilwechsel`;
+    if (markerBadge) markerBadge.textContent = `${markers.length.toLocaleString('de-DE')} Regler-Events`;
+    renderDataLoggerTimeline(markers, series);
 
     const labels = points.map((point) => formatDataLoggerTime(point.ts, rangeName));
     const values = (field) => points.map((point) => point[field] === null || point[field] === undefined ? null : Number(point[field]));

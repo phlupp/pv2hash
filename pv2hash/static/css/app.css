@@ -2405,3 +2405,124 @@ body.sidebar-collapsed .nav-icon {
   font-size: 0.9rem;
   overflow-wrap: anywhere;
 }
+
+/* Data Logger controller event timeline */
+.datalogger-timeline-card {
+  overflow: visible;
+}
+
+.datalogger-timeline-head {
+  align-items: flex-start;
+}
+
+.datalogger-timeline {
+  margin-top: 1rem;
+}
+
+.datalogger-timeline-rail {
+  position: relative;
+  min-height: 56px;
+  margin: .35rem .5rem 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(148, 163, 184, .14), rgba(155, 126, 255, .22), rgba(148, 163, 184, .14));
+  border: 1px solid rgba(255, 255, 255, .08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .025);
+}
+
+.datalogger-timeline-rail::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: rgba(255, 255, 255, .28);
+  border-radius: 999px;
+}
+
+.datalogger-timeline-event {
+  position: absolute;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, .94);
+  color: var(--text);
+  font-weight: 800;
+  line-height: 1;
+  cursor: help;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .28);
+}
+
+.datalogger-timeline-event:hover,
+.datalogger-timeline-event:focus-visible {
+  z-index: 5;
+  outline: none;
+  border-color: rgba(255, 255, 255, .5);
+  transform: translate(-50%, -50%) scale(1.12);
+}
+
+.datalogger-timeline-event.is-up {
+  color: #bfffe6;
+  border-color: rgba(67, 227, 165, .45);
+  background: rgba(20, 82, 70, .92);
+}
+
+.datalogger-timeline-event.is-down {
+  color: #ffe0b8;
+  border-color: rgba(255, 177, 92, .46);
+  background: rgba(91, 54, 26, .94);
+}
+
+.datalogger-timeline-event.is-neutral {
+  color: #e4ddff;
+  border-color: rgba(155, 126, 255, .42);
+  background: rgba(49, 35, 91, .94);
+}
+
+.datalogger-timeline-ticks {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: .45rem .55rem 0;
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.datalogger-timeline-latest {
+  margin-top: .75rem;
+  padding: .65rem .8rem;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .035);
+  color: rgba(242, 245, 255, .82);
+  font-size: .88rem;
+}
+
+.datalogger-timeline-empty {
+  padding: 1rem;
+  border: 1px dashed rgba(255, 255, 255, .12);
+  border-radius: 16px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, .025);
+}
+
+.datalogger-timeline-help {
+  margin: .75rem 0 0;
+  color: var(--muted);
+  font-size: .82rem;
+}
+
+@media (max-width: 700px) {
+  .datalogger-timeline-event {
+    width: 24px;
+    height: 24px;
+    font-size: .86rem;
+  }
+}

@@ -69,6 +69,32 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
         return None
 
 
+
+_PROFILE_ORDER = {"off": 0, "p0": 1, "p1": 2, "p2": 3, "p3": 4, "p4": 5}
+
+
+def _profile_rank(value: Any) -> int | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    if text in _PROFILE_ORDER:
+        return _PROFILE_ORDER[text]
+    if text.startswith("p"):
+        try:
+            return int(text[1:]) + 1
+        except Exception:
+            return None
+    return None
+
+
+def _profile_change_direction(old_profile: Any, new_profile: Any) -> str:
+    old_rank = _profile_rank(old_profile)
+    new_rank = _profile_rank(new_profile)
+    if old_rank is None or new_rank is None or old_rank == new_rank:
+        return "neutral"
+    return "up" if new_rank > old_rank else "down"
+
+
 def _avg(values: list[float | None]) -> float | None:
     cleaned = [float(v) for v in values if v is not None and math.isfinite(float(v))]
     if not cleaned:
@@ -641,7 +667,7 @@ class DataLogger:
         )
         raw_rows = self._merge_miner_aggregates(raw_rows, miner_aggregates, override_totals=bool(selected_miner_ids))
         points = self._downsample_rows(raw_rows, max_points=max_points, start=start, end=end)
-        markers = self._profile_switch_markers(start_iso=start_iso, end_iso=end_iso, miner_ids=selected_miner_ids if selected_miner_ids else None)
+        markers = self._controller_event_markers(start_iso=start_iso, end_iso=end_iso, miner_ids=selected_miner_ids if selected_miner_ids else None)
         return {
             "range": selected_range,
             "range_seconds": range_seconds,
@@ -753,63 +779,52 @@ class DataLogger:
             merged.append(item)
         return merged
 
-    def _profile_switch_markers(self, *, start_iso: str, end_iso: str, miner_ids: list[str] | None = None, max_markers: int = 300) -> list[dict[str, Any]]:
-        """Derive profile switch markers from per-miner samples."""
+    def _controller_event_markers(self, *, start_iso: str, end_iso: str, miner_ids: list[str] | None = None, max_markers: int = 500) -> list[dict[str, Any]]:
+        """Return applied controller events for the selected time range as chart/timeline markers."""
         self._ensure_schema()
         selected = _parse_id_csv(miner_ids)
-        where = "ts >= ? AND ts <= ?"
+        where = "event_type = 'applied' AND ts >= ? AND ts <= ?"
         params: list[Any] = [start_iso, end_iso]
         if selected:
-            where += f" AND miner_id IN ({','.join('?' for _ in selected)})"
+            placeholders = ','.join('?' for _ in selected)
+            where += f" AND (miner_id IN ({placeholders}) OR miner_key IN ({placeholders}))"
             params.extend(selected)
+            params.extend(selected)
+
+        limit = max(1, min(1000, int(max_markers or 500)))
         with self._connect() as con:
             con.row_factory = sqlite3.Row
             rows = con.execute(
                 f"""
-                SELECT ts, miner_id, miner_key, name, driver, profile, power_w, hashrate_ghs, runtime_state
-                FROM history_miner_samples
+                SELECT *
+                FROM controller_events
                 WHERE {where}
-                ORDER BY miner_id ASC, ts ASC
+                ORDER BY ts ASC, id ASC
+                LIMIT ?
                 """,
-                params,
+                [*params, limit],
             ).fetchall()
 
-        previous_profile_by_miner: dict[str, str | None] = {}
         markers: list[dict[str, Any]] = []
         for row_obj in rows:
             row = dict(row_obj)
-            miner_id = str(row.get("miner_id") or row.get("miner_key") or "")
-            if not miner_id:
-                continue
-            profile = row.get("profile")
-            profile_text = str(profile).strip() if profile is not None else ""
-            if not profile_text:
-                continue
-
-            previous = previous_profile_by_miner.get(miner_id)
-            previous_profile_by_miner[miner_id] = profile_text
-            if previous is None or previous == profile_text:
-                continue
-
-            miner_name = str(row.get("name") or row.get("miner_key") or miner_id)
+            item = self._controller_event_row_to_portal_item(row)
+            old_profile = str(item.get("old_profile") or "").strip()
+            new_profile = str(item.get("new_profile") or "").strip()
+            miner_name = str(item.get("miner_name") or item.get("miner_key") or item.get("miner_id") or "Miner")
+            direction = _profile_change_direction(old_profile, new_profile)
+            reason_text = str(item.get("reason_text") or item.get("reason_code") or "Reglerentscheidung")
+            label = f"{miner_name}: {old_profile or '?'} -> {new_profile or '?'}"
             markers.append({
-                "ts": row.get("ts"),
-                "type": "profile_switch",
-                "miner_id": row.get("miner_id"),
-                "miner_key": row.get("miner_key"),
-                "miner_name": miner_name,
-                "driver": row.get("driver"),
-                "old_profile": previous,
-                "new_profile": profile_text,
-                "label": f"{miner_name}: {previous} -> {profile_text}",
-                "power_w": _float_or_none(row.get("power_w")),
-                "hashrate_ghs": _float_or_none(row.get("hashrate_ghs")),
-                "runtime_state": row.get("runtime_state"),
+                **item,
+                "ts": item.get("at"),
+                "type": "controller_event",
+                "direction": direction,
+                "label": label,
+                "tooltip": f"{label} · {reason_text}",
             })
-
-        if len(markers) > max_markers:
-            markers = markers[-max_markers:]
         return markers
+
 
     def _downsample_rows(
         self,
