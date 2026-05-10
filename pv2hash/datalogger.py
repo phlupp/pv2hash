@@ -272,6 +272,38 @@ class DataLogger:
             con.execute("CREATE INDEX IF NOT EXISTS idx_history_events_ts ON history_events(ts)")
             con.execute(
                 """
+                CREATE TABLE IF NOT EXISTS controller_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts TEXT NOT NULL,
+                    event_type TEXT NOT NULL DEFAULT 'applied',
+                    miner_id TEXT,
+                    miner_key TEXT,
+                    miner_name TEXT,
+                    old_profile TEXT,
+                    requested_profile TEXT,
+                    new_profile TEXT,
+                    reason_code TEXT NOT NULL,
+                    reason_text TEXT,
+                    flags_json TEXT,
+                    grid_power_w REAL,
+                    battery_soc_pct REAL,
+                    battery_direction TEXT,
+                    battery_charge_power_w REAL,
+                    battery_discharge_power_w REAL,
+                    miner_power_w REAL,
+                    policy_mode TEXT,
+                    distribution_mode TEXT,
+                    decision_context_json TEXT,
+                    portal_sent_at TEXT,
+                    upload_attempts INTEGER NOT NULL DEFAULT 0,
+                    last_upload_error TEXT
+                )
+                """
+            )
+            con.execute("CREATE INDEX IF NOT EXISTS idx_controller_events_ts ON controller_events(ts)")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_controller_events_portal ON controller_events(event_type, portal_sent_at, id)")
+            con.execute(
+                """
                 CREATE TABLE IF NOT EXISTS schema_meta (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
@@ -280,7 +312,7 @@ class DataLogger:
             )
             con.execute(
                 "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
-                ("datalogger_schema_version", "2"),
+                ("datalogger_schema_version", "3"),
             )
 
     @staticmethod
@@ -384,6 +416,131 @@ class DataLogger:
         con.execute("DELETE FROM history_samples WHERE ts < ?", (cutoff,))
         con.execute("DELETE FROM history_miner_samples WHERE ts < ?", (cutoff,))
         con.execute("DELETE FROM history_events WHERE ts < ?", (cutoff,))
+        con.execute("DELETE FROM controller_events WHERE ts < ? AND portal_sent_at IS NOT NULL", (cutoff,))
+
+    def record_controller_event(self, event: dict[str, Any]) -> int | None:
+        """Persist one controller event best-effort.
+
+        This method is intentionally independent from the controller loop. Callers may
+        run it in a background thread/task; failures should be logged by the caller and
+        must never influence controller decisions.
+        """
+        self._ensure_schema()
+        ts = _to_iso(event.get("ts")) or _now_iso()
+        flags = event.get("flags") if isinstance(event.get("flags"), list) else []
+        context = event.get("decision_context") if isinstance(event.get("decision_context"), dict) else {}
+        with self._connect() as con:
+            cur = con.execute(
+                """
+                INSERT INTO controller_events (
+                    ts, event_type, miner_id, miner_key, miner_name,
+                    old_profile, requested_profile, new_profile,
+                    reason_code, reason_text, flags_json,
+                    grid_power_w, battery_soc_pct, battery_direction,
+                    battery_charge_power_w, battery_discharge_power_w, miner_power_w,
+                    policy_mode, distribution_mode, decision_context_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ts,
+                    str(event.get("event_type") or "applied"),
+                    event.get("miner_id"),
+                    event.get("miner_key"),
+                    event.get("miner_name"),
+                    event.get("old_profile"),
+                    event.get("requested_profile"),
+                    event.get("new_profile"),
+                    str(event.get("reason_code") or "unknown"),
+                    event.get("reason_text"),
+                    json.dumps(flags, ensure_ascii=False, separators=(",", ":")),
+                    _float_or_none(event.get("grid_power_w")),
+                    _float_or_none(event.get("battery_soc_pct")),
+                    event.get("battery_direction"),
+                    _float_or_none(event.get("battery_charge_power_w")),
+                    _float_or_none(event.get("battery_discharge_power_w")),
+                    _float_or_none(event.get("miner_power_w")),
+                    event.get("policy_mode"),
+                    event.get("distribution_mode"),
+                    json.dumps(context, ensure_ascii=False, separators=(",", ":")),
+                ),
+            )
+            return int(cur.lastrowid) if cur.lastrowid is not None else None
+
+    def unsent_controller_events_for_portal(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        self._ensure_schema()
+        limit = max(1, min(200, int(limit or 50)))
+        with self._connect() as con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                """
+                SELECT *
+                FROM controller_events
+                WHERE event_type = 'applied' AND portal_sent_at IS NULL
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [self._controller_event_row_to_portal_item(dict(row)) for row in rows]
+
+    def mark_controller_events_uploaded(self, event_ids: list[int]) -> None:
+        ids = [int(item) for item in event_ids if item is not None]
+        if not ids:
+            return
+        self._ensure_schema()
+        now = _now_iso()
+        with self._connect() as con:
+            con.executemany(
+                "UPDATE controller_events SET portal_sent_at = ?, last_upload_error = NULL WHERE id = ?",
+                [(now, event_id) for event_id in ids],
+            )
+
+    def mark_controller_events_upload_failed(self, event_ids: list[int], error: str) -> None:
+        ids = [int(item) for item in event_ids if item is not None]
+        if not ids:
+            return
+        self._ensure_schema()
+        message = str(error or "Portal upload failed")[:500]
+        with self._connect() as con:
+            con.executemany(
+                """
+                UPDATE controller_events
+                SET upload_attempts = upload_attempts + 1, last_upload_error = ?
+                WHERE id = ?
+                """,
+                [(message, event_id) for event_id in ids],
+            )
+
+    @staticmethod
+    def _controller_event_row_to_portal_item(row: dict[str, Any]) -> dict[str, Any]:
+        try:
+            flags = json.loads(row.get("flags_json") or "[]")
+        except Exception:
+            flags = []
+        if not isinstance(flags, list):
+            flags = []
+        return {
+            "event_id": int(row.get("id") or 0),
+            "at": row.get("ts"),
+            "event_type": row.get("event_type") or "applied",
+            "miner_id": row.get("miner_id"),
+            "miner_key": row.get("miner_key"),
+            "miner_name": row.get("miner_name"),
+            "old_profile": row.get("old_profile"),
+            "requested_profile": row.get("requested_profile"),
+            "new_profile": row.get("new_profile"),
+            "reason_code": row.get("reason_code"),
+            "reason_text": row.get("reason_text"),
+            "flags": [str(flag) for flag in flags],
+            "grid_power_w": row.get("grid_power_w"),
+            "battery_soc_pct": row.get("battery_soc_pct"),
+            "battery_direction": row.get("battery_direction"),
+            "battery_charge_power_w": row.get("battery_charge_power_w"),
+            "battery_discharge_power_w": row.get("battery_discharge_power_w"),
+            "miner_power_w": row.get("miner_power_w"),
+            "policy_mode": row.get("policy_mode"),
+            "distribution_mode": row.get("distribution_mode"),
+        }
 
     def status(self) -> dict[str, Any]:
         cfg = self._config()
@@ -393,6 +550,8 @@ class DataLogger:
             sample_count = int(con.execute("SELECT COUNT(*) FROM history_samples").fetchone()[0] or 0)
             miner_sample_count = int(con.execute("SELECT COUNT(*) FROM history_miner_samples").fetchone()[0] or 0)
             event_count = int(con.execute("SELECT COUNT(*) FROM history_events").fetchone()[0] or 0)
+            controller_event_count = int(con.execute("SELECT COUNT(*) FROM controller_events").fetchone()[0] or 0)
+            controller_event_unsent_count = int(con.execute("SELECT COUNT(*) FROM controller_events WHERE event_type = 'applied' AND portal_sent_at IS NULL").fetchone()[0] or 0)
             oldest_sample_at = con.execute("SELECT MIN(ts) FROM history_samples").fetchone()[0]
             newest_sample_at = con.execute("SELECT MAX(ts) FROM history_samples").fetchone()[0]
         return {
@@ -404,6 +563,8 @@ class DataLogger:
             "sample_count": sample_count,
             "miner_sample_count": miner_sample_count,
             "event_count": event_count,
+            "controller_event_count": controller_event_count,
+            "controller_event_unsent_count": controller_event_unsent_count,
             "oldest_sample_at": oldest_sample_at,
             "newest_sample_at": newest_sample_at,
             "last_sample_at": self._last_sample_at,

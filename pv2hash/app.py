@@ -206,6 +206,18 @@ def _build_portal_snapshot_payload() -> dict[str, Any]:
     totals.setdefault("grid_power_w", source.get("grid_power_w"))
     totals.setdefault("battery_soc", battery.get("soc_pct"))
 
+    controller_payload = payload.get("controller")
+    if not isinstance(controller_payload, dict):
+        controller_payload = {}
+        payload["controller"] = controller_payload
+    try:
+        decision_events = data_logger.unsent_controller_events_for_portal(limit=50)
+    except Exception as exc:
+        logger.warning("Could not read unsent controller events for portal snapshot: %s", exc)
+        decision_events = []
+    controller_payload["decision_events"] = decision_events
+    controller_payload["decision_events_has_more"] = len(decision_events) >= 50
+
     return payload
 
 
@@ -230,12 +242,31 @@ def _store_portal_error(message: str) -> None:
 async def _send_portal_snapshot_once() -> dict[str, Any]:
     portal = _portal_config()
     payload = _build_portal_snapshot_payload()
-    response = await asyncio.to_thread(
-        send_snapshot,
-        portal.get("base_url"),
-        portal.get("api_token"),
-        payload,
-    )
+    controller_payload = payload.get("controller") if isinstance(payload.get("controller"), dict) else {}
+    decision_events = controller_payload.get("decision_events") if isinstance(controller_payload, dict) else []
+    decision_event_ids = [
+        int(item.get("event_id"))
+        for item in decision_events
+        if isinstance(item, dict) and item.get("event_id") is not None
+    ]
+    try:
+        response = await asyncio.to_thread(
+            send_snapshot,
+            portal.get("base_url"),
+            portal.get("api_token"),
+            payload,
+        )
+    except Exception as exc:
+        await asyncio.to_thread(
+            data_logger.mark_controller_events_upload_failed,
+            decision_event_ids,
+            describe_portal_error(exc),
+        )
+        raise
+    try:
+        await asyncio.to_thread(data_logger.mark_controller_events_uploaded, decision_event_ids)
+    except Exception as exc:
+        logger.warning("Could not mark controller events as uploaded: %s", exc)
     _store_portal_success(response)
     return response
 
@@ -324,6 +355,7 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
             "distribution_mode": state.config.get("control", {}).get("distribution_mode"),
             "summary": controller_status.get("summary_text"),
             "last_decision": state.last_decision,
+            "last_decision_event": state.last_controller_decision_event,
             "last_decision_at": state.last_decision_at,
             "last_profile_switch_at": state.last_profile_switch_at,
         },
@@ -2363,10 +2395,14 @@ async def control_loop() -> None:
                 await asyncio.sleep(0.1)
                 continue
 
+            old_profiles = [
+                str(getattr(miner.info, "profile", None) or "off")
+                for miner in miners
+            ]
             profile_switch_requested = len(miners) == len(decision.profiles) and any(
                 miner.is_active_for_distribution()
-                and getattr(miner.info, "profile", None) != profile
-                for miner, profile in zip(miners, decision.profiles)
+                and old_profile != profile
+                for miner, old_profile, profile in zip(miners, old_profiles, decision.profiles)
             )
 
             for miner, profile in zip(miners, decision.profiles):
@@ -2410,6 +2446,21 @@ async def control_loop() -> None:
             if profile_switch_requested:
                 state.last_profile_switch_at = state.last_decision_at
                 state.last_profile_switch_monotonic = monotonic()
+                for idx, (miner, old_profile, new_profile) in enumerate(zip(miners, old_profiles, decision.profiles)):
+                    if old_profile == new_profile or not miner.is_active_for_distribution():
+                        continue
+                    miner_state = next((item for item in miner_states if item.id == miner.info.id), miner.info)
+                    event = _build_controller_event_for_miner(
+                        decision=decision,
+                        snapshot=snapshot,
+                        miner_adapter=miner,
+                        miner_state=miner_state,
+                        miner_index=idx,
+                        old_profile=old_profile,
+                        new_profile=new_profile,
+                        distribution_mode=distribution_mode,
+                    )
+                    asyncio.create_task(_record_controller_event_best_effort(event))
 
         except Exception:
             logger.exception("Unhandled error in control loop")

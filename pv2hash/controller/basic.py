@@ -24,6 +24,10 @@ class ControlDecision:
     profiles: list[str]
     action: str
     summary: str
+    reason_code: str | None = None
+    flags: list[str] | None = None
+    distribution_reason: str | None = None
+    decision_context: dict | None = None
 
 
 @dataclass
@@ -139,6 +143,7 @@ class BasicController:
         candidate_profiles = current_profiles
         action = "hold"
         summary = f"hold ({distribution_mode})"
+        distribution_reason: str | None = None
 
         capped_current_profiles = apply_profile_caps(current_profiles, max_profiles)
         if capped_current_profiles != current_profiles:
@@ -202,6 +207,7 @@ class BasicController:
                     if down_plan.changed:
                         candidate_profiles = down_plan.profiles
                         action = "battery_step_down"
+                        distribution_reason = down_plan.reason
                         summary = self._build_battery_summary(
                             battery_context=battery_context,
                             fallback=(
@@ -219,6 +225,7 @@ class BasicController:
                     if down_plan.changed:
                         candidate_profiles = down_plan.profiles
                         action = "step_down"
+                        distribution_reason = down_plan.reason
                         summary = self._build_battery_summary(
                             battery_context=battery_context,
                             fallback=(
@@ -239,6 +246,7 @@ class BasicController:
                     ):
                         candidate_profiles = up_plan.profiles
                         action = "step_up"
+                        distribution_reason = up_plan.reason
                         summary = self._build_battery_summary(
                             battery_context=battery_context,
                             fallback=(
@@ -324,11 +332,101 @@ class BasicController:
         else:
             self.state.last_import_log_key = None
 
+        flags = self._build_decision_flags(
+            action=action,
+            battery_context=battery_context,
+            current_profiles=current_profiles,
+            candidate_profiles=candidate_profiles,
+            grid_power_w=grid_power_w,
+        )
         return ControlDecision(
             profiles=candidate_profiles,
             action=action,
             summary=summary,
+            reason_code=self._reason_code_for_action(action),
+            flags=flags,
+            distribution_reason=distribution_reason,
+            decision_context={
+                "schema_version": 1,
+                "action": action,
+                "grid": {
+                    "power_w": grid_power_w,
+                    "max_import_w": self.max_import_w,
+                    "switch_hysteresis_w": self.switch_hysteresis_w,
+                    "import_hold_seconds": self.import_hold_seconds,
+                },
+                "battery": {
+                    "mode": battery_context.mode,
+                    "soc_pct": battery_context.soc_pct,
+                    "charge_power_w": battery_context.charge_power_w,
+                    "discharge_power_w": battery_context.discharge_power_w,
+                    "active": battery_context.active,
+                    "charging_export_unlocked": battery_context.charging_export_unlocked,
+                },
+                "profiles": {
+                    "old": current_profiles,
+                    "new": candidate_profiles,
+                    "max_allowed": max_profiles,
+                    "battery_targets": target_profiles,
+                },
+            },
         )
+
+    @staticmethod
+    def _reason_code_for_action(action: str) -> str:
+        mapping = {
+            "step_up": "grid_export_step_up",
+            "step_down": "grid_import_step_down",
+            "battery_target": "battery_target_up",
+            "battery_limit": "battery_limit_apply",
+            "battery_step_down": "battery_discharge_step_down",
+            "fallback_off": "source_loss_fallback_off",
+            "fallback_profile": "source_loss_fallback_profile",
+            "fallback_hold": "source_loss_hold_current",
+        }
+        return mapping.get(str(action or "").strip().lower(), str(action or "unknown"))
+
+    def _build_decision_flags(
+        self,
+        *,
+        action: str,
+        battery_context: BatteryContext,
+        current_profiles: list[str],
+        candidate_profiles: list[str],
+        grid_power_w: float,
+    ) -> list[str]:
+        flags: list[str] = ["applied"]
+        action = str(action or "").strip().lower()
+        if action:
+            flags.append(action)
+        if candidate_profiles != current_profiles:
+            flags.append("profile_change")
+        if any(is_profile_higher(new, old) for old, new in zip(current_profiles, candidate_profiles)):
+            flags.append("profile_step_up")
+        if any(is_profile_higher(old, new) for old, new in zip(current_profiles, candidate_profiles)):
+            flags.append("profile_step_down")
+        if grid_power_w > self.max_import_w:
+            flags.append("grid_import")
+        elif grid_power_w < -self.switch_hysteresis_w:
+            flags.append("grid_export")
+        else:
+            flags.append("grid_near_zero")
+        if battery_context.mode == "charging":
+            flags.append("battery_charging")
+        elif battery_context.mode == "discharging":
+            flags.append("battery_discharging")
+        if battery_context.soc_pct is None:
+            flags.append("battery_soc_missing")
+        elif any(policy.reason == "battery_discharge_soc_below_min" for policy in battery_context.policies):
+            flags.append("battery_soc_low")
+        else:
+            flags.append("battery_soc_ok")
+        for policy in battery_context.policies:
+            if policy.reason:
+                flag = str(policy.reason).strip().lower()
+                if flag and flag not in flags:
+                    flags.append(flag)
+        return flags
 
     def _build_battery_context(
         self,

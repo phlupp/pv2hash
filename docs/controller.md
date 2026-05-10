@@ -1,6 +1,6 @@
 # PV2Hash-Regler
 
-Stand: PV2Hash 0.7.7 mit Regler-Anpassung für stufenweises Batterie-Entladen.
+Stand: PV2Hash 0.7.7 mit Regler-Anpassung für stufenweises Batterie-Entladen und lokalem Regler-Event-Log.
 
 Diese Dokumentation beschreibt den aktuellen Aufbau des Reglers, die Prioritäten und typische Beispiele. Ziel ist, spätere Änderungen am Regler nachvollziehbar und sicher durchführen zu können.
 
@@ -447,3 +447,228 @@ Mindest-Schaltintervall:
 Source-Loss:
     definiertes Sicherheitsverhalten bei Messwertausfall
 ```
+
+## Regler-Event-Log
+
+PV2Hash protokolliert umgesetzte Reglerentscheidungen zusätzlich als Event-Log in der bestehenden Data-Logger-Datenbank.
+
+Wichtig: Das Event-Log ist ein Diagnose- und Historienkanal. Es darf das Reglerverhalten nicht beeinflussen. Der Regler wartet nicht auf Portal-Kommunikation und wartet auch nicht synchron auf langsame Event-Verarbeitung.
+
+Ablauf:
+
+```text
+Regler trifft Entscheidung
+Profilwechsel wird am Miner angewendet
+Miner-Status wird erneut gelesen
+Controller-Event wird best-effort im Hintergrund gespeichert
+Portal-Sync liest später ungesendete Events aus der lokalen Datenbank
+```
+
+In der ersten Version werden nur tatsächlich umgesetzte Profilwechsel gespeichert:
+
+```text
+event_type = applied
+```
+
+Geplante, blockierte oder wegen Mindest-Schaltintervall unterdrückte Wechsel werden bewusst noch nicht gespeichert. Dadurch bleibt der Eventstrom ruhig und zeigt nur echte Zustandsänderungen. Eine spätere Debug-Option kann zusätzliche Eventtypen wie `planned`, `blocked` oder `hold` ergänzen.
+
+### Tabelle `controller_events`
+
+Die lokale Tabelle enthält pro Miner und Profilwechsel ein Event.
+
+Wichtige Felder:
+
+```text
+ts
+    Zeitpunkt des Events
+
+event_type
+    aktuell applied
+
+miner_id / miner_key / miner_name
+    betroffener Miner
+
+old_profile
+    Profil vor dem Wechsel
+
+requested_profile
+    vom Regler gewünschtes Profil
+
+new_profile
+    tatsächlich angewendetes Profil
+
+reason_code
+    maschinenlesbarer Hauptgrund
+
+reason_text
+    menschenlesbare Beschreibung
+
+flags_json
+    JSON-Liste mit zusätzlichen maschinenlesbaren Flags
+
+grid_power_w
+    Netzleistung zum Entscheidungszeitpunkt
+
+battery_soc_pct
+    Batterie-SOC zum Entscheidungszeitpunkt
+
+battery_direction
+    charging, discharging oder idle
+
+battery_charge_power_w / battery_discharge_power_w
+    Lade-/Entladeleistung zum Entscheidungszeitpunkt
+
+miner_power_w
+    Miner-Leistung nach dem Status-Refresh
+
+policy_mode / distribution_mode
+    aktive Regler- und Verteilstrategie
+
+decision_context_json
+    erweiterbarer JSON-Kontext für Debugging und spätere Auswertung
+
+portal_sent_at
+    gesetzt, nachdem das Event erfolgreich an das Portal übertragen wurde
+```
+
+### Reason-Codes
+
+Der `reason_code` ist ein stabiler maschinenlesbarer Hauptgrund. Er sollte nicht unnötig umbenannt werden, weil UI, Portal und Auswertungen darauf filtern können.
+
+Aktuelle Codes:
+
+```text
+grid_export_step_up
+    Netzeinspeisung vorhanden, Profil wird erhöht.
+
+grid_import_step_down
+    Netzbezug über Grenzwert, Profil wird reduziert.
+
+battery_target_up
+    Batterieregelung gibt ein Zielprofil frei.
+
+battery_limit_apply
+    Batterieregelung begrenzt das Profil.
+
+battery_discharge_step_down
+    Batterie entlädt, Profil wird schrittweise bis zum Entladeprofil reduziert.
+
+source_loss_fallback_off
+    Quelle ist nicht live, Fallback schaltet Miner aus.
+
+source_loss_fallback_profile
+    Quelle ist nicht live, Fallback-Profil wird angewendet.
+
+source_loss_hold_current
+    Quelle ist nicht live, aktuelles Profil wird gehalten.
+```
+
+### Textuelle Flags
+
+Flags werden als JSON-Liste von Textwerten gespeichert. Sie sind maschinenlesbar, aber auch für Entwickler direkt verständlich.
+
+Beispiele:
+
+```json
+[
+  "applied",
+  "battery_step_down",
+  "profile_change",
+  "profile_step_down",
+  "battery_discharging",
+  "battery_soc_ok",
+  "battery_discharge_target",
+  "distribution_cascade",
+  "distribution_selected"
+]
+```
+
+Typische Flags:
+
+```text
+applied
+profile_change
+profile_step_up
+profile_step_down
+grid_import
+grid_export
+grid_near_zero
+battery_charging
+battery_discharging
+battery_soc_ok
+battery_soc_low
+battery_soc_missing
+battery_charge_target
+battery_discharge_target
+battery_discharge_blocked
+battery_discharge_soc_below_min
+distribution_equal
+distribution_cascade
+distribution_selected
+```
+
+### Decision Context
+
+`decision_context_json` enthält zusätzliche Diagnoseinformationen, ohne dass für jede neue Information eine neue Datenbankspalte erforderlich ist.
+
+Beispielstruktur:
+
+```json
+{
+  "schema_version": 1,
+  "action": "battery_step_down",
+  "event": {
+    "type": "applied",
+    "reason_code": "battery_discharge_step_down",
+    "flags": ["applied", "battery_discharging", "profile_step_down"]
+  },
+  "grid": {
+    "power_w": -80,
+    "max_import_w": 100,
+    "switch_hysteresis_w": 50,
+    "import_hold_seconds": 15
+  },
+  "battery": {
+    "mode": "discharging",
+    "soc_pct": 82.4,
+    "charge_power_w": 0,
+    "discharge_power_w": 220
+  },
+  "profiles": {
+    "old": ["p3"],
+    "new": ["p2"],
+    "battery_targets": ["p1"]
+  },
+  "miner": {
+    "index": 0,
+    "key": "miner_1",
+    "old_profile": "p3",
+    "requested_profile": "p2",
+    "new_profile": "p2",
+    "power_w": 1500
+  },
+  "distribution": {
+    "mode": "cascade",
+    "cascade_index": 0,
+    "selected": true,
+    "reason": "cascade:0:battery_step_down"
+  }
+}
+```
+
+### Portal-Synchronisation
+
+Das Portal bekommt die Regler-Events nicht direkt aus dem Reglerpfad. Stattdessen gilt:
+
+```text
+Regler schreibt lokales Event
+Portal-Upload liest ungesendete applied Events aus controller_events
+Snapshot enthält controller.decision_events[] als kompakte Liste
+Nach erfolgreichem Upload wird portal_sent_at gesetzt
+Bei Fehler bleibt das Event lokal ungesendet und wird beim nächsten Upload erneut versucht
+```
+
+Damit gehen mehrere Reglerentscheidungen innerhalb eines Portal-Upload-Intervalls nicht verloren. Das Portal muss Events über `instance_id + event_id` idempotent speichern können, weil ein Event nach Verbindungsproblemen erneut gesendet werden kann.
+
+Der normale Snapshot enthält nur kompakte Eventdaten, nicht den vollständigen `decision_context_json`. Der volle Kontext bleibt lokal und kann später für eine detaillierte Regler-Historie oder Debug-Ansicht genutzt werden.
+

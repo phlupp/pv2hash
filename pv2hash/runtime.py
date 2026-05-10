@@ -37,6 +37,7 @@ class AppState:
     sockets: list[SocketInfo] = field(default_factory=list)
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_decision: str | None = None
+    last_controller_decision_event: dict[str, Any] | None = None
     last_decision_at: datetime | None = None
     last_profile_switch_at: datetime | None = None
     last_profile_switch_monotonic: float | None = None
