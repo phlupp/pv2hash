@@ -483,6 +483,26 @@ class DataLogger:
             ).fetchall()
         return [self._controller_event_row_to_portal_item(dict(row)) for row in rows]
 
+
+    def latest_controller_event(self, *, event_type: str = "applied") -> dict[str, Any] | None:
+        """Return the newest controller event as a compact, portal-compatible dict."""
+        self._ensure_schema()
+        with self._connect() as con:
+            con.row_factory = sqlite3.Row
+            row = con.execute(
+                """
+                SELECT *
+                FROM controller_events
+                WHERE event_type = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (str(event_type or "applied"),),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._controller_event_row_to_portal_item(dict(row))
+
     def mark_controller_events_uploaded(self, event_ids: list[int]) -> None:
         ids = [int(item) for item in event_ids if item is not None]
         if not ids:

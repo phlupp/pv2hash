@@ -1071,6 +1071,236 @@ def _build_dashboard_miner_rows() -> list[dict]:
     return rows
 
 
+
+def _parse_iso_datetime(value: str | datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except Exception:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def _controller_reason_label(reason_code: str | None, reason_text: str | None = None) -> str:
+    code = str(reason_code or "").strip().lower()
+    labels = {
+        "grid_export_step_up": "Netzüberschuss: hochgeregelt",
+        "grid_import_step_down": "Netzbezug: reduziert",
+        "battery_target_up": "Batterie-Regelung: Zielprofil aktiviert",
+        "battery_limit_apply": "Batterie-Grenze angewendet",
+        "battery_discharge_step_down": "Batterieentladung: stufenweise reduziert",
+        "source_loss_fallback_off": "Messwertausfall: Miner ausgeschaltet",
+        "source_loss_fallback_profile": "Messwertausfall: Fallback-Profil gesetzt",
+        "source_loss_hold_current": "Messwertausfall: Profil gehalten",
+    }
+    if code in labels:
+        return labels[code]
+    if reason_text:
+        return _format_controller_summary(str(reason_text))
+    if code:
+        return code.replace("_", " ")
+    return "Reglerentscheidung"
+
+
+def _compact_controller_event_from_raw(event: dict[str, Any], event_id: int | None = None) -> dict[str, Any]:
+    compact = {
+        "event_id": event_id or event.get("event_id"),
+        "at": _to_iso_for_event(event.get("ts") or event.get("at")),
+        "event_type": event.get("event_type") or "applied",
+        "miner_id": event.get("miner_id"),
+        "miner_key": event.get("miner_key"),
+        "miner_name": event.get("miner_name"),
+        "old_profile": event.get("old_profile"),
+        "requested_profile": event.get("requested_profile"),
+        "new_profile": event.get("new_profile"),
+        "reason_code": event.get("reason_code"),
+        "reason_text": event.get("reason_text"),
+        "flags": [str(flag) for flag in (event.get("flags") or []) if flag is not None],
+        "grid_power_w": event.get("grid_power_w"),
+        "battery_soc_pct": event.get("battery_soc_pct"),
+        "battery_direction": event.get("battery_direction"),
+        "battery_charge_power_w": event.get("battery_charge_power_w"),
+        "battery_discharge_power_w": event.get("battery_discharge_power_w"),
+        "miner_power_w": event.get("miner_power_w"),
+        "policy_mode": event.get("policy_mode"),
+        "distribution_mode": event.get("distribution_mode"),
+    }
+    return {key: value for key, value in compact.items() if value is not None}
+
+
+def _to_iso_for_event(value: Any) -> str:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.isoformat()
+    if value:
+        return str(value)
+    return datetime.now(UTC).isoformat()
+
+
+def _latest_controller_event_for_ui() -> dict[str, Any] | None:
+    try:
+        event = data_logger.latest_controller_event(event_type="applied")
+        if event:
+            return event
+    except Exception as exc:
+        logger.debug("Could not read latest controller event for dashboard: %s", exc)
+
+    if isinstance(state.last_controller_decision_event, dict):
+        return state.last_controller_decision_event
+    return None
+
+
+def _format_controller_event_line(event: dict[str, Any] | None) -> str:
+    if not event:
+        return "Letzte Regleraktion: —"
+
+    at_text = _format_local_time(_parse_iso_datetime(event.get("at"))) or "—"
+    miner_name = event.get("miner_name") or event.get("miner_key") or event.get("miner_id") or "Miner"
+    old_profile = event.get("old_profile") or "?"
+    new_profile = event.get("new_profile") or "?"
+    return f"Letzte Regleraktion: {at_text} · {miner_name}: {old_profile} → {new_profile}"
+
+
+def _format_controller_event_meta(event: dict[str, Any] | None) -> str:
+    if not event:
+        return "Noch kein Controller-Event gespeichert"
+
+    parts = [_controller_reason_label(event.get("reason_code"), event.get("reason_text"))]
+    grid_power = event.get("grid_power_w")
+    if grid_power is not None:
+        try:
+            parts.append(f"Netz {float(grid_power):.0f} W")
+        except Exception:
+            pass
+    battery_soc = event.get("battery_soc_pct")
+    if battery_soc is not None:
+        try:
+            parts.append(f"SOC {float(battery_soc):.1f} %")
+        except Exception:
+            pass
+    direction = event.get("battery_direction")
+    if direction:
+        direction_labels = {"charging": "lädt", "discharging": "entlädt", "idle": "inaktiv"}
+        parts.append(f"Batterie {direction_labels.get(str(direction), str(direction))}")
+    return " · ".join(parts)
+
+
+def _battery_direction_from_snapshot(snapshot: Any) -> str | None:
+    if snapshot is None:
+        return None
+    if getattr(snapshot, "battery_is_charging", None):
+        return "charging"
+    if getattr(snapshot, "battery_is_discharging", None):
+        return "discharging"
+    if getattr(snapshot, "battery_is_active", None):
+        return "active"
+    return "idle" if getattr(snapshot, "battery_soc_pct", None) is not None else None
+
+
+def _reason_code_for_decision(decision: Any) -> str:
+    reason_code = getattr(decision, "reason_code", None)
+    if reason_code:
+        return str(reason_code)
+    action = str(getattr(decision, "action", "") or "").strip().lower()
+    mapping = {
+        "step_up": "grid_export_step_up",
+        "step_down": "grid_import_step_down",
+        "battery_target": "battery_target_up",
+        "battery_limit": "battery_limit_apply",
+        "battery_step_down": "battery_discharge_step_down",
+        "fallback_off": "source_loss_fallback_off",
+        "fallback_profile": "source_loss_fallback_profile",
+        "fallback_hold": "source_loss_hold_current",
+    }
+    return mapping.get(action, action or "unknown")
+
+
+def _build_controller_event_for_miner(
+    *,
+    decision: Any,
+    snapshot: Any,
+    miner_adapter: Any,
+    miner_state: Any,
+    miner_index: int,
+    old_profile: str,
+    new_profile: str,
+    distribution_mode: str,
+) -> dict[str, Any]:
+    info = getattr(miner_adapter, "info", None)
+    state_info = miner_state or info
+    flags = list(getattr(decision, "flags", None) or [])
+    for flag in ("controller_event", "applied"):
+        if flag not in flags:
+            flags.append(flag)
+    if getattr(decision, "distribution_reason", None):
+        flags.append("distribution_selected")
+
+    context = deepcopy(getattr(decision, "decision_context", None) or {})
+    context.setdefault("schema_version", 1)
+    context["event"] = {
+        "type": "applied",
+        "reason_code": _reason_code_for_decision(decision),
+        "flags": flags,
+    }
+    context["miner"] = {
+        "index": miner_index,
+        "id": getattr(info, "id", None),
+        "name": getattr(info, "name", None),
+        "old_profile": old_profile,
+        "requested_profile": new_profile,
+        "new_profile": new_profile,
+        "power_w": getattr(state_info, "power_w", None),
+    }
+    context["distribution"] = {
+        "mode": distribution_mode,
+        "reason": getattr(decision, "distribution_reason", None),
+        "selected_miner_index": miner_index,
+    }
+
+    return {
+        "ts": datetime.now(UTC),
+        "event_type": "applied",
+        "miner_id": getattr(info, "id", None),
+        "miner_key": getattr(info, "id", None),
+        "miner_name": getattr(info, "name", None),
+        "old_profile": old_profile,
+        "requested_profile": new_profile,
+        "new_profile": new_profile,
+        "reason_code": _reason_code_for_decision(decision),
+        "reason_text": getattr(decision, "summary", None),
+        "flags": flags,
+        "grid_power_w": getattr(snapshot, "grid_power_w", None),
+        "battery_soc_pct": getattr(snapshot, "battery_soc_pct", None),
+        "battery_direction": _battery_direction_from_snapshot(snapshot),
+        "battery_charge_power_w": getattr(snapshot, "battery_charge_power_w", None),
+        "battery_discharge_power_w": getattr(snapshot, "battery_discharge_power_w", None),
+        "miner_power_w": getattr(state_info, "power_w", None),
+        "policy_mode": state.config.get("control", {}).get("policy_mode"),
+        "distribution_mode": distribution_mode,
+        "decision_context": context,
+    }
+
+
+async def _record_controller_event_best_effort(event: dict[str, Any]) -> None:
+    try:
+        event_id = await asyncio.to_thread(data_logger.record_controller_event, event)
+        state.last_controller_decision_event = _compact_controller_event_from_raw(event, event_id)
+    except Exception as exc:
+        logger.warning("Could not record controller event: %s", exc)
+
+
 def _build_controller_status() -> dict:
     control_config = state.config.get("control", {}) if state.config else {}
     min_switch_interval = max(0.0, float(control_config.get("min_switch_interval_seconds", 0) or 0))
@@ -1104,9 +1334,14 @@ def _build_controller_status() -> dict:
             inner_text = "frei"
             hint_text = "Nächste Umschaltung möglich"
 
+    latest_event = _latest_controller_event_for_ui()
+
     return {
         "summary_text": _format_controller_summary(state.last_decision),
         "last_switch_at_text": _format_local_time(last_switch_at),
+        "last_event_text": _format_controller_event_line(latest_event),
+        "last_event_meta_text": _format_controller_event_meta(latest_event),
+        "last_event": latest_event,
         "switch_ring_state": ring_state,
         "switch_progress": round(progress, 4),
         "switch_inner_text": inner_text,
@@ -2194,7 +2429,8 @@ def _build_dashboard_live_payload() -> dict:
                 "policy_mode": state.config.get("control", {}).get("policy_mode", "—"),
                 "distribution_mode": state.config.get("control", {}).get("distribution_mode", "—"),
                 "summary": controller_status.get("summary_text", "—"),
-                "last_switch": f"Letzte Umschaltung: {controller_status.get('last_switch_at_text') or '—'}",
+                "last_switch": controller_status.get("last_event_text") or f"Letzte Regleraktion: {controller_status.get('last_switch_at_text') or '—'}",
+                "last_event_meta": controller_status.get("last_event_meta_text", ""),
                 "ring_state": controller_status.get("switch_ring_state", ""),
                 "ring_progress": controller_status.get("switch_progress", 1),
                 "ring_inner": controller_status.get("switch_inner_text", "—"),
@@ -2460,6 +2696,7 @@ async def control_loop() -> None:
                         new_profile=new_profile,
                         distribution_mode=distribution_mode,
                     )
+                    state.last_controller_decision_event = _compact_controller_event_from_raw(event)
                     asyncio.create_task(_record_controller_event_best_effort(event))
 
         except Exception:
@@ -2496,6 +2733,7 @@ def reload_runtime() -> None:
     state.miners = []
     state.sockets = []
     state.last_decision = None
+    state.last_controller_decision_event = None
     state.last_decision_at = None
     state.last_profile_switch_at = None
     state.last_profile_switch_monotonic = None

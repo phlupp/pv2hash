@@ -1470,6 +1470,10 @@ select:focus {
     word-break: break-word;
 }
 
+.controller-event-meta {
+    color: var(--muted);
+}
+
 .controller-ring-panel {
     flex: 0 0 auto;
     display: flex;

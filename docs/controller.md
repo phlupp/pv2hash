@@ -672,3 +672,18 @@ Damit gehen mehrere Reglerentscheidungen innerhalb eines Portal-Upload-Intervall
 
 Der normale Snapshot enthält nur kompakte Eventdaten, nicht den vollständigen `decision_context_json`. Der volle Kontext bleibt lokal und kann später für eine detaillierte Regler-Historie oder Debug-Ansicht genutzt werden.
 
+
+### Dashboard-Anzeige
+
+Die Dashboard-Karte **Regler-Status** zeigt die letzte angewendete Regleraktion aus `controller_events` an. Dadurch bleibt die Anzeige auch nach einem Reload aussagekräftig und hängt nicht nur am flüchtigen Runtime-State.
+
+Angezeigt wird bewusst die kompakte Form:
+
+```text
+Letzte Regleraktion: 12:34:56 · WhatsMiner 1: p3 → p2
+Batterieentladung: stufenweise reduziert · Netz -80 W · SOC 82.4 % · Batterie entlädt
+```
+
+Wenn noch kein Event in der Datenbank vorhanden ist, wird `Letzte Regleraktion: —` angezeigt. Als Fallback kann der aktuelle Runtime-State genutzt werden, falls ein Event gerade erst erzeugt wurde und der asynchrone Datenbank-Writer noch nicht fertig ist.
+
+Der Ring für das Mindest-Schaltintervall bleibt weiterhin Runtime-basiert, weil er die aktuelle laufende Sperrzeit darstellen soll. Die Textzeile für die letzte Aktion kommt dagegen bevorzugt aus dem lokalen Event-Log.

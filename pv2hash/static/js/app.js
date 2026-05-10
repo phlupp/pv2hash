@@ -756,6 +756,7 @@
     setText('[data-dashboard-field="distribution_mode"]', cards.controller?.distribution_mode);
     setText('[data-dashboard-field="controller_summary"]', cards.controller?.summary);
     setText('[data-dashboard-field="controller_last_switch"]', cards.controller?.last_switch);
+    setText('[data-dashboard-field="controller_last_event_meta"]', cards.controller?.last_event_meta);
     const ring = document.querySelector('[data-dashboard-field="controller_ring"]');
     if (ring) {
       ring.classList.remove('waiting', 'ready', 'disabled');

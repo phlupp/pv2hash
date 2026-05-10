@@ -117,7 +117,8 @@
                             </div>
                         </div>
                         <strong data-dashboard-field="controller_summary">{{ controller_status.summary_text }}</strong>
-                        <small data-dashboard-field="controller_last_switch">Letzte Umschaltung: {{ controller_status.last_switch_at_text or "—" }}</small>
+                        <small data-dashboard-field="controller_last_switch">{{ controller_status.last_event_text }}</small>
+                        <small class="controller-event-meta" data-dashboard-field="controller_last_event_meta">{{ controller_status.last_event_meta_text }}</small>
                     </div>
                     <div class="controller-ring-panel">
                         <div data-dashboard-field="controller_ring" class="controller-ring {{ controller_status.switch_ring_state }}" style="--ring-progress: {{ controller_status.switch_progress }};">
