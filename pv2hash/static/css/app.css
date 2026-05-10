@@ -2480,16 +2480,21 @@ body.sidebar-collapsed .nav-icon {
   color: var(--text);
   font-weight: 800;
   line-height: 1;
-  cursor: help;
+  cursor: pointer;
   box-shadow: 0 8px 22px rgba(0, 0, 0, .28);
 }
 
 .datalogger-timeline-event:hover,
-.datalogger-timeline-event:focus-visible {
+.datalogger-timeline-event:focus-visible,
+.datalogger-timeline-event.is-active {
   z-index: 5;
   outline: none;
-  border-color: rgba(255, 255, 255, .5);
+  border-color: rgba(255, 255, 255, .62);
   transform: translate(-50%, -50%) scale(1.12);
+}
+
+.datalogger-timeline-event.is-active {
+  box-shadow: 0 0 0 3px rgba(155, 126, 255, .24), 0 10px 26px rgba(0, 0, 0, .32);
 }
 
 .datalogger-timeline-event.is-up {
@@ -2527,6 +2532,83 @@ body.sidebar-collapsed .nav-icon {
   background: rgba(255, 255, 255, .035);
   color: rgba(242, 245, 255, .82);
   font-size: .88rem;
+}
+
+
+.datalogger-timeline-detail {
+  margin-top: .75rem;
+  padding: .8rem .9rem;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, .38);
+  color: var(--muted);
+  font-size: .9rem;
+}
+
+.datalogger-timeline-detail.has-event {
+  color: rgba(242, 245, 255, .9);
+  background: rgba(255, 255, 255, .04);
+}
+
+.datalogger-timeline-detail-main {
+  display: flex;
+  flex-direction: column;
+  gap: .45rem;
+}
+
+.datalogger-timeline-detail-main > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem .75rem;
+  align-items: baseline;
+}
+
+.datalogger-timeline-detail-main strong {
+  color: var(--text);
+}
+
+.datalogger-timeline-detail-main p {
+  margin: 0;
+  color: rgba(242, 245, 255, .82);
+}
+
+.datalogger-timeline-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: .55rem;
+  margin-top: .7rem;
+}
+
+.datalogger-timeline-detail-grid span {
+  display: flex;
+  flex-direction: column;
+  gap: .18rem;
+  padding: .5rem .6rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .035);
+}
+
+.datalogger-timeline-detail-grid strong {
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.datalogger-timeline-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  margin-top: .7rem;
+}
+
+.datalogger-timeline-flag {
+  padding: .18rem .45rem;
+  border-radius: 999px;
+  background: rgba(155, 126, 255, .14);
+  color: #e4ddff;
+  font-size: .76rem;
 }
 
 .datalogger-timeline-empty {

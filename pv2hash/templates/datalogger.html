@@ -77,12 +77,14 @@
                         <h2>Reglerentscheidungen</h2>
                         <p class="card-subtitle">Echte angewendete Regler-Events aus der lokalen Controller-Event-Tabelle.</p>
                     </div>
-                    <span class="status-pill" data-datalogger-timeline-count>— Events</span>
                 </div>
                 <div class="datalogger-timeline" data-datalogger-timeline>
                     <div class="datalogger-timeline-empty">Reglerentscheidungen werden geladen …</div>
                 </div>
-                <p class="datalogger-timeline-help">Mouseover oder Fokus zeigt Details zur Entscheidung. Die Chart-Marker darunter verwenden dieselben Events.</p>
+                <div class="datalogger-timeline-detail" data-datalogger-timeline-detail>
+                    <span>Tippe oder klicke auf eine Reglerentscheidung, um Details anzuzeigen.</span>
+                </div>
+                <p class="datalogger-timeline-help">Tippen oder Klicken zeigt Details zur Entscheidung. Die Chart-Marker darunter verwenden dieselben Events.</p>
             </section>
 
 
@@ -93,8 +95,6 @@
                         <h2>Energiefluss</h2>
                         <p class="card-subtitle">Netzanschluss, Minerleistung und Batterie-Leistung im ausgewählten Zeitraum.</p>
                     </div>
-                    <span class="status-pill" data-datalogger-points>— Punkte</span>
-                    <span class="status-pill" data-datalogger-markers>— Profilwechsel</span>
                 </div>
                 <div class="chart-wrap">
                     <canvas id="dataloggerEnergyChart" height="120"></canvas>

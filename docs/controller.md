@@ -707,7 +707,7 @@ Was angezeigt wird, wurde vom Regler wirklich geloggt.
 Was fehlt, wurde nicht geloggt.
 ```
 
-Die DataLogger-Seite zeigt oben eine Karte **Reglerentscheidungen** mit einem Zeitstrahl. Die Symbole bedeuten:
+Die DataLogger-Seite zeigt oben eine Karte **Reglerentscheidungen** mit einem Zeitstrahl. Timeline-Punkte lassen sich per Klick oder Touch auswählen; die Detailkarte unter dem Zeitstrahl zeigt die Entscheidungsdetails. Die Symbole bedeuten:
 
 ```text
 ↑ Profil wurde erhöht / Miner wurde hochgeregelt

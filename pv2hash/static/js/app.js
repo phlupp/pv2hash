@@ -2710,15 +2710,57 @@
     return rows.filter(Boolean);
   }
 
+
+  function renderDataLoggerTimelineDetail(marker) {
+    const detail = document.querySelector('[data-datalogger-timeline-detail]');
+    if (!detail) return;
+    if (!marker) {
+      detail.innerHTML = '<span>Tippe oder klicke auf eine Reglerentscheidung, um Details anzuzeigen.</span>';
+      detail.classList.remove('has-event');
+      return;
+    }
+
+    const title = `${escapeHtml(formatDataLoggerDateTime(marker?.ts || marker?.at))} · ${escapeHtml(marker?.miner_name || marker?.miner_key || marker?.miner_id || 'Miner')}`;
+    const profile = `${escapeHtml(marker?.old_profile || '?')} → ${escapeHtml(marker?.new_profile || '?')}`;
+    const reason = escapeHtml(marker?.reason_text || marker?.reason_code || 'Reglerentscheidung');
+    const grid = marker?.grid_power_w !== null && marker?.grid_power_w !== undefined ? escapeHtml(formatDataLoggerNumber(marker.grid_power_w, ' W')) : '—';
+    const soc = marker?.battery_soc_pct !== null && marker?.battery_soc_pct !== undefined ? escapeHtml(formatDataLoggerNumber(marker.battery_soc_pct, ' %')) : '—';
+    const batteryDirection = marker?.battery_direction ? String(marker.battery_direction) : '';
+    const batteryPower = batteryDirection === 'charging' ? marker?.battery_charge_power_w : marker?.battery_discharge_power_w;
+    const batteryLabel = batteryDirection === 'charging' ? 'lädt' : batteryDirection === 'discharging' ? 'entlädt' : (batteryDirection || '—');
+    const battery = batteryPower !== null && batteryPower !== undefined
+      ? `${escapeHtml(batteryLabel)} · ${escapeHtml(formatDataLoggerNumber(batteryPower, ' W'))}`
+      : escapeHtml(batteryLabel);
+    const flags = Array.isArray(marker?.flags) && marker.flags.length
+      ? marker.flags.slice(0, 8).map((flag) => `<span class="datalogger-timeline-flag">${escapeHtml(flag)}</span>`).join('')
+      : '<span class="muted">Keine Flags</span>';
+
+    detail.innerHTML = `
+      <div class="datalogger-timeline-detail-main">
+        <div>
+          <strong>${title}</strong>
+          <span>${profile}</span>
+        </div>
+        <p>${reason}</p>
+      </div>
+      <div class="datalogger-timeline-detail-grid">
+        <span><strong>Netz</strong>${grid}</span>
+        <span><strong>SOC</strong>${soc}</span>
+        <span><strong>Batterie</strong>${battery}</span>
+      </div>
+      <div class="datalogger-timeline-flags">${flags}</div>
+    `;
+    detail.classList.add('has-event');
+  }
+
   function renderDataLoggerTimeline(markers, series) {
     const container = document.querySelector('[data-datalogger-timeline]');
-    const countBadge = document.querySelector('[data-datalogger-timeline-count]');
     const safeMarkers = Array.isArray(markers) ? markers : [];
-    if (countBadge) countBadge.textContent = `${safeMarkers.length.toLocaleString('de-DE')} Events`;
     if (!container) return;
     container.innerHTML = '';
     if (!safeMarkers.length) {
       container.innerHTML = '<div class="datalogger-timeline-empty">Keine Reglerentscheidungen im gewählten Zeitraum gespeichert.</div>';
+      renderDataLoggerTimelineDetail(null);
       return;
     }
 
@@ -2750,6 +2792,11 @@
       item.title = title;
       item.setAttribute('aria-label', title);
       item.innerHTML = `<span>${escapeHtml(dataLoggerMarkerSymbol(marker))}</span>`;
+      item.addEventListener('click', () => {
+        rail.querySelectorAll('.datalogger-timeline-event.is-active').forEach((node) => node.classList.remove('is-active'));
+        item.classList.add('is-active');
+        renderDataLoggerTimelineDetail(marker);
+      });
       rail.appendChild(item);
     }
 
@@ -2757,11 +2804,14 @@
     const latestInfo = document.createElement('div');
     latestInfo.className = 'datalogger-timeline-latest';
     const latestDetails = dataLoggerMarkerDetails(latest);
-    latestInfo.textContent = latestDetails.slice(0, 3).join(' · ');
+    latestInfo.textContent = `Letzte Entscheidung: ${latestDetails.slice(0, 3).join(' · ')}`;
 
     container.appendChild(rail);
     container.appendChild(ticks);
     container.appendChild(latestInfo);
+    const lastButton = rail.querySelector('.datalogger-timeline-event:last-of-type');
+    if (lastButton) lastButton.classList.add('is-active');
+    renderDataLoggerTimelineDetail(latest);
   }
 
   function mapDataLoggerMarkersToPoints(points, markers) {
@@ -3046,12 +3096,8 @@
 
     const empty = document.querySelector('[data-datalogger-empty]');
     if (empty) empty.hidden = points.length > 0;
-    const pointBadge = document.querySelector('[data-datalogger-points]');
-    if (pointBadge) pointBadge.textContent = `${points.length.toLocaleString('de-DE')} Punkte`;
     const markers = Array.isArray(series?.markers) ? series.markers : [];
     const mappedMarkers = mapDataLoggerMarkersToPoints(points, markers);
-    const markerBadge = document.querySelector('[data-datalogger-markers]');
-    if (markerBadge) markerBadge.textContent = `${markers.length.toLocaleString('de-DE')} Regler-Events`;
     renderDataLoggerTimeline(markers, series);
 
     const labels = points.map((point) => formatDataLoggerTime(point.ts, rangeName));

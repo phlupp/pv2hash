@@ -78,7 +78,7 @@ Die erste Chart-Ausbaustufe zeigt:
 - **Batterie:** SOC sowie Lade-/Entladeleistung; Ladeleistung wird positiv und Entladeleistung negativ dargestellt, die Watt-Achse wird symmetrisch um 0 skaliert
 - **Mining:** Gesamthashrate und Minerleistung
 
-Profilwechsel-Marker und der Zeitstrahl `Reglerentscheidungen` werden ausschließlich aus echten `controller_events` mit `event_type=applied` gelesen. Es gibt keinen errechneten Fallback über `history_miner_samples`; fehlende Marker zeigen damit bewusst an, dass kein Controller-Event gespeichert wurde.
+Profilwechsel-Marker und der Zeitstrahl `Reglerentscheidungen` werden ausschließlich aus echten `controller_events` mit `event_type=applied` gelesen. Es gibt keinen errechneten Fallback über `history_miner_samples`; fehlende Marker zeigen damit bewusst an, dass kein Controller-Event gespeichert wurde. Die Timeline-Punkte sind klick- und touchfähig; die Detailkarte unter dem Zeitstrahl zeigt Zeitpunkt, Miner, Profilwechsel, Grund, Netz-/Batteriewerte und Flags.
 
 Die Data-Logger-Seite lädt standardmäßig den Live-Bereich `1h` und aktualisiert die Charts bei sichtbarem Browser-Tab automatisch alle 30 Sekunden. Über die Zeitraum-Auswahl stehen zusätzlich `3h`, `6h`, `12h`, `24h` und `7d` zur Verfügung. Die Buttons `← Zurück` und `Weiter →` verschieben das aktuell gewählte Zeitfenster jeweils um die gewählte Auflösung. In dieser Historienansicht läuft kein Auto-Refresh. Mit `Live` springt die Ansicht wieder auf das aktuelle Zeitfenster der gewählten Auflösung und aktiviert den Auto-Refresh.
 
