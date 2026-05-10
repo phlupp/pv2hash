@@ -39,6 +39,15 @@ def clamp_profile_to_max(profile: str | None, max_allowed_profile: str | None) -
     return normalized_profile
 
 
+def clamp_profile_to_min(profile: str | None, min_allowed_profile: str | None) -> str:
+    normalized_profile = _normalize_profile(profile)
+    normalized_min = _normalize_profile(min_allowed_profile)
+
+    if PROFILE_INDEX[normalized_profile] < PROFILE_INDEX[normalized_min]:
+        return normalized_min
+    return normalized_profile
+
+
 def apply_profile_caps(
     profiles: list[str],
     max_profiles: list[str],
@@ -248,6 +257,108 @@ def get_step_down_plan(distribution_mode: str, miners: list) -> DistributionPlan
             delta_power_w=0.0,
             changed=False,
             reason="already_at_bottom",
+        )
+
+    return DistributionPlan(
+        profiles=current,
+        delta_power_w=0.0,
+        changed=False,
+        reason="unknown_distribution_mode",
+    )
+
+
+def get_step_down_plan_to_profiles(
+    distribution_mode: str,
+    miners: list,
+    floor_profiles: list[str],
+) -> DistributionPlan:
+    current = get_current_profiles(miners)
+    active = _active_indices(miners)
+
+    if not active:
+        return DistributionPlan(
+            profiles=current,
+            delta_power_w=0.0,
+            changed=False,
+            reason="no_active_miners",
+        )
+
+    def step_down_index(idx: int) -> tuple[str, float] | None:
+        current_profile = _normalize_profile(current[idx])
+        floor_profile = _normalize_profile(
+            floor_profiles[idx] if idx < len(floor_profiles) else miners[idx].get_min_regulated_profile()
+        )
+
+        if PROFILE_INDEX[current_profile] <= PROFILE_INDEX[floor_profile]:
+            return None
+
+        prev_profile = clamp_profile_to_min(
+            _prev_profile(current_profile, floor_profile),
+            floor_profile,
+        )
+
+        if prev_profile == current_profile:
+            return None
+
+        delta = max(
+            0.0,
+            miners[idx].get_profile_power_w(current_profile)
+            - miners[idx].get_profile_power_w(prev_profile),
+        )
+        return prev_profile, delta
+
+    if distribution_mode == "equal":
+        target = current.copy()
+        delta = 0.0
+        changed = False
+
+        for idx in active:
+            step = step_down_index(idx)
+            if step is None:
+                continue
+
+            prev_profile, step_delta = step
+            target[idx] = prev_profile
+            delta += step_delta
+            changed = True
+
+        if not changed:
+            return DistributionPlan(
+                profiles=current,
+                delta_power_w=0.0,
+                changed=False,
+                reason="already_at_battery_floor",
+            )
+
+        return DistributionPlan(
+            profiles=target,
+            delta_power_w=delta,
+            changed=True,
+            reason="equal:battery_step_down",
+        )
+
+    if distribution_mode == "cascade":
+        for idx in reversed(active):
+            step = step_down_index(idx)
+            if step is None:
+                continue
+
+            prev_profile, delta = step
+            target = current.copy()
+            target[idx] = prev_profile
+
+            return DistributionPlan(
+                profiles=target,
+                delta_power_w=delta,
+                changed=True,
+                reason=f"cascade:{idx}:battery_step_down",
+            )
+
+        return DistributionPlan(
+            profiles=current,
+            delta_power_w=0.0,
+            changed=False,
+            reason="already_at_battery_floor",
         )
 
     return DistributionPlan(

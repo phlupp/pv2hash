@@ -8,6 +8,7 @@ from pv2hash.controller.distribution import (
     apply_profile_caps,
     get_current_profiles,
     get_step_down_plan,
+    get_step_down_plan_to_profiles,
     get_step_up_plan,
     is_profile_higher,
     max_profile,
@@ -42,6 +43,7 @@ class ControllerState:
 class MinerBatteryPolicy:
     target_profile: str | None
     max_profile: str
+    step_down_floor_profile: str | None
     reason: str | None
 
 
@@ -183,7 +185,31 @@ class BasicController:
                     grid_power_w,
                 )
             else:
-                if self._should_step_down(
+                if self._should_step_down_for_battery_discharge(
+                    battery_context=battery_context,
+                    current_profiles=current_profiles,
+                ):
+                    floor_profiles = [
+                        policy.step_down_floor_profile or current_profiles[idx]
+                        for idx, policy in enumerate(battery_context.policies)
+                    ]
+                    down_plan = get_step_down_plan_to_profiles(
+                        distribution_mode,
+                        miners,
+                        floor_profiles,
+                    )
+
+                    if down_plan.changed:
+                        candidate_profiles = down_plan.profiles
+                        action = "battery_step_down"
+                        summary = self._build_battery_summary(
+                            battery_context=battery_context,
+                            fallback=(
+                                f"battery_step_down ({distribution_mode}, "
+                                f"release≈{down_plan.delta_power_w:.0f}W)"
+                            ),
+                        )
+                elif self._should_step_down(
                     grid_power_w=grid_power_w,
                     now_monotonic=now_mono,
                     current_profiles=current_profiles,
@@ -200,7 +226,9 @@ class BasicController:
                                 f"release≈{down_plan.delta_power_w:.0f}W)"
                             ),
                         )
-                else:
+                elif not self._should_hold_normal_step_up_for_battery_discharge(
+                    battery_context=battery_context,
+                ):
                     up_plan = get_step_up_plan(distribution_mode, miners)
                     required_export_w = up_plan.delta_power_w + self.switch_hysteresis_w
 
@@ -218,6 +246,11 @@ class BasicController:
                                 f"need≈{up_plan.delta_power_w:.0f}W)"
                             ),
                         )
+                else:
+                    summary = self._build_battery_summary(
+                        battery_context=battery_context,
+                        fallback=f"hold ({distribution_mode})",
+                    )
 
                 uncapped_candidate_profiles = candidate_profiles
                 candidate_profiles = apply_profile_caps(candidate_profiles, max_profiles)
@@ -286,7 +319,7 @@ class BasicController:
         self.state.live_profiles_since_monotonic = now_mono
         self.state.last_live_hold_log_key = None
 
-        if action in {"step_down", "battery_limit"}:
+        if action in {"step_down", "battery_limit", "battery_step_down"}:
             self._reset_import_tracking()
         else:
             self.state.last_import_log_key = None
@@ -387,6 +420,7 @@ class BasicController:
         unrestricted = MinerBatteryPolicy(
             target_profile=None,
             max_profile="p4",
+            step_down_floor_profile=None,
             reason=None,
         )
 
@@ -395,6 +429,7 @@ class BasicController:
                 return MinerBatteryPolicy(
                     target_profile=min_profile,
                     max_profile=min_profile,
+                    step_down_floor_profile=None,
                     reason="battery_discharge_blocked",
                 )
 
@@ -402,6 +437,7 @@ class BasicController:
                 return MinerBatteryPolicy(
                     target_profile=min_profile,
                     max_profile=min_profile,
+                    step_down_floor_profile=None,
                     reason="battery_soc_missing",
                 )
 
@@ -409,6 +445,7 @@ class BasicController:
                 return MinerBatteryPolicy(
                     target_profile=min_profile,
                     max_profile=min_profile,
+                    step_down_floor_profile=None,
                     reason="battery_discharge_soc_below_min",
                 )
 
@@ -418,7 +455,8 @@ class BasicController:
             )
             return MinerBatteryPolicy(
                 target_profile=configured_profile,
-                max_profile=configured_profile,
+                max_profile="p4",
+                step_down_floor_profile=configured_profile,
                 reason="battery_discharge_target",
             )
 
@@ -436,10 +474,42 @@ class BasicController:
             return MinerBatteryPolicy(
                 target_profile=configured_profile,
                 max_profile=configured_profile,
+                step_down_floor_profile=None,
                 reason="battery_charge_target",
             )
 
         return unrestricted
+
+    def _should_step_down_for_battery_discharge(
+        self,
+        *,
+        battery_context: BatteryContext,
+        current_profiles: list[str],
+    ) -> bool:
+        if battery_context.mode != "discharging":
+            return False
+
+        for idx, policy in enumerate(battery_context.policies):
+            if policy.step_down_floor_profile is None:
+                continue
+
+            if is_profile_higher(current_profiles[idx], policy.step_down_floor_profile):
+                return True
+
+        return False
+
+    def _should_hold_normal_step_up_for_battery_discharge(
+        self,
+        *,
+        battery_context: BatteryContext,
+    ) -> bool:
+        if battery_context.mode != "discharging":
+            return False
+
+        return any(
+            policy.step_down_floor_profile is not None
+            for policy in battery_context.policies
+        )
 
     def _can_force_battery_targets(
         self,

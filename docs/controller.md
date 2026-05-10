@@ -1,6 +1,6 @@
 # PV2Hash-Regler
 
-Stand: PV2Hash 0.6.14 mit Regler-Anpassung für Batterie-Laden und Netzeinspeisung.
+Stand: PV2Hash 0.7.7 mit Regler-Anpassung für stufenweises Batterie-Entladen.
 
 Diese Dokumentation beschreibt den aktuellen Aufbau des Reglers, die Prioritäten und typische Beispiele. Ziel ist, spätere Änderungen am Regler nachvollziehbar und sicher durchführen zu können.
 
@@ -14,7 +14,7 @@ Grundprinzip:
 Netzeinspeisung  -> Miner dürfen hochregeln
 Netzbezug        -> Miner müssen runterregeln
 Batterie lädt    -> Batterie wird bevorzugt, blockiert echten Netzexport aber nicht mehr hart
-Batterie entlädt -> Batterieschutz greift und begrenzt Miner
+Batterie entlädt -> Batterieprofil wird aktiv genutzt, oberhalb davon stufenweise reduziert
 ```
 
 Die zentrale Führungsgröße ist immer der Netzanschlusspunkt. Die Batterie ist eine zusätzliche Schutz- und Priorisierungslogik.
@@ -55,12 +55,13 @@ Vereinfacht arbeitet der Regler in dieser Reihenfolge:
 2. Bei Messwertausfall Source-Loss-Verhalten anwenden
 3. Bei Live-Werten Batterie-Kontext bestimmen
 4. Batterie-Policies pro Miner berechnen
-5. Batterie-Limit anwenden, falls aktiv
-6. Batterie-Zielprofil anwenden, falls erlaubt
-7. Netzbezug prüfen und nach Hold-Zeit runterregeln
-8. Netzeinspeisung prüfen und bei ausreichendem Überschuss hochregeln
-9. Mindest-Schaltintervall beachten
-10. Ergebnisprofile setzen oder Zustand halten
+5. Harte Batterie-Limits anwenden, falls Batterieentladung nicht erlaubt ist oder SOC fehlt/zu niedrig ist
+6. Batterie-Zielprofil anwenden, falls erlaubt und das aktuelle Profil darunter liegt
+7. Bei Batterieentladung oberhalb des Entladeprofils stufenweise bis zum Entladeprofil runterregeln
+8. Netzbezug prüfen und nach Hold-Zeit runterregeln
+9. Netzeinspeisung prüfen und bei ausreichendem Überschuss hochregeln
+10. Mindest-Schaltintervall beachten
+11. Ergebnisprofile setzen oder Zustand halten
 ```
 
 ## Messwertausfall
@@ -206,7 +207,7 @@ Die Erkennung nutzt die vom Source-Treiber gelieferten Flags oder die gemessene 
 
 ## Batterie entlädt
 
-Batterieentladung ist ein Schutzmodus.
+Batterieentladung ist eine bewusste Betriebsfreigabe mit Schutzgrenze.
 
 Pro Miner wird geprüft:
 
@@ -214,10 +215,10 @@ Pro Miner wird geprüft:
 Darf der Miner bei Batterieentladung laufen?
 Ist ein SOC-Wert vorhanden?
 Ist der SOC hoch genug?
-Welches Profil ist bei Entladung erlaubt?
+Welches Profil ist bei Entladung vorgesehen?
 ```
 
-Wenn Entladung nicht erlaubt ist, der SOC fehlt oder der SOC zu niedrig ist, wird der Miner auf sein kleinstes geregeltes Profil begrenzt.
+Wenn Entladung nicht erlaubt ist, der SOC fehlt oder der SOC zu niedrig ist, wird der Miner auf sein kleinstes geregeltes Profil begrenzt. Diese Fälle bleiben harte Limits.
 
 Beispiel:
 
@@ -230,17 +231,35 @@ Miner-Floor = off
 -> Miner wird auf off begrenzt
 ```
 
-Wenn Entladung erlaubt ist und der SOC hoch genug ist:
+Wenn Entladung erlaubt ist und der SOC hoch genug ist, ist das Entladeprofil das gewünschte Zielniveau für Batteriebetrieb. Der Regler nutzt dieses Profil aber nicht mehr als harte Sofort-Kappung, solange der Miner oberhalb davon läuft. Stattdessen wird stufenweise heruntergeregelt.
+
+Beispiel:
 
 ```text
 Batterie entlädt
 SOC = 80 %
 Profil bei Entladung = p1
+Miner läuft aktuell auf p3
 
--> Miner wird maximal auf p1 begrenzt
+-> erster Regelschritt: p3 -> p2
+-> nach Mindest-Schaltintervall, falls Batterie weiter entlädt: p2 -> p1
+-> bei p1 wird gehalten
 ```
 
-Diese Regel bleibt absichtlich hart. Sie verhindert, dass Miner die Batterie leerziehen, auch wenn am Netzanschlusspunkt noch kein Netzbezug sichtbar ist.
+Läuft der Miner unterhalb des Entladeprofils, darf der Regler ihn bewusst bis zum Entladeprofil hochregeln, sofern die übrigen Schutzbedingungen erfüllt sind.
+
+Beispiel:
+
+```text
+Batterie entlädt
+SOC = 80 %
+Profil bei Entladung = p1
+Miner läuft aktuell auf off
+
+-> Miner darf auf p1 gehen
+```
+
+Während aktiver Batterieentladung wird oberhalb des Entladeprofils nicht normal hochgeregelt. Erst wenn die Batterie nicht mehr entlädt oder wieder echte Netzeinspeisung über die normale Netzanschlusslogik nutzbar ist, übernimmt wieder der reguläre Step-Up-Pfad.
 
 ## Batterie lädt
 
@@ -348,11 +367,12 @@ Dann greift die Batterie-Entlade-Regel:
 
 ```text
 Batterie entlädt
--> Batterieschutz aktiv
--> Miner wird auf das konfigurierte Entladeprofil begrenzt, z. B. p1 oder off
+-> Entladeprofil wird aktiv
+-> Miner wird nicht sofort hart gekappt
+-> Regler reduziert in normalen Regelschritten bis zum konfigurierten Entladeprofil, z. B. p1
 ```
 
-Damit bleibt die Batterie geschützt, auch wenn am Netzanschluss noch kein Netzbezug sichtbar wird.
+Damit wird die Übergangsphase ruhiger: ein kleiner Batteriebezug führt nicht mehr sofort zu einem großen Leistungssprung nach unten und anschließendem erneuten Hochregeln.
 
 ## Beispiel: Batterie lädt, aber kein Netzexport
 
@@ -411,8 +431,10 @@ Netzanschluss:
     Netzbezug reduziert immer
 
 Batterie entlädt:
-    harte Schutzlogik
-    Miner werden begrenzt
+    bewusster Batteriebetrieb bis zum Entlade-SOC
+    unterhalb des Entladeprofils darf hochgeregelt werden
+    oberhalb des Entladeprofils wird stufenweise reduziert
+    harte Limits gelten weiterhin, wenn Entladen nicht erlaubt ist oder SOC fehlt/zu niedrig ist
 
 Batterie lädt:
     weiche Priorisierung
