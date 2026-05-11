@@ -17,6 +17,7 @@ logger = get_logger("pv2hash.miners.axeos")
 class AxeOsMiner(MinerAdapter):
     DRIVER_LABEL = "axeOS / ESP-Miner"
     FIXED_PROFILE_POWER_W = 200.0
+    OFF_POWER_THRESHOLD_W = 5.0
 
     @classmethod
     def has_fixed_power_profiles(cls) -> bool:
@@ -33,8 +34,8 @@ class AxeOsMiner(MinerAdapter):
     @classmethod
     def get_actions_schema(cls) -> list[DriverAction]:
         return [
-            DriverAction(name="pause_mining", label="Mining pausieren", description="Sendet POST /api/system/pause.", confirm_text="Mining auf diesem axeOS-Miner wirklich pausieren?", disabled_when_control_enabled=True),
-            DriverAction(name="resume_mining", label="Mining fortsetzen", description="Sendet POST /api/system/resume.", confirm_text="Mining auf diesem axeOS-Miner wirklich fortsetzen?", disabled_when_control_enabled=True),
+            DriverAction(name="pause_mining", label="Mining stoppen", description="Sendet POST /api/system/shutdown. PV2Hash wertet den Miner danach bei Leistung < 5 W als off.", confirm_text="Mining auf diesem axeOS-Miner wirklich per Shutdown stoppen?", disabled_when_control_enabled=True),
+            DriverAction(name="resume_mining", label="Mining starten", description="Sendet POST /api/system/restart. Wird für axeOS zum Starten nach Shutdown verwendet.", confirm_text="Mining auf diesem axeOS-Miner wirklich per Restart starten?", disabled_when_control_enabled=True),
             DriverAction(name="identify", label="Miner identifizieren", description="Sendet POST /api/system/identify."),
             DriverAction(name="restart_system", label="Miner neu starten", description="Sendet POST /api/system/restart.", confirm_text="axeOS-Miner jetzt wirklich neu starten?", dangerous=True),
         ]
@@ -101,24 +102,34 @@ class AxeOsMiner(MinerAdapter):
                 base = f"{base}:{self.port}"
         return base
 
-    def _request_json(self, method: str, path: str) -> dict[str, Any]:
+    def _request_text(self, method: str, path: str, accept: str = "application/json, text/plain, */*") -> str:
         url = f"{self._base_url()}{path}"
-        request = Request(url, method=method.upper(), headers={"Accept": "application/json"})
+        request = Request(url, method=method.upper(), headers={"Accept": accept})
         if method.upper() == "POST":
             request.add_header("Content-Length", "0")
         try:
             with urlopen(request, timeout=self.timeout_s) as response:
-                body = response.read().decode("utf-8", errors="replace")
+                return response.read().decode("utf-8", errors="replace")
         except HTTPError as exc:
             raise RuntimeError(f"HTTP {exc.code} for {path}: {exc.reason}") from exc
         except URLError as exc:
             raise RuntimeError(f"HTTP connection failed for {path}: {exc.reason}") from exc
+
+    def _request_json(self, method: str, path: str) -> dict[str, Any]:
+        body = self._request_text(method, path, accept="application/json")
         if not body.strip():
             return {}
         try:
             return json.loads(body)
         except json.JSONDecodeError as exc:
             raise RuntimeError(f"Invalid JSON from {path}: {body[:200]!r}") from exc
+
+    def _post_system_command(self, path: str, expected_text: str | None = None) -> dict[str, Any]:
+        body = self._request_text("POST", path)
+        text = body.strip()
+        if expected_text and expected_text.lower() not in text.lower():
+            logger.debug("axeOS command %s for %s (%s) returned unexpected text: %r", path, self.info.name, self.host, text[:200])
+        return {"text": text}
 
     @staticmethod
     def _num(value: Any, default: float = 0.0) -> float:
@@ -167,9 +178,11 @@ class AxeOsMiner(MinerAdapter):
         return self._last_system_info
 
     def _apply_system_info(self, payload: dict[str, Any]) -> None:
-        paused = bool(payload.get("miningPaused", False))
-        live_power = self._num(payload.get("power"), 0.0)
-        hashrate_ghs = self._num(payload.get("hashRate"), 0.0)
+        raw_power = payload.get("power")
+        live_power = self._num(raw_power, 0.0)
+        off_by_power = raw_power is not None and live_power < self.OFF_POWER_THRESHOLD_W
+        paused = bool(payload.get("miningPaused", False)) or off_by_power
+        hashrate_ghs = 0.0 if paused else self._num(payload.get("hashRate"), 0.0)
         self.info.reachable = True
         self.info.last_error = None
         self.info.last_seen = datetime.now(UTC)
@@ -181,9 +194,14 @@ class AxeOsMiner(MinerAdapter):
         self.info.temp_c = self._num(payload.get("temp"), None)
         self.info.temp_asic_min_c = self._num(payload.get("temp2"), None) or self.info.temp_c
         self.info.temp_asic_max_c = max([v for v in (self.info.temp_c, self.info.temp_asic_min_c) if v is not None], default=None)
-        self.info.power_w = 0.0 if paused else (live_power or self.get_profile_power_w("p1"))
-        self.info.runtime_state = "paused" if paused else "running"
-        self.info.profile = "off" if paused else (self.target_profile if self.target_profile in {"p1", "p2", "p3", "p4"} else "p1")
+        if paused:
+            self.info.power_w = live_power if raw_power is not None else 0.0
+            self.info.runtime_state = "paused"
+            self.info.profile = "off"
+        else:
+            self.info.power_w = live_power or self.get_profile_power_w("p1")
+            self.info.runtime_state = "running"
+            self.info.profile = self.target_profile if self.target_profile in {"p1", "p2", "p3", "p4"} else "p1"
         self.info.is_active = bool(self.info.enabled)
 
     async def set_profile(self, profile: str) -> None:
@@ -192,12 +210,18 @@ class AxeOsMiner(MinerAdapter):
         desired_w = 0.0 if profile == "off" else self.get_profile_power_w(profile)
         try:
             if profile == "off" or desired_w <= 0:
-                await asyncio.to_thread(self._request_json, "POST", "/api/system/pause")
+                response = await asyncio.to_thread(self._post_system_command, "/api/system/shutdown", "shutdown")
+                logger.info("axeOS shutdown requested for %s (%s): %s", self.info.name, self.host, response)
                 self.info.power_w = 0.0
                 self.info.runtime_state = "paused"
             else:
-                await asyncio.to_thread(self._request_json, "POST", "/api/system/resume")
-                self.info.power_w = desired_w
+                is_currently_off = self.info.runtime_state in {"paused", "stopped"} or self.info.power_w < self.OFF_POWER_THRESHOLD_W
+                if is_currently_off:
+                    response = await asyncio.to_thread(self._post_system_command, "/api/system/restart", "restart")
+                    logger.info("axeOS restart requested for %s (%s): %s", self.info.name, self.host, response)
+                else:
+                    logger.debug("axeOS %s (%s) already running; keeping active profile %s without restart", self.info.name, self.host, profile)
+                self.info.power_w = max(float(desired_w), self.info.power_w)
                 self.info.runtime_state = "running"
             self.info.reachable = True
             self.info.last_error = None
@@ -222,17 +246,17 @@ class AxeOsMiner(MinerAdapter):
 
     def apply_action(self, action_name: str) -> dict[str, Any]:
         path_map = {
-            "pause_mining": ("/api/system/pause", "Mining pausiert"),
-            "resume_mining": ("/api/system/resume", "Mining fortgesetzt"),
-            "identify": ("/api/system/identify", "Identify ausgelöst"),
-            "restart_system": ("/api/system/restart", "Neustart ausgelöst"),
+            "pause_mining": ("/api/system/shutdown", "Mining per Shutdown gestoppt", "shutdown"),
+            "resume_mining": ("/api/system/restart", "Mining per Restart gestartet", "restart"),
+            "identify": ("/api/system/identify", "Identify ausgelöst", None),
+            "restart_system": ("/api/system/restart", "Neustart ausgelöst", "restart"),
         }
         item = path_map.get(action_name)
         if item is None:
             return {"ok": False, "message": f"Unbekannte axeOS-Aktion: {action_name}"}
-        path, message = item
+        path, message, expected_text = item
         try:
-            response = self._request_json("POST", path)
+            response = self._post_system_command(path, expected_text)
             logger.info("axeOS action %s for %s (%s): %s", action_name, self.info.name, self.host, response)
             return {"ok": True, "message": message, "response": response}
         except Exception as exc:
@@ -281,12 +305,14 @@ class AxeOsMiner(MinerAdapter):
                 {"label": "axeOS", "value": self._text(info.get("axeOSVersion"))},
                 {"label": "Firmware", "value": self._text(info.get("version"))},
                 {"label": "Mining pausiert", "value": self._yes_no(info.get("miningPaused"))},
+                {"label": "PV2Hash Off-Erkennung", "value": self._yes_no(info.get("power") is not None and self._num(info.get("power"), 0.0) < self.OFF_POWER_THRESHOLD_W)},
                 {"label": "Uptime", "value": self._format_seconds(info.get("uptimeSeconds"))},
             ]},
             {"id": "performance", "title": "Leistung / Hashrate", "items": [
                 {"label": "Leistung", "value": f"{self._num(info.get('power')):.1f} W"},
                 {"label": "Max Power", "value": f"{self._num(info.get('maxPower')):.0f} W" if info.get("maxPower") is not None else "—"},
                 {"label": "Profil-Leistung", "value": "p1-p4 fest 200 W (Start/Stop-only)"},
+                {"label": "Off-Schwelle", "value": f"< {self.OFF_POWER_THRESHOLD_W:.0f} W"},
                 {"label": "Hashrate", "value": f"{self._num(info.get('hashRate')):.2f} GH/s"},
                 {"label": "Hashrate 1m", "value": f"{self._num(info.get('hashRate_1m')):.2f} GH/s"},
                 {"label": "Hashrate 10m", "value": f"{self._num(info.get('hashRate_10m')):.2f} GH/s"},

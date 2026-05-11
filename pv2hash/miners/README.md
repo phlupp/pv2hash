@@ -451,22 +451,24 @@ Supported devices:
 
 API behavior:
 
-- HTTP JSON API, normally without authentication
+- HTTP API, normally without authentication
 - Default port: `80`
 - Read status from `GET /api/system/info`
 - Read ASIC metadata from `GET /api/system/asic`
-- Pause mining with `POST /api/system/pause`
-- Resume mining with `POST /api/system/resume`
+- Stop mining with `POST /api/system/shutdown`
+- Start mining from shutdown/off with `POST /api/system/restart`
 - Restart device with `POST /api/system/restart`
 - Identify device with `POST /api/system/identify`
 
 PV2Hash adaptation:
 
 - axeOS does not provide a watt-based regulation API.
-- `off` maps to `POST /api/system/pause`.
-- `p1` to `p4` map to `POST /api/system/resume`.
+- `off` maps to `POST /api/system/shutdown`.
+- `p1` to `p4` are active/on profiles. If the miner is currently off, PV2Hash starts it with `POST /api/system/restart`.
 - `p1` to `p4` are preset to `200 W` and exposed as read-only profile values.
 - The fixed profile value is used by the PV2Hash controller as an accounting value only. It is not sent to the miner as a power target.
+- Some axeOS builds do not set `miningPaused` after shutdown. PV2Hash therefore treats the miner as `off` when the reported power is below `5 W`.
+- The shutdown/restart endpoints may return plain text such as `System will shutdown shortly.` or `System will restart shortly.` instead of JSON; the driver accepts these responses.
 
 This driver is intentionally `start_stop_only`. It should not pretend to support fine-grained power control.
 
