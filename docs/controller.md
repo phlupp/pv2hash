@@ -1,6 +1,6 @@
 # PV2Hash-Regler
 
-Stand: PV2Hash 0.7.9 mit Regler-Anpassung für stufenweises Batterie-Entladen, lokalem Regler-Event-Log und DataLogger-Zeitstrahl.
+Stand: PV2Hash 0.7.13 mit Regler-Anpassung für stufenweises Batterie-Entladen, modusbezogenen SOC-Grenzen, lokalem Regler-Event-Log und DataLogger-Zeitstrahl.
 
 Diese Dokumentation beschreibt den aktuellen Aufbau des Reglers, die Prioritäten und typische Beispiele. Ziel ist, spätere Änderungen am Regler nachvollziehbar und sicher durchführen zu können.
 
@@ -13,7 +13,7 @@ Grundprinzip:
 ```text
 Netzeinspeisung  -> Miner dürfen hochregeln
 Netzbezug        -> Miner müssen runterregeln
-Batterie lädt    -> Batterie wird bevorzugt, blockiert echten Netzexport aber nicht mehr hart
+Batterie lädt    -> Batterie wird bevorzugt; unter Lade-SOC wird ohne echten Export stufenweise reduziert
 Batterie entlädt -> Batterieprofil wird aktiv genutzt, oberhalb davon stufenweise reduziert
 ```
 
@@ -56,12 +56,13 @@ Vereinfacht arbeitet der Regler in dieser Reihenfolge:
 3. Bei Live-Werten Batterie-Kontext bestimmen
 4. Batterie-Policies pro Miner berechnen
 5. Harte Batterie-Limits anwenden, falls Batterieentladung nicht erlaubt ist oder SOC fehlt/zu niedrig ist
-6. Batterie-Zielprofil anwenden, falls erlaubt und das aktuelle Profil darunter liegt
-7. Bei Batterieentladung oberhalb des Entladeprofils stufenweise bis zum Entladeprofil runterregeln
-8. Netzbezug prüfen und nach Hold-Zeit runterregeln
-9. Netzeinspeisung prüfen und bei ausreichendem Überschuss hochregeln
-10. Mindest-Schaltintervall beachten
-11. Ergebnisprofile setzen oder Zustand halten
+6. Bei Batterieladung unter Lade-SOC ohne echten Netzexport stufenweise bis zum Min-Profil runterregeln
+7. Batterie-Zielprofil anwenden, falls erlaubt und das aktuelle Profil darunter liegt
+8. Bei Batterieentladung oberhalb des Entladeprofils stufenweise bis zum Entladeprofil runterregeln
+9. Netzbezug prüfen und nach Hold-Zeit runterregeln
+10. Netzeinspeisung prüfen und bei ausreichendem Überschuss hochregeln
+11. Mindest-Schaltintervall beachten
+12. Ergebnisprofile setzen oder Zustand halten
 ```
 
 ## Messwertausfall
@@ -287,6 +288,57 @@ Profil bei Laden = p1
 -> Miner darf auf p1 gehen
 ```
 
+Die Lade-SOC-Grenze ist eine untere Freigabegrenze für Mining während aktiver Batterieladung. Wenn die Batterie lädt, Batterienutzung beim Laden für den Miner erlaubt ist, aber der SOC noch unter dieser Grenze liegt, wird der Miner nicht allein wegen der Batterieladung weiter betrieben. Ohne echten Netzexport reduziert der Regler stufenweise bis zum kleinsten geregelten Profil des Miners. Bei ON/OFF-Minern ist das typischerweise `off`.
+
+Beispiel:
+
+```text
+Batterie lädt
+SOC = 35 %
+Mindest-SOC Laden = 60 %
+Miner-Floor = off
+Miner läuft aktuell auf p1
+kein echter Netzexport
+
+-> Regler reduziert stufenweise bis off
+```
+
+Echter Netzexport bleibt davon unberührt. Wenn trotz niedrigem SOC ausreichend Einspeisung am Netzanschlusspunkt vorhanden ist, darf der normale Netzexport-Regler den Miner halten oder hochregeln. Das ist wichtig, wenn die Batterie zum Beispiel wegen eines Fehlers oder eigener Leistungsbegrenzung nicht mehr weiter geladen wird und der PV-Überschuss sonst eingespeist würde.
+
+Beispiel:
+
+```text
+Batterie lädt
+SOC = 35 %
+Mindest-SOC Laden = 60 %
+Netzanschluss speist 1200 W ein
+Hysterese = 100 W
+nächster Profilschritt benötigt 700 W
+
+-> echter Export ist ausreichend
+-> normaler Step-Up ist erlaubt
+```
+
+## Modusbezogene SOC-Grenzen
+
+Die SOC-Grenzen für Laden und Entladen beeinflussen sich nicht gegenseitig global. Relevant ist immer der aktuelle Batteriemodus:
+
+```text
+Batterie lädt:
+    Lade-SOC-Grenze entscheidet, ob Mining aus Batterieladung freigegeben ist.
+
+Batterie entlädt:
+    Entlade-SOC-Grenze entscheidet, ob Mining aus Batterieentladung erlaubt bleibt.
+
+Batterie inaktiv:
+    Batterie-SOC-Grenzen greifen nicht direkt; der Netzanschluss-Regler entscheidet.
+
+Echter Netzexport:
+    darf unabhängig von den Batterie-SOC-Grenzen genutzt werden.
+```
+
+Dadurch sind Hysteresen möglich, z. B. Entladen bis 50 %, aber Starten beim Laden erst ab 60 %. Umgekehrt ist auch erlaubt, wenn der Betreiber bewusst früher wieder beim Laden minen möchte.
+
 ## Anpassung: Batterie-Laden blockiert echten Netzexport nicht mehr hart
 
 Früher war das Batterie-Ladeprofil gleichzeitig Zielprofil und harte Obergrenze. Dadurch konnte folgender Fall entstehen:
@@ -437,9 +489,9 @@ Batterie entlädt:
     harte Limits gelten weiterhin, wenn Entladen nicht erlaubt ist oder SOC fehlt/zu niedrig ist
 
 Batterie lädt:
-    weiche Priorisierung
-    Batterie wird bevorzugt
-    echter Netzexport darf aber genutzt werden
+    modusbezogene Freigabe über Lade-SOC
+    unter Lade-SOC wird ohne echten Netzexport stufenweise bis min/off reduziert
+    bei ausreichendem echtem Netzexport darf trotzdem gehalten oder hochgeregelt werden
 
 Mindest-Schaltintervall:
     verhindert zu häufige Wechsel
@@ -553,6 +605,9 @@ battery_limit_apply
 battery_discharge_step_down
     Batterie entlädt, Profil wird schrittweise bis zum Entladeprofil reduziert.
 
+battery_charge_soc_step_down
+    Batterie lädt, aber der Lade-SOC ist noch nicht erreicht; ohne echten Netzexport wird stufenweise bis min/off reduziert.
+
 source_loss_fallback_off
     Quelle ist nicht live, Fallback schaltet Miner aus.
 
@@ -599,6 +654,8 @@ battery_soc_ok
 battery_soc_low
 battery_soc_missing
 battery_charge_target
+battery_charge_soc_below_min
+battery_charge_soc_missing
 battery_discharge_target
 battery_discharge_blocked
 battery_discharge_soc_below_min

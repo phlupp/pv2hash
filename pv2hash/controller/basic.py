@@ -190,7 +190,32 @@ class BasicController:
                     grid_power_w,
                 )
             else:
-                if self._should_step_down_for_battery_discharge(
+                if self._should_step_down_for_battery_charge_guard(
+                    battery_context=battery_context,
+                    current_profiles=current_profiles,
+                ):
+                    floor_profiles = [
+                        policy.step_down_floor_profile or current_profiles[idx]
+                        for idx, policy in enumerate(battery_context.policies)
+                    ]
+                    down_plan = get_step_down_plan_to_profiles(
+                        distribution_mode,
+                        miners,
+                        floor_profiles,
+                    )
+
+                    if down_plan.changed:
+                        candidate_profiles = down_plan.profiles
+                        action = "battery_charge_step_down"
+                        distribution_reason = down_plan.reason
+                        summary = self._build_battery_summary(
+                            battery_context=battery_context,
+                            fallback=(
+                                f"battery_charge_step_down ({distribution_mode}, "
+                                f"release≈{down_plan.delta_power_w:.0f}W)"
+                            ),
+                        )
+                elif self._should_step_down_for_battery_discharge(
                     battery_context=battery_context,
                     current_profiles=current_profiles,
                 ):
@@ -327,7 +352,12 @@ class BasicController:
         self.state.live_profiles_since_monotonic = now_mono
         self.state.last_live_hold_log_key = None
 
-        if action in {"step_down", "battery_limit", "battery_step_down"}:
+        if action in {
+            "step_down",
+            "battery_limit",
+            "battery_step_down",
+            "battery_charge_step_down",
+        }:
             self._reset_import_tracking()
         else:
             self.state.last_import_log_key = None
@@ -368,6 +398,14 @@ class BasicController:
                     "new": candidate_profiles,
                     "max_allowed": max_profiles,
                     "battery_targets": target_profiles,
+                    "battery_step_down_floors": [
+                        policy.step_down_floor_profile
+                        for policy in battery_context.policies
+                    ],
+                    "battery_policy_reasons": [
+                        policy.reason
+                        for policy in battery_context.policies
+                    ],
                 },
             },
         )
@@ -380,6 +418,7 @@ class BasicController:
             "battery_target": "battery_target_up",
             "battery_limit": "battery_limit_apply",
             "battery_step_down": "battery_discharge_step_down",
+            "battery_charge_step_down": "battery_charge_soc_step_down",
             "fallback_off": "source_loss_fallback_off",
             "fallback_profile": "source_loss_fallback_profile",
             "fallback_hold": "source_loss_hold_current",
@@ -401,9 +440,15 @@ class BasicController:
             flags.append(action)
         if candidate_profiles != current_profiles:
             flags.append("profile_change")
-        if any(is_profile_higher(new, old) for old, new in zip(current_profiles, candidate_profiles)):
+        if any(
+            is_profile_higher(new, old)
+            for old, new in zip(current_profiles, candidate_profiles)
+        ):
             flags.append("profile_step_up")
-        if any(is_profile_higher(old, new) for old, new in zip(current_profiles, candidate_profiles)):
+        if any(
+            is_profile_higher(old, new)
+            for old, new in zip(current_profiles, candidate_profiles)
+        ):
             flags.append("profile_step_down")
         if grid_power_w > self.max_import_w:
             flags.append("grid_import")
@@ -417,7 +462,13 @@ class BasicController:
             flags.append("battery_discharging")
         if battery_context.soc_pct is None:
             flags.append("battery_soc_missing")
-        elif any(policy.reason == "battery_discharge_soc_below_min" for policy in battery_context.policies):
+        elif any(
+            policy.reason in {
+                "battery_discharge_soc_below_min",
+                "battery_charge_soc_below_min",
+            }
+            for policy in battery_context.policies
+        ):
             flags.append("battery_soc_low")
         else:
             flags.append("battery_soc_ok")
@@ -562,8 +613,21 @@ class BasicController:
             if not miner.use_battery_when_charging():
                 return unrestricted
 
-            if soc_pct is None or soc_pct < miner.get_battery_charge_soc_min():
-                return unrestricted
+            if soc_pct is None:
+                return MinerBatteryPolicy(
+                    target_profile=None,
+                    max_profile="p4",
+                    step_down_floor_profile=min_profile,
+                    reason="battery_charge_soc_missing",
+                )
+
+            if soc_pct < miner.get_battery_charge_soc_min():
+                return MinerBatteryPolicy(
+                    target_profile=None,
+                    max_profile="p4",
+                    step_down_floor_profile=min_profile,
+                    reason="battery_charge_soc_below_min",
+                )
 
             configured_profile = max_profile(
                 miner.get_battery_charge_profile(),
@@ -577,6 +641,39 @@ class BasicController:
             )
 
         return unrestricted
+
+    def _should_step_down_for_battery_charge_guard(
+        self,
+        *,
+        battery_context: BatteryContext,
+        current_profiles: list[str],
+    ) -> bool:
+        if battery_context.mode != "charging":
+            return False
+
+        # Real grid export always remains allowed to control the miner.
+        # If the PV surplus cannot be stored because the battery limits charging,
+        # the normal grid-export step-up/hold logic may use that export even below
+        # the battery charge SOC release threshold.
+        if battery_context.charging_export_unlocked:
+            return False
+
+        guarded_reasons = {
+            "battery_charge_soc_below_min",
+            "battery_charge_soc_missing",
+        }
+
+        for idx, policy in enumerate(battery_context.policies):
+            if policy.reason not in guarded_reasons:
+                continue
+
+            if policy.step_down_floor_profile is None:
+                continue
+
+            if is_profile_higher(current_profiles[idx], policy.step_down_floor_profile):
+                return True
+
+        return False
 
     def _should_step_down_for_battery_discharge(
         self,
