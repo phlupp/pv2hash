@@ -345,6 +345,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                         miner_cfg.get("battery_discharge_profile", "p1")
                     ),
                     timeout_s=float(settings.get("timeout_s", 3.0)),
+                    startup_grace_s=float(settings.get("startup_grace_s", 30.0)),
                 )
             )
             continue

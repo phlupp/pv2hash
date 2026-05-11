@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -18,6 +18,7 @@ class AxeOsMiner(MinerAdapter):
     DRIVER_LABEL = "axeOS / ESP-Miner"
     FIXED_PROFILE_POWER_W = 200.0
     OFF_POWER_THRESHOLD_W = 5.0
+    DEFAULT_STARTUP_GRACE_S = 30.0
 
     @classmethod
     def has_fixed_power_profiles(cls) -> bool:
@@ -29,6 +30,7 @@ class AxeOsMiner(MinerAdapter):
             DriverField(name="host", label="Host / IP", type="text", required=True, preset="192.168.x.x", default="", placeholder="192.168.x.x", help="IP-Adresse oder Hostname des axeOS / ESP-Miner Geräts.", create_phase="basic", layout={"width": "half"}),
             DriverField(name="settings.port", label="HTTP-Port", type="number", required=True, preset=80, default=80, placeholder="80", help="HTTP-Port der axeOS API.", create_phase="basic", layout={"width": "quarter"}),
             DriverField(name="settings.timeout_s", label="Timeout", type="number", unit="s", preset=3, default=3, min=1, max=30, step=1, help="HTTP-Timeout für API-Requests.", advanced=True, layout={"width": "quarter"}),
+            DriverField(name="settings.startup_grace_s", label="Start-Ramp-up", type="number", unit="s", preset=30, default=30, min=0, max=300, step=5, help="Zeit nach POST /api/system/restart, in der geringe Leistung noch nicht erneut als off gewertet wird. Verhindert Restart-Schleifen beim Hochlaufen.", advanced=True, layout={"width": "quarter"}),
         ]
 
     @classmethod
@@ -40,11 +42,13 @@ class AxeOsMiner(MinerAdapter):
             DriverAction(name="restart_system", label="Miner neu starten", description="Sendet POST /api/system/restart.", confirm_text="axeOS-Miner jetzt wirklich neu starten?", dangerous=True),
         ]
 
-    def __init__(self, miner_id: str, name: str, host: str, port: int = 80, priority: int = 100, enabled: bool = True, serial_number: str | None = None, model: str | None = None, firmware_version: str | None = None, profiles: dict[str, Any] | None = None, min_regulated_profile: str = "off", timeout_s: float = 3.0, use_battery_when_charging: bool = False, battery_charge_soc_min: float = 95.0, battery_charge_profile: str = "p1", use_battery_when_discharging: bool = False, battery_discharge_soc_min: float = 80.0, battery_discharge_profile: str = "p1") -> None:
+    def __init__(self, miner_id: str, name: str, host: str, port: int = 80, priority: int = 100, enabled: bool = True, serial_number: str | None = None, model: str | None = None, firmware_version: str | None = None, profiles: dict[str, Any] | None = None, min_regulated_profile: str = "off", timeout_s: float = 3.0, use_battery_when_charging: bool = False, battery_charge_soc_min: float = 95.0, battery_charge_profile: str = "p1", use_battery_when_discharging: bool = False, battery_discharge_soc_min: float = 80.0, battery_discharge_profile: str = "p1", startup_grace_s: float = DEFAULT_STARTUP_GRACE_S) -> None:
         self.host = str(host).strip()
         self.port = int(port or 80)
         self.timeout_s = float(timeout_s or 3.0)
+        self.startup_grace_s = max(0.0, float(startup_grace_s if startup_grace_s is not None else self.DEFAULT_STARTUP_GRACE_S))
         self.target_profile = "off"
+        self._startup_grace_until: datetime | None = None
         self._last_system_info: dict[str, Any] = {}
         self._last_asic_info: dict[str, Any] = {}
         self._last_details_at: datetime | None = None
@@ -131,6 +135,24 @@ class AxeOsMiner(MinerAdapter):
             logger.debug("axeOS command %s for %s (%s) returned unexpected text: %r", path, self.info.name, self.host, text[:200])
         return {"text": text}
 
+    def _startup_grace_active(self, now: datetime | None = None) -> bool:
+        if self._startup_grace_until is None:
+            return False
+        now = now or datetime.now(UTC)
+        if now >= self._startup_grace_until:
+            self._startup_grace_until = None
+            return False
+        return True
+
+    def _begin_startup_grace(self) -> None:
+        if self.startup_grace_s <= 0:
+            self._startup_grace_until = None
+            return
+        self._startup_grace_until = datetime.now(UTC) + timedelta(seconds=self.startup_grace_s)
+
+    def _clear_startup_grace(self) -> None:
+        self._startup_grace_until = None
+
     @staticmethod
     def _num(value: Any, default: float = 0.0) -> float:
         try:
@@ -178,14 +200,17 @@ class AxeOsMiner(MinerAdapter):
         return self._last_system_info
 
     def _apply_system_info(self, payload: dict[str, Any]) -> None:
+        now = datetime.now(UTC)
         raw_power = payload.get("power")
         live_power = self._num(raw_power, 0.0)
         off_by_power = raw_power is not None and live_power < self.OFF_POWER_THRESHOLD_W
-        paused = bool(payload.get("miningPaused", False)) or off_by_power
+        desired_active = self.target_profile in {"p1", "p2", "p3", "p4"}
+        startup_grace_active = desired_active and self._startup_grace_active(now)
+        paused = (bool(payload.get("miningPaused", False)) or off_by_power) and not startup_grace_active
         hashrate_ghs = 0.0 if paused else self._num(payload.get("hashRate"), 0.0)
         self.info.reachable = True
         self.info.last_error = None
-        self.info.last_seen = datetime.now(UTC)
+        self.info.last_seen = now
         self.info.model = self._text(payload.get("deviceModel") or payload.get("boardVersion") or payload.get("ASICModel"), "axeOS")
         self.info.firmware_version = self._text(payload.get("axeOSVersion") or payload.get("version"), "") or None
         self.info.serial_number = self._text(payload.get("macAddr"), "") or self.info.serial_number
@@ -199,9 +224,11 @@ class AxeOsMiner(MinerAdapter):
             self.info.runtime_state = "paused"
             self.info.profile = "off"
         else:
-            self.info.power_w = live_power or self.get_profile_power_w("p1")
-            self.info.runtime_state = "running"
+            self.info.power_w = live_power if raw_power is not None else self.get_profile_power_w("p1")
+            self.info.runtime_state = "starting" if startup_grace_active and off_by_power else "running"
             self.info.profile = self.target_profile if self.target_profile in {"p1", "p2", "p3", "p4"} else "p1"
+            if raw_power is not None and live_power >= self.OFF_POWER_THRESHOLD_W:
+                self._clear_startup_grace()
         self.info.is_active = bool(self.info.enabled)
 
     async def set_profile(self, profile: str) -> None:
@@ -210,19 +237,22 @@ class AxeOsMiner(MinerAdapter):
         desired_w = 0.0 if profile == "off" else self.get_profile_power_w(profile)
         try:
             if profile == "off" or desired_w <= 0:
+                self._clear_startup_grace()
                 response = await asyncio.to_thread(self._post_system_command, "/api/system/shutdown", "shutdown")
                 logger.info("axeOS shutdown requested for %s (%s): %s", self.info.name, self.host, response)
                 self.info.power_w = 0.0
                 self.info.runtime_state = "paused"
             else:
-                is_currently_off = self.info.runtime_state in {"paused", "stopped"} or self.info.power_w < self.OFF_POWER_THRESHOLD_W
+                startup_grace_active = self._startup_grace_active()
+                is_currently_off = (self.info.runtime_state in {"paused", "stopped"} or self.info.power_w < self.OFF_POWER_THRESHOLD_W) and not startup_grace_active
                 if is_currently_off:
                     response = await asyncio.to_thread(self._post_system_command, "/api/system/restart", "restart")
+                    self._begin_startup_grace()
                     logger.info("axeOS restart requested for %s (%s): %s", self.info.name, self.host, response)
                 else:
-                    logger.debug("axeOS %s (%s) already running; keeping active profile %s without restart", self.info.name, self.host, profile)
+                    logger.debug("axeOS %s (%s) already running or starting; keeping active profile %s without restart", self.info.name, self.host, profile)
                 self.info.power_w = max(float(desired_w), self.info.power_w)
-                self.info.runtime_state = "running"
+                self.info.runtime_state = "starting" if self._startup_grace_active() else "running"
             self.info.reachable = True
             self.info.last_error = None
             self.info.is_active = bool(self.info.enabled)
@@ -257,6 +287,12 @@ class AxeOsMiner(MinerAdapter):
         path, message, expected_text = item
         try:
             response = self._post_system_command(path, expected_text)
+            if action_name == "resume_mining":
+                self.target_profile = self.target_profile if self.target_profile in {"p1", "p2", "p3", "p4"} else "p1"
+                self._begin_startup_grace()
+            elif action_name == "pause_mining":
+                self.target_profile = "off"
+                self._clear_startup_grace()
             logger.info("axeOS action %s for %s (%s): %s", action_name, self.info.name, self.host, response)
             return {"ok": True, "message": message, "response": response}
         except Exception as exc:
@@ -313,6 +349,7 @@ class AxeOsMiner(MinerAdapter):
                 {"label": "Max Power", "value": f"{self._num(info.get('maxPower')):.0f} W" if info.get("maxPower") is not None else "—"},
                 {"label": "Profil-Leistung", "value": "p1-p4 fest 200 W (Start/Stop-only)"},
                 {"label": "Off-Schwelle", "value": f"< {self.OFF_POWER_THRESHOLD_W:.0f} W"},
+                {"label": "Start-Ramp-up", "value": f"{self.startup_grace_s:.0f} s"},
                 {"label": "Hashrate", "value": f"{self._num(info.get('hashRate')):.2f} GH/s"},
                 {"label": "Hashrate 1m", "value": f"{self._num(info.get('hashRate_1m')):.2f} GH/s"},
                 {"label": "Hashrate 10m", "value": f"{self._num(info.get('hashRate_10m')):.2f} GH/s"},

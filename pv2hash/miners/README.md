@@ -468,6 +468,7 @@ PV2Hash adaptation:
 - `p1` to `p4` are preset to `200 W` and exposed as read-only profile values.
 - The fixed profile value is used by the PV2Hash controller as an accounting value only. It is not sent to the miner as a power target.
 - Some axeOS builds do not set `miningPaused` after shutdown. PV2Hash therefore treats the miner as `off` when the reported power is below `5 W`.
+- After `POST /api/system/restart`, PV2Hash applies a startup grace period (`startup_grace_s`, default `30 s`). During this ramp-up window, low reported power is not treated as a reason to send another restart. This prevents boot/restart loops while the miner has not yet ramped up power.
 - The shutdown/restart endpoints may return plain text such as `System will shutdown shortly.` or `System will restart shortly.` instead of JSON; the driver accepts these responses.
 
 This driver is intentionally `start_stop_only`. It should not pretend to support fine-grained power control.
