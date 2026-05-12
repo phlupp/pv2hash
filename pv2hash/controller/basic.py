@@ -315,31 +315,50 @@ class BasicController:
             else 999999.0
         )
 
+        min_switch_interval_bypassed = False
         if (
             self.min_switch_interval_seconds > 0
             and elapsed < self.min_switch_interval_seconds
         ):
-            self._log_live_hold_once(
-                f"{current_profiles}->{candidate_profiles}",
-                (
-                    "Live switch suppressed: current=%s candidate=%s "
-                    "grid_power_w=%.1f elapsed=%.1fs min_switch_interval=%.1fs"
-                ),
-                ",".join(current_profiles),
-                ",".join(candidate_profiles),
-                grid_power_w,
-                elapsed,
-                self.min_switch_interval_seconds,
-            )
-            self.state.last_live_profiles = current_profiles.copy()
-            return ControlDecision(
-                profiles=current_profiles,
-                action="hold",
-                summary=self._build_battery_summary(
-                    battery_context=battery_context,
-                    fallback=f"hold ({distribution_mode}, min-switch-interval)",
-                ),
-            )
+            if self._should_bypass_min_switch_interval(
+                action=action,
+                battery_context=battery_context,
+            ):
+                min_switch_interval_bypassed = True
+                logger.info(
+                    (
+                        "Live switch bypasses min interval: current=%s candidate=%s "
+                        "action=%s grid_power_w=%.1f elapsed=%.1fs min_switch_interval=%.1fs"
+                    ),
+                    ",".join(current_profiles),
+                    ",".join(candidate_profiles),
+                    action,
+                    grid_power_w,
+                    elapsed,
+                    self.min_switch_interval_seconds,
+                )
+            else:
+                self._log_live_hold_once(
+                    f"{current_profiles}->{candidate_profiles}",
+                    (
+                        "Live switch suppressed: current=%s candidate=%s "
+                        "grid_power_w=%.1f elapsed=%.1fs min_switch_interval=%.1fs"
+                    ),
+                    ",".join(current_profiles),
+                    ",".join(candidate_profiles),
+                    grid_power_w,
+                    elapsed,
+                    self.min_switch_interval_seconds,
+                )
+                self.state.last_live_profiles = current_profiles.copy()
+                return ControlDecision(
+                    profiles=current_profiles,
+                    action="hold",
+                    summary=self._build_battery_summary(
+                        battery_context=battery_context,
+                        fallback=f"hold ({distribution_mode}, min-switch-interval)",
+                    ),
+                )
 
         logger.info(
             "Live profile switch: %s -> %s (grid_power_w=%.1f)",
@@ -369,6 +388,8 @@ class BasicController:
             candidate_profiles=candidate_profiles,
             grid_power_w=grid_power_w,
         )
+        if min_switch_interval_bypassed:
+            flags.append("min_switch_interval_bypassed")
         return ControlDecision(
             profiles=candidate_profiles,
             action=action,
@@ -384,6 +405,8 @@ class BasicController:
                     "max_import_w": self.max_import_w,
                     "switch_hysteresis_w": self.switch_hysteresis_w,
                     "import_hold_seconds": self.import_hold_seconds,
+                    "min_switch_interval_seconds": self.min_switch_interval_seconds,
+                    "min_switch_interval_bypassed": min_switch_interval_bypassed,
                 },
                 "battery": {
                     "mode": battery_context.mode,
@@ -408,6 +431,26 @@ class BasicController:
                     ],
                 },
             },
+        )
+
+
+    @staticmethod
+    def _should_bypass_min_switch_interval(
+        *,
+        action: str,
+        battery_context: BatteryContext,
+    ) -> bool:
+        if str(action or "").strip().lower() != "battery_limit":
+            return False
+
+        hard_limit_reasons = {
+            "battery_discharge_blocked",
+            "battery_soc_missing",
+            "battery_discharge_soc_below_min",
+        }
+        return any(
+            policy.reason in hard_limit_reasons
+            for policy in battery_context.policies
         )
 
     @staticmethod

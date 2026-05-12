@@ -219,7 +219,7 @@ Ist der SOC hoch genug?
 Welches Profil ist bei Entladung vorgesehen?
 ```
 
-Wenn Entladung nicht erlaubt ist, der SOC fehlt oder der SOC zu niedrig ist, gilt das kleinste geregelte Profil des Miners wieder als harte obere Grenze. Das ist ein Schutzfall: Der Regler reduziert dann direkt bis zu diesem Min-Profil, statt nur einen weichen Stepdown-Floor zu setzen.
+Wenn Entladung nicht erlaubt ist, der SOC fehlt oder der SOC zu niedrig ist, gilt das kleinste geregelte Profil des Miners wieder als harte obere Grenze. Das ist ein Schutzfall: Der Regler reduziert dann direkt bis zu diesem Min-Profil, statt nur einen weichen Stepdown-Floor zu setzen. Diese harten Batterie-Limits dürfen das Mindest-Schaltintervall umgehen, damit ein unterschrittener Entlade-SOC nicht unnötig weiter belastet wird. Das Min-Regelprofil selbst wird dabei nicht ausgehebelt; es bleibt die unterste Zielstufe der automatischen Regelung.
 
 Beispiel:
 
@@ -245,6 +245,26 @@ Miner läuft aktuell auf p3
 -> erster Regelschritt: p3 -> p2
 -> nach Mindest-Schaltintervall, falls Batterie weiter entlädt: p2 -> p1
 -> bei p1 wird gehalten
+```
+
+Bei einem Schutzfall greift das Limit sofort bis zum Min-Regelprofil:
+
+```text
+Min-Regelprofil = p1
+Batterie entlädt
+SOC unter Entladegrenze
+Miner läuft auf p3
+
+-> sofort p3 -> p1
+```
+
+```text
+Min-Regelprofil = off
+Batterie entlädt
+SOC unter Entladegrenze
+Miner läuft auf p1
+
+-> sofort p1 -> off
 ```
 
 Läuft der Miner unterhalb des Entladeprofils, darf der Regler ihn bewusst bis zum Entladeprofil hochregeln, sofern die übrigen Schutzbedingungen erfüllt sind.
@@ -607,6 +627,9 @@ battery_discharge_step_down
 
 battery_charge_soc_step_down
     Batterie lädt, aber der Lade-SOC ist noch nicht erreicht; ohne echten Netzexport wird stufenweise bis min/off reduziert.
+
+min_switch_interval_bypassed
+    Ein harter Batterie-Schutzfall hat das Mindest-Schaltintervall umgangen. Das Ziel bleibt trotzdem das konfigurierte Min-Regelprofil.
 
 source_loss_fallback_off
     Quelle ist nicht live, Fallback schaltet Miner aus.
