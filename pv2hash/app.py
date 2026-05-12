@@ -1301,6 +1301,121 @@ async def _record_controller_event_best_effort(event: dict[str, Any]) -> None:
         logger.warning("Could not record controller event: %s", exc)
 
 
+async def _record_controller_debug_event_best_effort(event: dict[str, Any]) -> None:
+    try:
+        await asyncio.to_thread(data_logger.record_controller_debug_event, event)
+    except Exception as exc:
+        logger.debug("Could not record controller debug event: %s", exc)
+
+
+def _build_controller_debug_events_for_decision(
+    *,
+    decision: Any,
+    snapshot: Any,
+    miners: list[Any],
+    miner_states: list[Any],
+    old_profiles: list[str],
+    distribution_mode: str,
+) -> list[dict[str, Any]]:
+    requested_profiles = list(getattr(decision, "debug_requested_profiles", None) or getattr(decision, "profiles", None) or [])
+    if len(requested_profiles) != len(old_profiles):
+        requested_profiles = list(old_profiles)
+    effective_profiles = list(getattr(decision, "profiles", None) or [])
+    if len(effective_profiles) != len(old_profiles):
+        effective_profiles = list(old_profiles)
+
+    changed_indexes = [
+        idx for idx, (miner, old_profile, requested_profile) in enumerate(zip(miners, old_profiles, requested_profiles))
+        if miner.is_active_for_distribution() and old_profile != requested_profile
+    ]
+    explicit_type = str(getattr(decision, "debug_event_type", None) or "").strip()
+    if explicit_type:
+        event_type = explicit_type
+    elif changed_indexes:
+        event_type = "wanted_profile_change"
+    else:
+        event_type = "hold"
+
+    reason_code = _reason_code_for_decision(decision)
+    reason_text = getattr(decision, "summary", None)
+    base_flags = [str(flag) for flag in (getattr(decision, "flags", None) or []) if flag is not None]
+    for flag in ("debug", event_type):
+        if flag not in base_flags:
+            base_flags.append(flag)
+    if changed_indexes and "profile_change_requested" not in base_flags:
+        base_flags.append("profile_change_requested")
+    if event_type == "blocked_by_min_switch_interval" and "min_switch_interval_active" not in base_flags:
+        base_flags.append("min_switch_interval_active")
+
+    context = deepcopy(getattr(decision, "decision_context", None) or {})
+    context.setdefault("schema_version", 1)
+    context.setdefault("debug", {})
+    context["debug"].update({
+        "event_type": event_type,
+        "reason_code": reason_code,
+        "requested_profiles": requested_profiles,
+        "effective_profiles": effective_profiles,
+        "old_profiles": old_profiles,
+    })
+    min_switch_remaining_s = None
+    try:
+        min_switch_remaining_s = context.get("grid", {}).get("min_switch_remaining_seconds")
+    except Exception:
+        min_switch_remaining_s = None
+
+    def build_event_for_index(idx: int | None) -> dict[str, Any]:
+        miner_adapter = miners[idx] if idx is not None and idx < len(miners) else None
+        info = getattr(miner_adapter, "info", None) if miner_adapter is not None else None
+        state_info = None
+        if info is not None:
+            state_info = next((item for item in miner_states if item.id == info.id), info)
+        current_profile = old_profiles[idx] if idx is not None and idx < len(old_profiles) else None
+        requested_profile = requested_profiles[idx] if idx is not None and idx < len(requested_profiles) else None
+        effective_profile = effective_profiles[idx] if idx is not None and idx < len(effective_profiles) else current_profile
+        flags = list(base_flags)
+        if idx is not None:
+            flags.append("miner_scoped")
+        else:
+            flags.append("global")
+        event_context = deepcopy(context)
+        event_context["miner"] = {
+            "index": idx,
+            "id": getattr(info, "id", None),
+            "name": getattr(info, "name", None),
+            "current_profile": current_profile,
+            "requested_profile": requested_profile,
+            "effective_profile": effective_profile,
+            "power_w": getattr(state_info, "power_w", None),
+        }
+        return {
+            "ts": datetime.now(UTC),
+            "event_type": event_type,
+            "miner_id": getattr(info, "id", None),
+            "miner_key": getattr(info, "id", None),
+            "miner_name": getattr(info, "name", None),
+            "current_profile": current_profile,
+            "requested_profile": requested_profile,
+            "effective_profile": effective_profile,
+            "reason_code": reason_code,
+            "reason_text": reason_text,
+            "flags": flags,
+            "grid_power_w": getattr(snapshot, "grid_power_w", None),
+            "battery_soc_pct": getattr(snapshot, "battery_soc_pct", None),
+            "battery_direction": _battery_direction_from_snapshot(snapshot),
+            "battery_charge_power_w": getattr(snapshot, "battery_charge_power_w", None),
+            "battery_discharge_power_w": getattr(snapshot, "battery_discharge_power_w", None),
+            "miner_power_w": getattr(state_info, "power_w", None),
+            "policy_mode": state.config.get("control", {}).get("policy_mode"),
+            "distribution_mode": distribution_mode,
+            "min_switch_remaining_s": min_switch_remaining_s,
+            "decision_context": event_context,
+        }
+
+    if changed_indexes:
+        return [build_event_for_index(idx) for idx in changed_indexes]
+    return [build_event_for_index(None)]
+
+
 def _build_controller_status() -> dict:
     control_config = state.config.get("control", {}) if state.config else {}
     min_switch_interval = max(0.0, float(control_config.get("min_switch_interval_seconds", 0) or 0))
@@ -2699,6 +2814,16 @@ async def control_loop() -> None:
                     state.last_controller_decision_event = _compact_controller_event_from_raw(event)
                     asyncio.create_task(_record_controller_event_best_effort(event))
 
+            for debug_event in _build_controller_debug_events_for_decision(
+                decision=decision,
+                snapshot=snapshot,
+                miners=miners,
+                miner_states=miner_states,
+                old_profiles=old_profiles,
+                distribution_mode=distribution_mode,
+            ):
+                asyncio.create_task(_record_controller_debug_event_best_effort(debug_event))
+
         except Exception:
             logger.exception("Unhandled error in control loop")
 
@@ -3655,6 +3780,19 @@ async def api_datalogger_status():
 @app.get("/api/datalogger/series")
 async def api_datalogger_series(range: str = "1h", max_points: int = 720, miner_ids: str | None = None, end: str | None = None):
     return JSONResponse(content=jsonable_encoder({"status": "ok", "series": data_logger.series(range_name=range, max_points=max_points, miner_ids=miner_ids, end_iso=end)}))
+
+
+@app.get("/api/datalogger/controller-debug")
+async def api_datalogger_controller_debug(range: str = "1h", limit: int = 200, miner_ids: str | None = None, end: str | None = None):
+    return JSONResponse(content=jsonable_encoder({
+        "status": "ok",
+        "debug": data_logger.controller_debug_events(
+            range_name=range,
+            limit=limit,
+            miner_ids=miner_ids,
+            end_iso=end,
+        ),
+    }))
 
 
 @app.get("/system")

@@ -114,3 +114,32 @@ Für Miner-Samples werden ab Schema-Version 2 zusätzlich einheitliche Temperatu
 Bestehende `history.sqlite`-Datenbanken werden beim Start automatisch erweitert. Die Migration ergänzt fehlende Spalten per `ALTER TABLE`; ältere Samples behalten für diese Felder `NULL`.
 
 Die Chart.js-Instanzen werden beim Auto-Refresh nicht mehr neu erzeugt, sondern per `chart.update("none")` aktualisiert. Dadurch bleibt das erste Einblenden der Charts erhalten, während zyklische Aktualisierungen ohne erneutes Fading erfolgen.
+
+## Lokaler Regler-Debug
+
+Zusätzlich zu den echten angewendeten Reglerereignissen in `controller_events` gibt es die lokale Tabelle:
+
+```text
+controller_debug_events
+```
+
+Sie enthält kurzlebige Debug-Ereignisse wie Reglerwünsche, blockierte Umschaltungen durch das Mindest-Schaltintervall und gedrosselte Hold-Entscheidungen. Diese Daten werden ausschließlich lokal verwendet, nicht ans Portal übertragen und nicht als normale Historie interpretiert.
+
+Die Standard-Aufbewahrung beträgt 48 Stunden. Sie kann optional über die Konfiguration angepasst werden:
+
+```yaml
+datalogger:
+  controller_debug_retention_hours: 48
+  controller_debug_throttle_seconds: 60
+```
+
+Die Data-Logger-Seite enthält dafür einen eingeklappten Bereich **Regler-Debug**. Dieser Bereich lädt und aktualisiert seine Tabelle nur, wenn er sichtbar ist. Dadurch bleibt die normale Chart-Ansicht leichtgewichtig.
+
+Der API-Endpunkt lautet:
+
+```text
+GET /api/datalogger/controller-debug?range=1h|3h|6h|12h|24h|7d&limit=200
+GET /api/datalogger/controller-debug?range=1h&end=2026-05-10T12:00:00Z&limit=200
+```
+
+Optional kann wie bei der Chart-Zeitreihe `miner_ids` übergeben werden. Globale Debug-Ereignisse ohne Miner-Bezug bleiben sichtbar.

@@ -809,3 +809,43 @@ Flags
 
 Die Chart-Marker unterhalb des Zeitstrahls verwenden dieselben `controller_events`. Es gibt bewusst keinen Fallback auf errechnete Profilwechsel mehr, damit Fehler oder Lücken im Event-Logging sichtbar bleiben.
 
+
+### Lokaler Regler-Debug-Log
+
+Neben `controller_events` gibt es einen bewusst getrennten lokalen Debug-Log für Reglerwünsche und nicht angewendete Entscheidungen:
+
+```text
+controller_debug_events
+```
+
+Diese Tabelle ist **nicht** Teil der Portal-Synchronisation und wird nicht für die normale Historie verwendet. Sie dient ausschließlich zur lokalen Fehlersuche. Die echten umgesetzten Reglerentscheidungen bleiben weiterhin in `controller_events`.
+
+Geloggte Debug-Ereignisse sind zum Beispiel:
+
+```text
+wanted_profile_change
+blocked_by_min_switch_interval
+hold
+```
+
+Der Debug-Log speichert unter anderem:
+
+```text
+Zeitpunkt
+Event-Typ
+Miner / optional globales Ereignis
+aktuelles Profil
+gewünschtes Profil
+effektives Profil
+reason_code / reason_text
+textuelle Flags
+Netzleistung
+SOC
+Batterierichtung und Lade-/Entladeleistung
+min_switch_remaining_s
+gekürzten Entscheidungskontext als JSON
+```
+
+Die Aufbewahrung beträgt standardmäßig 48 Stunden. Sie ist absichtlich nicht über die UI konfigurierbar; bei Bedarf kann sie über die Konfiguration mit `datalogger.controller_debug_retention_hours` angepasst werden. Wiederholte gleiche Debug-Ereignisse werden gedrosselt, damit Hold-/Blockade-Zustände den Log nicht fluten. Der Standard dafür ist `datalogger.controller_debug_throttle_seconds = 60`.
+
+Wichtig: Das Debug-Logging ist best-effort. Fehler beim Schreiben in `controller_debug_events` dürfen den Reglerlauf niemals blockieren oder beeinflussen. Der Regler erzeugt nur den Debug-Kontext; das Schreiben läuft über den bestehenden asynchronen App-/DataLogger-Pfad.

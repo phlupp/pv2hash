@@ -87,7 +87,37 @@
                 <p class="datalogger-timeline-help">Tippen oder Klicken zeigt Details zur Entscheidung. Die Chart-Marker darunter verwenden dieselben Events.</p>
             </section>
 
-
+            <section class="card datalogger-debug-card top-gap is-collapsed" data-datalogger-debug-card>
+                <div class="card-head compact datalogger-debug-head">
+                    <div>
+                        <h2>Regler-Debug</h2>
+                        <p class="card-subtitle">Lokale Reglerwünsche, blockierte Umschaltungen und Hold-Entscheidungen. Aufbewahrung: 48 Stunden.</p>
+                    </div>
+                    <button class="btn btn-secondary btn-small" type="button" data-datalogger-debug-toggle aria-expanded="false">Debug anzeigen</button>
+                </div>
+                <div class="datalogger-debug-body" data-datalogger-debug-body hidden>
+                    <div class="datalogger-debug-status" data-datalogger-debug-status>Debug-Daten werden geladen …</div>
+                    <div class="datalogger-debug-table-wrap">
+                        <table class="datalogger-debug-table">
+                            <thead>
+                                <tr>
+                                    <th>Zeit</th>
+                                    <th>Typ</th>
+                                    <th>Miner</th>
+                                    <th>Profil</th>
+                                    <th>Grund</th>
+                                    <th>Netz</th>
+                                    <th>SOC</th>
+                                    <th>Flags</th>
+                                </tr>
+                            </thead>
+                            <tbody data-datalogger-debug-rows>
+                                <tr><td colspan="8">Noch keine Debug-Daten geladen.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
 
             <section class="card datalogger-chart-card top-gap">
                 <div class="card-head">

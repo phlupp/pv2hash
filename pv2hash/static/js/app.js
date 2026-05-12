@@ -2605,7 +2605,9 @@
     windowEndIso: null,
     lastSeriesEndIso: null,
     refreshTimer: null,
+    debugRefreshTimer: null,
     refreshIntervalMs: 30000,
+    debugRefreshIntervalMs: 30000,
     selectedMinerIds: [],
     miners: [],
   };
@@ -2812,6 +2814,88 @@
     const lastButton = rail.querySelector('.datalogger-timeline-event:last-of-type');
     if (lastButton) lastButton.classList.add('is-active');
     renderDataLoggerTimelineDetail(latest);
+  }
+
+  function dataLoggerDebugTypeLabel(type) {
+    const labels = {
+      wanted_profile_change: 'Wunsch',
+      blocked_by_min_switch_interval: 'Blockiert',
+      hold: 'Hold',
+    };
+    return labels[String(type || '')] || String(type || 'Debug');
+  }
+
+  function renderDataLoggerDebug(debugData) {
+    const rowsEl = document.querySelector('[data-datalogger-debug-rows]');
+    const statusEl = document.querySelector('[data-datalogger-debug-status]');
+    if (!rowsEl) return;
+    const events = Array.isArray(debugData?.events) ? debugData.events : [];
+    if (statusEl) {
+      const retention = debugData?.retention_hours || 48;
+      statusEl.textContent = events.length
+        ? `${events.length} Debug-Einträge im aktuellen Zeitraum · lokale Aufbewahrung ${retention}h`
+        : `Keine Debug-Einträge im aktuellen Zeitraum · lokale Aufbewahrung ${retention}h`;
+    }
+    if (!events.length) {
+      rowsEl.innerHTML = '<tr><td colspan="8">Keine Regler-Debug-Einträge im gewählten Zeitraum.</td></tr>';
+      return;
+    }
+    rowsEl.innerHTML = events.map((item) => {
+      const flags = Array.isArray(item.flags) ? item.flags.slice(0, 8) : [];
+      const profile = `${escapeHtml(item.current_profile || '?')} → ${escapeHtml(item.requested_profile || item.effective_profile || '?')}`;
+      const reason = item.reason_text || item.reason_code || '—';
+      return `
+        <tr>
+          <td>${escapeHtml(formatDataLoggerDateTime(item.at))}</td>
+          <td><span class="status-pill">${escapeHtml(dataLoggerDebugTypeLabel(item.event_type))}</span></td>
+          <td>${escapeHtml(item.miner_name || item.miner_key || item.miner_id || 'global')}</td>
+          <td>${profile}</td>
+          <td>${escapeHtml(reason)}</td>
+          <td>${escapeHtml(formatDataLoggerNumber(item.grid_power_w, ' W'))}</td>
+          <td>${escapeHtml(formatDataLoggerNumber(item.battery_soc_pct, ' %'))}</td>
+          <td>${flags.map((flag) => `<span class="datalogger-debug-flag">${escapeHtml(flag)}</span>`).join('')}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function isDataLoggerDebugVisible() {
+    const body = document.querySelector('[data-datalogger-debug-body]');
+    return Boolean(body && !body.hidden);
+  }
+
+  async function loadDataLoggerDebug() {
+    if (!isDataLoggerDebugVisible()) return;
+    const params = new URLSearchParams({ range: dataloggerCharts.range, limit: '200' });
+    if (!dataloggerCharts.isLive && dataloggerCharts.windowEndIso) params.set('end', dataloggerCharts.windowEndIso);
+    const selectedMinerIds = getSelectedDataLoggerMinerIds();
+    if (selectedMinerIds.length) params.set('miner_ids', selectedMinerIds.join(','));
+    const statusEl = document.querySelector('[data-datalogger-debug-status]');
+    if (statusEl) statusEl.textContent = 'Debug-Daten werden geladen …';
+    try {
+      const response = await fetch(`/api/datalogger/controller-debug?${params.toString()}`, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+      if (!response.ok) throw new Error(`Regler-Debug konnte nicht geladen werden (${response.status})`);
+      const payload = await response.json();
+      renderDataLoggerDebug(payload.debug);
+    } catch (error) {
+      if (isBackendConnectionError(error)) return;
+      if (statusEl) statusEl.textContent = error.message || 'Regler-Debug konnte nicht geladen werden.';
+    }
+  }
+
+  function startDataLoggerDebugRefresh() {
+    stopDataLoggerDebugRefresh();
+    if (!isDataLoggerDebugVisible()) return;
+    dataloggerCharts.debugRefreshTimer = window.setInterval(() => {
+      if (!document.hidden && isDataLoggerDebugVisible()) loadDataLoggerDebug();
+    }, dataloggerCharts.debugRefreshIntervalMs);
+  }
+
+  function stopDataLoggerDebugRefresh() {
+    if (dataloggerCharts.debugRefreshTimer) {
+      window.clearInterval(dataloggerCharts.debugRefreshTimer);
+      dataloggerCharts.debugRefreshTimer = null;
+    }
   }
 
   function mapDataLoggerMarkersToPoints(points, markers) {
@@ -3206,6 +3290,7 @@
       const seriesData = await seriesResponse.json();
       updateDataLoggerBadges(statusData.datalogger);
       renderDataLoggerCharts(seriesData.series);
+      if (isDataLoggerDebugVisible()) loadDataLoggerDebug();
     } catch (error) {
       if (isBackendConnectionError(error)) return;
       const errorEl = document.querySelector('[data-datalogger-error]');
@@ -3284,6 +3369,24 @@
         startDataLoggerRefresh();
         return;
       }
+      const debugToggle = event.target.closest('[data-datalogger-debug-toggle]');
+      if (debugToggle) {
+        event.preventDefault();
+        const card = root.querySelector('[data-datalogger-debug-card]');
+        const body = root.querySelector('[data-datalogger-debug-body]');
+        const isOpen = debugToggle.getAttribute('aria-expanded') === 'true';
+        debugToggle.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+        debugToggle.textContent = isOpen ? 'Debug anzeigen' : 'Debug ausblenden';
+        if (body) body.hidden = isOpen;
+        if (card) card.classList.toggle('is-collapsed', isOpen);
+        if (isOpen) {
+          stopDataLoggerDebugRefresh();
+        } else {
+          loadDataLoggerDebug();
+          startDataLoggerDebugRefresh();
+        }
+        return;
+      }
       const filterToggle = event.target.closest('[data-datalogger-filter-toggle]');
       if (filterToggle) {
         event.preventDefault();
@@ -3321,9 +3424,16 @@
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         stopDataLoggerRefresh();
-      } else if (dataloggerCharts.isLive) {
-        loadDataLoggerCharts(dataloggerCharts.range, { live: true });
-        startDataLoggerRefresh();
+        stopDataLoggerDebugRefresh();
+      } else {
+        if (dataloggerCharts.isLive) {
+          loadDataLoggerCharts(dataloggerCharts.range, { live: true });
+          startDataLoggerRefresh();
+        }
+        if (isDataLoggerDebugVisible()) {
+          loadDataLoggerDebug();
+          startDataLoggerDebugRefresh();
+        }
       }
     });
 

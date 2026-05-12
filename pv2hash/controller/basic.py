@@ -28,6 +28,8 @@ class ControlDecision:
     flags: list[str] | None = None
     distribution_reason: str | None = None
     decision_context: dict | None = None
+    debug_event_type: str | None = None
+    debug_requested_profiles: list[str] | None = None
 
 
 @dataclass
@@ -358,6 +360,54 @@ class BasicController:
                         battery_context=battery_context,
                         fallback=f"hold ({distribution_mode}, min-switch-interval)",
                     ),
+                    reason_code="min_switch_interval_blocked",
+                    flags=self._build_debug_flags(
+                        event_type="blocked_by_min_switch_interval",
+                        action=action,
+                        battery_context=battery_context,
+                        current_profiles=current_profiles,
+                        requested_profiles=candidate_profiles,
+                        grid_power_w=grid_power_w,
+                    ),
+                    distribution_reason=distribution_reason,
+                    debug_event_type="blocked_by_min_switch_interval",
+                    debug_requested_profiles=candidate_profiles,
+                    decision_context={
+                        "schema_version": 1,
+                        "event_type": "blocked_by_min_switch_interval",
+                        "action": action,
+                        "grid": {
+                            "power_w": grid_power_w,
+                            "max_import_w": self.max_import_w,
+                            "switch_hysteresis_w": self.switch_hysteresis_w,
+                            "import_hold_seconds": self.import_hold_seconds,
+                            "min_switch_interval_seconds": self.min_switch_interval_seconds,
+                            "min_switch_elapsed_seconds": elapsed,
+                            "min_switch_remaining_seconds": max(0.0, self.min_switch_interval_seconds - elapsed),
+                        },
+                        "battery": {
+                            "mode": battery_context.mode,
+                            "soc_pct": battery_context.soc_pct,
+                            "charge_power_w": battery_context.charge_power_w,
+                            "discharge_power_w": battery_context.discharge_power_w,
+                            "active": battery_context.active,
+                            "charging_export_unlocked": battery_context.charging_export_unlocked,
+                        },
+                        "profiles": {
+                            "current": current_profiles,
+                            "requested": candidate_profiles,
+                            "max_allowed": max_profiles,
+                            "battery_targets": target_profiles,
+                            "battery_step_down_floors": [
+                                policy.step_down_floor_profile
+                                for policy in battery_context.policies
+                            ],
+                            "battery_policy_reasons": [
+                                policy.reason
+                                for policy in battery_context.policies
+                            ],
+                        },
+                    },
                 )
 
         logger.info(
@@ -432,6 +482,62 @@ class BasicController:
                 },
             },
         )
+
+
+    def _build_debug_flags(
+        self,
+        *,
+        event_type: str,
+        action: str,
+        battery_context: BatteryContext,
+        current_profiles: list[str],
+        requested_profiles: list[str],
+        grid_power_w: float,
+    ) -> list[str]:
+        flags: list[str] = ["debug", str(event_type or "controller_debug").strip().lower()]
+        action = str(action or "").strip().lower()
+        if action and action not in flags:
+            flags.append(action)
+        if requested_profiles != current_profiles:
+            flags.append("profile_change_requested")
+        if any(
+            is_profile_higher(new, old)
+            for old, new in zip(current_profiles, requested_profiles)
+        ):
+            flags.append("profile_step_up_requested")
+        if any(
+            is_profile_higher(old, new)
+            for old, new in zip(current_profiles, requested_profiles)
+        ):
+            flags.append("profile_step_down_requested")
+        if grid_power_w > self.max_import_w:
+            flags.append("grid_import")
+        elif grid_power_w < -self.switch_hysteresis_w:
+            flags.append("grid_export")
+        else:
+            flags.append("grid_near_zero")
+        if battery_context.mode == "charging":
+            flags.append("battery_charging")
+        elif battery_context.mode == "discharging":
+            flags.append("battery_discharging")
+        if battery_context.soc_pct is None:
+            flags.append("battery_soc_missing")
+        elif any(
+            policy.reason in {
+                "battery_discharge_soc_below_min",
+                "battery_charge_soc_below_min",
+            }
+            for policy in battery_context.policies
+        ):
+            flags.append("battery_soc_low")
+        else:
+            flags.append("battery_soc_ok")
+        for policy in battery_context.policies:
+            if policy.reason:
+                flag = str(policy.reason).strip().lower()
+                if flag and flag not in flags:
+                    flags.append(flag)
+        return flags
 
 
     @staticmethod

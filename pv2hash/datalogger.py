@@ -164,6 +164,24 @@ def normalize_datalogger_config(config: dict[str, Any] | None) -> dict[str, Any]
     }
 
 
+def _controller_debug_retention_hours(config: dict[str, Any] | None) -> int:
+    raw = dict(config or {})
+    try:
+        value = int(raw.get("controller_debug_retention_hours", 48))
+    except Exception:
+        value = 48
+    return max(1, min(168, value))
+
+
+def _controller_debug_throttle_seconds(config: dict[str, Any] | None) -> int:
+    raw = dict(config or {})
+    try:
+        value = int(raw.get("controller_debug_throttle_seconds", 60))
+    except Exception:
+        value = 60
+    return max(5, min(3600, value))
+
+
 @dataclass
 class DataLoggerStatus:
     enabled: bool
@@ -331,6 +349,37 @@ class DataLogger:
             con.execute("CREATE INDEX IF NOT EXISTS idx_controller_events_portal ON controller_events(event_type, portal_sent_at, id)")
             con.execute(
                 """
+                CREATE TABLE IF NOT EXISTS controller_debug_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    miner_id TEXT,
+                    miner_key TEXT,
+                    miner_name TEXT,
+                    current_profile TEXT,
+                    requested_profile TEXT,
+                    effective_profile TEXT,
+                    reason_code TEXT NOT NULL,
+                    reason_text TEXT,
+                    flags_json TEXT,
+                    grid_power_w REAL,
+                    battery_soc_pct REAL,
+                    battery_direction TEXT,
+                    battery_charge_power_w REAL,
+                    battery_discharge_power_w REAL,
+                    miner_power_w REAL,
+                    policy_mode TEXT,
+                    distribution_mode TEXT,
+                    min_switch_remaining_s REAL,
+                    decision_context_json TEXT,
+                    dedupe_key TEXT
+                )
+                """
+            )
+            con.execute("CREATE INDEX IF NOT EXISTS idx_controller_debug_events_ts ON controller_debug_events(ts)")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_controller_debug_events_dedupe ON controller_debug_events(dedupe_key, ts)")
+            con.execute(
+                """
                 CREATE TABLE IF NOT EXISTS schema_meta (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
@@ -339,7 +388,7 @@ class DataLogger:
             )
             con.execute(
                 "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
-                ("datalogger_schema_version", "3"),
+                ("datalogger_schema_version", "4"),
             )
 
     @staticmethod
@@ -444,6 +493,9 @@ class DataLogger:
         con.execute("DELETE FROM history_miner_samples WHERE ts < ?", (cutoff,))
         con.execute("DELETE FROM history_events WHERE ts < ?", (cutoff,))
         con.execute("DELETE FROM controller_events WHERE ts < ? AND portal_sent_at IS NOT NULL", (cutoff,))
+        debug_retention_hours = _controller_debug_retention_hours((self._config_provider() or {}).get("datalogger", {}))
+        debug_cutoff = (now - timedelta(hours=debug_retention_hours)).isoformat()
+        con.execute("DELETE FROM controller_debug_events WHERE ts < ?", (debug_cutoff,))
 
     def record_controller_event(self, event: dict[str, Any]) -> int | None:
         """Persist one controller event best-effort.
@@ -589,6 +641,182 @@ class DataLogger:
             "distribution_mode": row.get("distribution_mode"),
         }
 
+    def record_controller_debug_event(self, event: dict[str, Any]) -> int | None:
+        """Persist one local controller debug event best-effort with throttling.
+
+        Debug events are intentionally local-only. They are never sent to the
+        portal and are safe to drop when repeated frequently.
+        """
+        self._ensure_schema()
+        cfg = (self._config_provider() or {}).get("datalogger", {})
+        throttle_seconds = _controller_debug_throttle_seconds(cfg)
+        ts = _to_iso(event.get("ts")) or _now_iso()
+        flags = event.get("flags") if isinstance(event.get("flags"), list) else []
+        context = event.get("decision_context") if isinstance(event.get("decision_context"), dict) else {}
+        event_type = str(event.get("event_type") or "hold")
+        dedupe_key = str(event.get("dedupe_key") or "").strip()
+        if not dedupe_key:
+            dedupe_parts = [
+                event_type,
+                str(event.get("miner_id") or event.get("miner_key") or "global"),
+                str(event.get("current_profile") or ""),
+                str(event.get("requested_profile") or ""),
+                str(event.get("effective_profile") or ""),
+                str(event.get("reason_code") or "unknown"),
+                ",".join(sorted(str(flag) for flag in flags)),
+            ]
+            dedupe_key = "|".join(dedupe_parts)
+        throttle_cutoff = (datetime.now(UTC) - timedelta(seconds=throttle_seconds)).isoformat()
+        with self._connect() as con:
+            existing = con.execute(
+                """
+                SELECT id
+                FROM controller_debug_events
+                WHERE dedupe_key = ? AND ts >= ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (dedupe_key, throttle_cutoff),
+            ).fetchone()
+            if existing is not None:
+                return None
+            cur = con.execute(
+                """
+                INSERT INTO controller_debug_events (
+                    ts, event_type, miner_id, miner_key, miner_name,
+                    current_profile, requested_profile, effective_profile,
+                    reason_code, reason_text, flags_json,
+                    grid_power_w, battery_soc_pct, battery_direction,
+                    battery_charge_power_w, battery_discharge_power_w, miner_power_w,
+                    policy_mode, distribution_mode, min_switch_remaining_s,
+                    decision_context_json, dedupe_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ts,
+                    event_type,
+                    event.get("miner_id"),
+                    event.get("miner_key"),
+                    event.get("miner_name"),
+                    event.get("current_profile"),
+                    event.get("requested_profile"),
+                    event.get("effective_profile"),
+                    str(event.get("reason_code") or "unknown"),
+                    event.get("reason_text"),
+                    json.dumps(flags, ensure_ascii=False, separators=(",", ":")),
+                    _float_or_none(event.get("grid_power_w")),
+                    _float_or_none(event.get("battery_soc_pct")),
+                    event.get("battery_direction"),
+                    _float_or_none(event.get("battery_charge_power_w")),
+                    _float_or_none(event.get("battery_discharge_power_w")),
+                    _float_or_none(event.get("miner_power_w")),
+                    event.get("policy_mode"),
+                    event.get("distribution_mode"),
+                    _float_or_none(event.get("min_switch_remaining_s")),
+                    json.dumps(context, ensure_ascii=False, separators=(",", ":")),
+                    dedupe_key,
+                ),
+            )
+            return int(cur.lastrowid) if cur.lastrowid is not None else None
+
+    def controller_debug_events(
+        self,
+        *,
+        range_name: str = "1h",
+        limit: int = 200,
+        miner_ids: Any = None,
+        end_iso: str | None = None,
+    ) -> dict[str, Any]:
+        """Return local controller debug events for the selected time range."""
+        self._ensure_schema()
+        selected_range, range_seconds = _parse_range_seconds(range_name)
+        limit = max(1, min(1000, int(limit or 200)))
+        selected_miner_ids = _parse_id_csv(miner_ids)
+        now = datetime.now(UTC)
+        requested_end = _parse_iso_datetime(end_iso)
+        end = requested_end if requested_end is not None else now
+        if end > now:
+            end = now
+        start = end - timedelta(seconds=range_seconds)
+        start_iso = start.isoformat()
+        end_iso_out = end.isoformat()
+        cfg = (self._config_provider() or {}).get("datalogger", {})
+        retention_hours = _controller_debug_retention_hours(cfg)
+        self._apply_controller_debug_retention(retention_hours=retention_hours)
+
+        where = "ts >= ? AND ts <= ?"
+        params: list[Any] = [start_iso, end_iso_out]
+        if selected_miner_ids:
+            placeholders = ','.join('?' for _ in selected_miner_ids)
+            where += f" AND (miner_id IN ({placeholders}) OR miner_key IN ({placeholders}) OR miner_id IS NULL)"
+            params.extend(selected_miner_ids)
+            params.extend(selected_miner_ids)
+
+        with self._connect() as con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                f"""
+                SELECT *
+                FROM controller_debug_events
+                WHERE {where}
+                ORDER BY ts DESC, id DESC
+                LIMIT ?
+                """,
+                [*params, limit],
+            ).fetchall()
+        items = [self._controller_debug_event_row_to_item(dict(row)) for row in rows]
+        return {
+            "range": selected_range,
+            "range_seconds": range_seconds,
+            "start": start_iso,
+            "end": end_iso_out,
+            "is_live": requested_end is None,
+            "retention_hours": retention_hours,
+            "limit": limit,
+            "selected_miner_ids": selected_miner_ids,
+            "events": items,
+            "event_count": len(items),
+        }
+
+    def _apply_controller_debug_retention(self, *, retention_hours: int | None = None) -> None:
+        self._ensure_schema()
+        hours = retention_hours if retention_hours is not None else _controller_debug_retention_hours((self._config_provider() or {}).get("datalogger", {}))
+        cutoff = (datetime.now(UTC) - timedelta(hours=int(hours))).isoformat()
+        with self._connect() as con:
+            con.execute("DELETE FROM controller_debug_events WHERE ts < ?", (cutoff,))
+
+    @staticmethod
+    def _controller_debug_event_row_to_item(row: dict[str, Any]) -> dict[str, Any]:
+        try:
+            flags = json.loads(row.get("flags_json") or "[]")
+        except Exception:
+            flags = []
+        if not isinstance(flags, list):
+            flags = []
+        return {
+            "event_id": int(row.get("id") or 0),
+            "at": row.get("ts"),
+            "event_type": row.get("event_type") or "hold",
+            "miner_id": row.get("miner_id"),
+            "miner_key": row.get("miner_key"),
+            "miner_name": row.get("miner_name"),
+            "current_profile": row.get("current_profile"),
+            "requested_profile": row.get("requested_profile"),
+            "effective_profile": row.get("effective_profile"),
+            "reason_code": row.get("reason_code"),
+            "reason_text": row.get("reason_text"),
+            "flags": [str(flag) for flag in flags],
+            "grid_power_w": row.get("grid_power_w"),
+            "battery_soc_pct": row.get("battery_soc_pct"),
+            "battery_direction": row.get("battery_direction"),
+            "battery_charge_power_w": row.get("battery_charge_power_w"),
+            "battery_discharge_power_w": row.get("battery_discharge_power_w"),
+            "miner_power_w": row.get("miner_power_w"),
+            "policy_mode": row.get("policy_mode"),
+            "distribution_mode": row.get("distribution_mode"),
+            "min_switch_remaining_s": row.get("min_switch_remaining_s"),
+        }
+
     def status(self) -> dict[str, Any]:
         cfg = self._config()
         self._ensure_schema()
@@ -599,6 +827,7 @@ class DataLogger:
             event_count = int(con.execute("SELECT COUNT(*) FROM history_events").fetchone()[0] or 0)
             controller_event_count = int(con.execute("SELECT COUNT(*) FROM controller_events").fetchone()[0] or 0)
             controller_event_unsent_count = int(con.execute("SELECT COUNT(*) FROM controller_events WHERE event_type = 'applied' AND portal_sent_at IS NULL").fetchone()[0] or 0)
+            controller_debug_event_count = int(con.execute("SELECT COUNT(*) FROM controller_debug_events").fetchone()[0] or 0)
             oldest_sample_at = con.execute("SELECT MIN(ts) FROM history_samples").fetchone()[0]
             newest_sample_at = con.execute("SELECT MAX(ts) FROM history_samples").fetchone()[0]
         return {
@@ -612,6 +841,8 @@ class DataLogger:
             "event_count": event_count,
             "controller_event_count": controller_event_count,
             "controller_event_unsent_count": controller_event_unsent_count,
+            "controller_debug_event_count": controller_debug_event_count,
+            "controller_debug_retention_hours": _controller_debug_retention_hours((self._config_provider() or {}).get("datalogger", {})),
             "oldest_sample_at": oldest_sample_at,
             "newest_sample_at": newest_sample_at,
             "last_sample_at": self._last_sample_at,
