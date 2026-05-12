@@ -219,7 +219,7 @@ Ist der SOC hoch genug?
 Welches Profil ist bei Entladung vorgesehen?
 ```
 
-Wenn Entladung nicht erlaubt ist, der SOC fehlt oder der SOC zu niedrig ist, wird das kleinste geregelte Profil des Miners als Schutz-Floor verwendet. Der Regler springt nicht mehr hart auf diesen Floor, sondern reduziert ebenfalls stufenweise dorthin.
+Wenn Entladung nicht erlaubt ist, der SOC fehlt oder der SOC zu niedrig ist, gilt das kleinste geregelte Profil des Miners wieder als harte obere Grenze. Das ist ein Schutzfall: Der Regler reduziert dann direkt bis zu diesem Min-Profil, statt nur einen weichen Stepdown-Floor zu setzen.
 
 Beispiel:
 
@@ -229,7 +229,7 @@ SOC = 40 %
 Mindest-SOC Entladung = 60 %
 Miner-Floor = off
 
--> Miner wird stufenweise bis off reduziert
+-> Miner wird auf off begrenzt
 ```
 
 Wenn Entladung erlaubt ist und der SOC hoch genug ist, ist das Entladeprofil das gewünschte Zielniveau für Batteriebetrieb. Der Regler nutzt dieses Profil aber nicht mehr als harte Sofort-Kappung, solange der Miner oberhalb davon läuft. Stattdessen wird stufenweise heruntergeregelt.
@@ -486,7 +486,7 @@ Batterie entlädt:
     bewusster Batteriebetrieb bis zum Entlade-SOC
     unterhalb des Entladeprofils darf hochgeregelt werden
     oberhalb des Entladeprofils wird stufenweise reduziert
-    harte Limits gelten weiterhin, wenn Entladen nicht erlaubt ist oder SOC fehlt/zu niedrig ist
+    harte Limits gelten, wenn Entladen nicht erlaubt ist oder SOC fehlt/zu niedrig ist
 
 Batterie lädt:
     modusbezogene Freigabe über Lade-SOC

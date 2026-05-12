@@ -593,24 +593,24 @@ class BasicController:
             if not miner.use_battery_when_discharging():
                 return MinerBatteryPolicy(
                     target_profile=None,
-                    max_profile="p4",
-                    step_down_floor_profile=min_profile,
+                    max_profile=min_profile,
+                    step_down_floor_profile=None,
                     reason="battery_discharge_blocked",
                 )
 
             if soc_pct is None:
                 return MinerBatteryPolicy(
                     target_profile=None,
-                    max_profile="p4",
-                    step_down_floor_profile=min_profile,
+                    max_profile=min_profile,
+                    step_down_floor_profile=None,
                     reason="battery_soc_missing",
                 )
 
             if soc_pct < miner.get_battery_discharge_soc_min():
                 return MinerBatteryPolicy(
                     target_profile=None,
-                    max_profile="p4",
-                    step_down_floor_profile=min_profile,
+                    max_profile=min_profile,
+                    step_down_floor_profile=None,
                     reason="battery_discharge_soc_below_min",
                 )
 
