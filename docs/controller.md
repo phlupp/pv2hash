@@ -55,7 +55,7 @@ Vereinfacht arbeitet der Regler in dieser Reihenfolge:
 2. Bei Messwertausfall Source-Loss-Verhalten anwenden
 3. Bei Live-Werten Batterie-Kontext bestimmen
 4. Batterie-Policies pro Miner berechnen
-5. Harte Batterie-Limits anwenden, falls Batterieentladung nicht erlaubt ist oder SOC fehlt/zu niedrig ist
+5. Bei Batterieentladung mit Schutzbedingung stufenweise bis zum zulässigen Floor runterregeln
 6. Bei Batterieladung unter Lade-SOC ohne echten Netzexport stufenweise bis zum Min-Profil runterregeln
 7. Batterie-Zielprofil anwenden, falls erlaubt und das aktuelle Profil darunter liegt
 8. Bei Batterieentladung oberhalb des Entladeprofils stufenweise bis zum Entladeprofil runterregeln
@@ -219,7 +219,7 @@ Ist der SOC hoch genug?
 Welches Profil ist bei Entladung vorgesehen?
 ```
 
-Wenn Entladung nicht erlaubt ist, der SOC fehlt oder der SOC zu niedrig ist, wird der Miner auf sein kleinstes geregeltes Profil begrenzt. Diese Fälle bleiben harte Limits.
+Wenn Entladung nicht erlaubt ist, der SOC fehlt oder der SOC zu niedrig ist, wird das kleinste geregelte Profil des Miners als Schutz-Floor verwendet. Der Regler springt nicht mehr hart auf diesen Floor, sondern reduziert ebenfalls stufenweise dorthin.
 
 Beispiel:
 
@@ -229,7 +229,7 @@ SOC = 40 %
 Mindest-SOC Entladung = 60 %
 Miner-Floor = off
 
--> Miner wird auf off begrenzt
+-> Miner wird stufenweise bis off reduziert
 ```
 
 Wenn Entladung erlaubt ist und der SOC hoch genug ist, ist das Entladeprofil das gewünschte Zielniveau für Batteriebetrieb. Der Regler nutzt dieses Profil aber nicht mehr als harte Sofort-Kappung, solange der Miner oberhalb davon läuft. Stattdessen wird stufenweise heruntergeregelt.

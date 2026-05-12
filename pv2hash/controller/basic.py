@@ -488,19 +488,16 @@ class BasicController:
         charge_power_w = float(snapshot.battery_charge_power_w or 0.0)
         discharge_power_w = float(snapshot.battery_discharge_power_w or 0.0)
 
-        if snapshot.battery_is_charging is None:
-            is_charging = charge_power_w >= self.battery_charge_active_threshold_w
-        else:
-            is_charging = bool(snapshot.battery_is_charging) or (
-                charge_power_w >= self.battery_charge_active_threshold_w
-            )
-
-        if snapshot.battery_is_discharging is None:
-            is_discharging = discharge_power_w >= self.battery_discharge_active_threshold_w
-        else:
-            is_discharging = bool(snapshot.battery_is_discharging) or (
-                discharge_power_w >= self.battery_discharge_active_threshold_w
-            )
+        is_charging = self._is_battery_flow_active(
+            flag=snapshot.battery_is_charging,
+            power_w=snapshot.battery_charge_power_w,
+            threshold_w=self.battery_charge_active_threshold_w,
+        )
+        is_discharging = self._is_battery_flow_active(
+            flag=snapshot.battery_is_discharging,
+            power_w=snapshot.battery_discharge_power_w,
+            threshold_w=self.battery_discharge_active_threshold_w,
+        )
 
         mode: str | None = None
         if is_charging and is_discharging:
@@ -542,6 +539,25 @@ class BasicController:
             policies=policies,
         )
 
+
+    @staticmethod
+    def _is_battery_flow_active(
+        *,
+        flag: bool | None,
+        power_w: float | None,
+        threshold_w: float,
+    ) -> bool:
+        if power_w is not None:
+            try:
+                return float(power_w) >= threshold_w
+            except (TypeError, ValueError):
+                return bool(flag)
+
+        if flag is None:
+            return False
+
+        return bool(flag)
+
     def _get_effective_battery_max_profiles(
         self,
         *,
@@ -576,25 +592,25 @@ class BasicController:
         if mode == "discharging":
             if not miner.use_battery_when_discharging():
                 return MinerBatteryPolicy(
-                    target_profile=min_profile,
-                    max_profile=min_profile,
-                    step_down_floor_profile=None,
+                    target_profile=None,
+                    max_profile="p4",
+                    step_down_floor_profile=min_profile,
                     reason="battery_discharge_blocked",
                 )
 
             if soc_pct is None:
                 return MinerBatteryPolicy(
-                    target_profile=min_profile,
-                    max_profile=min_profile,
-                    step_down_floor_profile=None,
+                    target_profile=None,
+                    max_profile="p4",
+                    step_down_floor_profile=min_profile,
                     reason="battery_soc_missing",
                 )
 
             if soc_pct < miner.get_battery_discharge_soc_min():
                 return MinerBatteryPolicy(
-                    target_profile=min_profile,
-                    max_profile=min_profile,
-                    step_down_floor_profile=None,
+                    target_profile=None,
+                    max_profile="p4",
+                    step_down_floor_profile=min_profile,
                     reason="battery_discharge_soc_below_min",
                 )
 
