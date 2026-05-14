@@ -255,7 +255,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                         miner_cfg.get("use_battery_when_charging", False)
                     ),
                     battery_charge_soc_min=float(
-                        miner_cfg.get("battery_charge_soc_min", 95.0)
+                        miner_cfg.get("battery_charge_soc_min", 50.0)
                     ),
                     battery_charge_profile=_normalize_battery_override_profile(
                         miner_cfg.get("battery_charge_profile", "p1")
@@ -264,7 +264,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                         miner_cfg.get("use_battery_when_discharging", False)
                     ),
                     battery_discharge_soc_min=float(
-                        miner_cfg.get("battery_discharge_soc_min", 80.0)
+                        miner_cfg.get("battery_discharge_soc_min", 48.0)
                     ),
                     battery_discharge_profile=_normalize_battery_override_profile(
                         miner_cfg.get("battery_discharge_profile", "p1")
@@ -293,7 +293,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                         miner_cfg.get("use_battery_when_charging", False)
                     ),
                     battery_charge_soc_min=float(
-                        miner_cfg.get("battery_charge_soc_min", 95.0)
+                        miner_cfg.get("battery_charge_soc_min", 50.0)
                     ),
                     battery_charge_profile=_normalize_battery_override_profile(
                         miner_cfg.get("battery_charge_profile", "p1")
@@ -302,7 +302,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                         miner_cfg.get("use_battery_when_discharging", False)
                     ),
                     battery_discharge_soc_min=float(
-                        miner_cfg.get("battery_discharge_soc_min", 80.0)
+                        miner_cfg.get("battery_discharge_soc_min", 48.0)
                     ),
                     battery_discharge_profile=_normalize_battery_override_profile(
                         miner_cfg.get("battery_discharge_profile", "p1")
@@ -330,7 +330,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                         miner_cfg.get("use_battery_when_charging", False)
                     ),
                     battery_charge_soc_min=float(
-                        miner_cfg.get("battery_charge_soc_min", 95.0)
+                        miner_cfg.get("battery_charge_soc_min", 50.0)
                     ),
                     battery_charge_profile=_normalize_battery_override_profile(
                         miner_cfg.get("battery_charge_profile", "p1")
@@ -339,7 +339,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                         miner_cfg.get("use_battery_when_discharging", False)
                     ),
                     battery_discharge_soc_min=float(
-                        miner_cfg.get("battery_discharge_soc_min", 80.0)
+                        miner_cfg.get("battery_discharge_soc_min", 48.0)
                     ),
                     battery_discharge_profile=_normalize_battery_override_profile(
                         miner_cfg.get("battery_discharge_profile", "p1")
@@ -370,7 +370,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                         miner_cfg.get("use_battery_when_charging", False)
                     ),
                     battery_charge_soc_min=float(
-                        miner_cfg.get("battery_charge_soc_min", 95.0)
+                        miner_cfg.get("battery_charge_soc_min", 50.0)
                     ),
                     battery_charge_profile=_normalize_battery_override_profile(
                         miner_cfg.get("battery_charge_profile", "p1")
@@ -379,7 +379,7 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                         miner_cfg.get("use_battery_when_discharging", False)
                     ),
                     battery_discharge_soc_min=float(
-                        miner_cfg.get("battery_discharge_soc_min", 80.0)
+                        miner_cfg.get("battery_discharge_soc_min", 48.0)
                     ),
                     battery_discharge_profile=_normalize_battery_override_profile(
                         miner_cfg.get("battery_discharge_profile", "p1")

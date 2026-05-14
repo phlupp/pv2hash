@@ -59,7 +59,7 @@ values:
     register_type: input
     type: uint32
     endian: big_endian
-    factor: 1
+    factor: 0.01
 
   current:
     address: 30843

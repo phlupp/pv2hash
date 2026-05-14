@@ -121,8 +121,8 @@ DEFAULT_CONFIG = {
         "min_switch_interval_seconds": 300,
         "cooldown_seconds": 15,
         "switch_hysteresis_w": 100,
-        "max_import_w": 100,
-        "import_hold_seconds": 15,
+        "max_import_w": 200,
+        "import_hold_seconds": 150,
         "source_loss": {
             "stale": {
                 "mode": "hold_current",
