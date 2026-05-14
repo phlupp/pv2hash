@@ -283,6 +283,24 @@ class BasicController:
                                 f"need≈{up_plan.delta_power_w:.0f}W)"
                             ),
                         )
+                    elif up_plan.changed and up_plan.delta_power_w > 0:
+                        distribution_reason = up_plan.reason
+                        summary = self._build_battery_summary(
+                            battery_context=battery_context,
+                            fallback=(
+                                f"hold ({distribution_mode}, "
+                                f"need≈{up_plan.delta_power_w:.0f}W, "
+                                f"export≈{max(0.0, -grid_power_w):.0f}W)"
+                            ),
+                        )
+                    else:
+                        distribution_reason = up_plan.reason
+                        summary = self._build_battery_summary(
+                            battery_context=battery_context,
+                            fallback=(
+                                f"hold ({distribution_mode}, {up_plan.reason})"
+                            ),
+                        )
                 else:
                     summary = self._build_battery_summary(
                         battery_context=battery_context,
@@ -311,6 +329,7 @@ class BasicController:
                 profiles=current_profiles,
                 action="hold",
                 summary=summary,
+                distribution_reason=distribution_reason,
             )
 
         elapsed = (

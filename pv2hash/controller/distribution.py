@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 PROFILE_ORDER = ("off", "p1", "p2", "p3", "p4")
 PROFILE_INDEX = {name: idx for idx, name in enumerate(PROFILE_ORDER)}
+MIN_EFFECTIVE_POWER_DELTA_W = 1.0
 
 
 @dataclass
@@ -76,6 +77,90 @@ def _prev_profile(profile: str, min_profile: str = "off") -> str:
     return PROFILE_ORDER[current_idx - 1]
 
 
+def _profile_power_w(miner, profile: str | None) -> float:
+    try:
+        return float(miner.get_profile_power_w(_normalize_profile(profile)))
+    except Exception:
+        return 0.0
+
+
+def _next_effective_higher_profile(
+    miner,
+    current_profile: str | None,
+) -> tuple[str, float] | None:
+    """Return the next higher profile that actually increases configured power.
+
+    Some installations intentionally configure unused logical steps with the same
+    power value, for example p1 == p2 to model a three-step miner. The controller
+    should treat those profiles as aliases and skip them instead of getting stuck
+    on a zero-watt step.
+    """
+    current = _normalize_profile(current_profile)
+    current_idx = PROFILE_INDEX[current]
+    current_power_w = _profile_power_w(miner, current)
+
+    for candidate in PROFILE_ORDER[current_idx + 1 :]:
+        candidate_power_w = _profile_power_w(miner, candidate)
+        delta = candidate_power_w - current_power_w
+        if delta >= MIN_EFFECTIVE_POWER_DELTA_W:
+            return candidate, delta
+
+    return None
+
+
+def _previous_effective_lower_profile(
+    miner,
+    current_profile: str | None,
+    min_profile: str = "off",
+) -> tuple[str, float] | None:
+    """Return the previous lower profile that actually releases power."""
+    current = _normalize_profile(current_profile)
+    floor = _normalize_profile(min_profile)
+    current_idx = PROFILE_INDEX[current]
+    floor_idx = PROFILE_INDEX[floor]
+
+    if current_idx <= floor_idx:
+        return None
+
+    current_power_w = _profile_power_w(miner, current)
+    for candidate in reversed(PROFILE_ORDER[floor_idx:current_idx]):
+        candidate_power_w = _profile_power_w(miner, candidate)
+        delta = current_power_w - candidate_power_w
+        if delta >= MIN_EFFECTIVE_POWER_DELTA_W:
+            return candidate, delta
+
+    return None
+
+
+def _previous_profile_towards_floor(
+    miner,
+    current_profile: str | None,
+    floor_profile: str | None,
+) -> tuple[str, float] | None:
+    """Step down toward a floor while skipping zero-release intermediate steps.
+
+    Battery floors are profile targets as well as power limits. If the current
+    profile is above the floor and every intermediate step has the same power,
+    returning the floor is still useful to keep the runtime state clean. If a
+    lower intermediate profile releases real power, return that first to keep the
+    existing one-step-at-a-time behaviour.
+    """
+    current = _normalize_profile(current_profile)
+    floor = _normalize_profile(floor_profile)
+    current_idx = PROFILE_INDEX[current]
+    floor_idx = PROFILE_INDEX[floor]
+
+    if current_idx <= floor_idx:
+        return None
+
+    effective_lower = _previous_effective_lower_profile(miner, current, floor)
+    if effective_lower is not None:
+        return effective_lower
+
+    floor_delta = max(0.0, _profile_power_w(miner, current) - _profile_power_w(miner, floor))
+    return floor, floor_delta
+
+
 def get_current_profiles(miners: list) -> list[str]:
     profiles: list[str] = []
 
@@ -109,19 +194,20 @@ def get_step_up_plan(distribution_mode: str, miners: list) -> DistributionPlan:
         target = current.copy()
         delta = 0.0
         changed = False
+        skipped_zero_steps = False
 
         for idx in active:
             current_profile = _normalize_profile(current[idx])
-            next_profile = _next_profile(current_profile)
+            step = _next_effective_higher_profile(miners[idx], current_profile)
 
-            if next_profile == current_profile:
+            if step is None:
                 continue
 
-            delta += max(
-                0.0,
-                miners[idx].get_profile_power_w(next_profile)
-                - miners[idx].get_profile_power_w(current_profile),
-            )
+            next_profile, step_delta = step
+            if next_profile != _next_profile(current_profile):
+                skipped_zero_steps = True
+
+            delta += step_delta
             target[idx] = next_profile
             changed = True
 
@@ -130,45 +216,51 @@ def get_step_up_plan(distribution_mode: str, miners: list) -> DistributionPlan:
                 profiles=current,
                 delta_power_w=0.0,
                 changed=False,
-                reason="already_at_top",
+                reason="already_at_top_or_no_higher_power_profile",
             )
+
+        reason = "equal:step_up"
+        if skipped_zero_steps:
+            reason += ":skip_zero_delta_profiles"
 
         return DistributionPlan(
             profiles=target,
             delta_power_w=delta,
             changed=True,
-            reason="equal:step_up",
+            reason=reason,
         )
 
     if distribution_mode == "cascade":
+        skipped_zero_steps = False
         for idx in active:
             current_profile = _normalize_profile(current[idx])
-            next_profile = _next_profile(current_profile)
+            step = _next_effective_higher_profile(miners[idx], current_profile)
 
-            if next_profile == current_profile:
+            if step is None:
                 continue
+
+            next_profile, delta = step
+            if next_profile != _next_profile(current_profile):
+                skipped_zero_steps = True
 
             target = current.copy()
             target[idx] = next_profile
-
-            delta = max(
-                0.0,
-                miners[idx].get_profile_power_w(next_profile)
-                - miners[idx].get_profile_power_w(current_profile),
-            )
+            reason = f"cascade:{idx}:{current_profile}->{next_profile}"
+            if skipped_zero_steps:
+                reason += ":skip_zero_delta_profiles"
 
             return DistributionPlan(
                 profiles=target,
                 delta_power_w=delta,
                 changed=True,
-                reason=f"cascade:{idx}:{current_profile}->{next_profile}",
+                reason=reason,
             )
 
         return DistributionPlan(
             profiles=current,
             delta_power_w=0.0,
             changed=False,
-            reason="already_at_top",
+            reason="already_at_top_or_no_higher_power_profile",
         )
 
     return DistributionPlan(
@@ -195,20 +287,21 @@ def get_step_down_plan(distribution_mode: str, miners: list) -> DistributionPlan
         target = current.copy()
         delta = 0.0
         changed = False
+        skipped_zero_steps = False
 
         for idx in active:
             current_profile = _normalize_profile(current[idx])
             min_profile = miners[idx].get_min_regulated_profile()
-            prev_profile = _prev_profile(current_profile, min_profile)
+            step = _previous_effective_lower_profile(miners[idx], current_profile, min_profile)
 
-            if prev_profile == current_profile:
+            if step is None:
                 continue
 
-            delta += max(
-                0.0,
-                miners[idx].get_profile_power_w(current_profile)
-                - miners[idx].get_profile_power_w(prev_profile),
-            )
+            prev_profile, step_delta = step
+            if prev_profile != _prev_profile(current_profile, min_profile):
+                skipped_zero_steps = True
+
+            delta += step_delta
             target[idx] = prev_profile
             changed = True
 
@@ -217,46 +310,52 @@ def get_step_down_plan(distribution_mode: str, miners: list) -> DistributionPlan
                 profiles=current,
                 delta_power_w=0.0,
                 changed=False,
-                reason="already_at_bottom",
+                reason="already_at_bottom_or_no_lower_power_profile",
             )
+
+        reason = "equal:step_down"
+        if skipped_zero_steps:
+            reason += ":skip_zero_delta_profiles"
 
         return DistributionPlan(
             profiles=target,
             delta_power_w=delta,
             changed=True,
-            reason="equal:step_down",
+            reason=reason,
         )
 
     if distribution_mode == "cascade":
+        skipped_zero_steps = False
         for idx in reversed(active):
             current_profile = _normalize_profile(current[idx])
             min_profile = miners[idx].get_min_regulated_profile()
-            prev_profile = _prev_profile(current_profile, min_profile)
+            step = _previous_effective_lower_profile(miners[idx], current_profile, min_profile)
 
-            if prev_profile == current_profile:
+            if step is None:
                 continue
+
+            prev_profile, delta = step
+            if prev_profile != _prev_profile(current_profile, min_profile):
+                skipped_zero_steps = True
 
             target = current.copy()
             target[idx] = prev_profile
-
-            delta = max(
-                0.0,
-                miners[idx].get_profile_power_w(current_profile)
-                - miners[idx].get_profile_power_w(prev_profile),
-            )
+            reason = f"cascade:{idx}:{current_profile}->{prev_profile}"
+            if skipped_zero_steps:
+                reason += ":skip_zero_delta_profiles"
 
             return DistributionPlan(
                 profiles=target,
                 delta_power_w=delta,
                 changed=True,
-                reason=f"cascade:{idx}:{current_profile}->{prev_profile}",
+                reason=reason,
             )
 
         return DistributionPlan(
             profiles=current,
             delta_power_w=0.0,
             changed=False,
-            reason="already_at_bottom",
+            reason="already_at_bottom_or_no_lower_power_profile",
         )
 
     return DistributionPlan(
@@ -288,36 +387,26 @@ def get_step_down_plan_to_profiles(
         floor_profile = _normalize_profile(
             floor_profiles[idx] if idx < len(floor_profiles) else miners[idx].get_min_regulated_profile()
         )
-
-        if PROFILE_INDEX[current_profile] <= PROFILE_INDEX[floor_profile]:
-            return None
-
-        prev_profile = clamp_profile_to_min(
-            _prev_profile(current_profile, floor_profile),
-            floor_profile,
-        )
-
-        if prev_profile == current_profile:
-            return None
-
-        delta = max(
-            0.0,
-            miners[idx].get_profile_power_w(current_profile)
-            - miners[idx].get_profile_power_w(prev_profile),
-        )
-        return prev_profile, delta
+        return _previous_profile_towards_floor(miners[idx], current_profile, floor_profile)
 
     if distribution_mode == "equal":
         target = current.copy()
         delta = 0.0
         changed = False
+        skipped_zero_steps = False
 
         for idx in active:
+            current_profile = _normalize_profile(current[idx])
+            floor_profile = _normalize_profile(
+                floor_profiles[idx] if idx < len(floor_profiles) else miners[idx].get_min_regulated_profile()
+            )
             step = step_down_index(idx)
             if step is None:
                 continue
 
             prev_profile, step_delta = step
+            if prev_profile != _prev_profile(current_profile, floor_profile):
+                skipped_zero_steps = True
             target[idx] = prev_profile
             delta += step_delta
             changed = True
@@ -330,28 +419,42 @@ def get_step_down_plan_to_profiles(
                 reason="already_at_battery_floor",
             )
 
+        reason = "equal:battery_step_down"
+        if skipped_zero_steps:
+            reason += ":skip_zero_delta_profiles"
+
         return DistributionPlan(
             profiles=target,
             delta_power_w=delta,
             changed=True,
-            reason="equal:battery_step_down",
+            reason=reason,
         )
 
     if distribution_mode == "cascade":
+        skipped_zero_steps = False
         for idx in reversed(active):
+            current_profile = _normalize_profile(current[idx])
+            floor_profile = _normalize_profile(
+                floor_profiles[idx] if idx < len(floor_profiles) else miners[idx].get_min_regulated_profile()
+            )
             step = step_down_index(idx)
             if step is None:
                 continue
 
             prev_profile, delta = step
+            if prev_profile != _prev_profile(current_profile, floor_profile):
+                skipped_zero_steps = True
             target = current.copy()
             target[idx] = prev_profile
+            reason = f"cascade:{idx}:battery_step_down"
+            if skipped_zero_steps:
+                reason += ":skip_zero_delta_profiles"
 
             return DistributionPlan(
                 profiles=target,
                 delta_power_w=delta,
                 changed=True,
-                reason=f"cascade:{idx}:battery_step_down",
+                reason=reason,
             )
 
         return DistributionPlan(
