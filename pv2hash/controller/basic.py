@@ -132,6 +132,7 @@ class BasicController:
         target_profiles = self._build_battery_target_profiles(
             current_profiles=current_profiles,
             battery_context=battery_context,
+            miners=miners,
         )
 
         if self.state.last_live_profiles is None:
@@ -165,9 +166,10 @@ class BasicController:
             )
         else:
             has_battery_force_up = any(
-                policy.target_profile is not None
+                miner.is_active_for_distribution()
+                and policy.target_profile is not None
                 and is_profile_higher(policy.target_profile, current_profiles[idx])
-                for idx, policy in enumerate(battery_context.policies)
+                for idx, (miner, policy) in enumerate(zip(miners, battery_context.policies))
             )
 
             if has_battery_force_up and self._can_force_battery_targets(
@@ -545,19 +547,26 @@ class BasicController:
         *,
         current_profiles: list[str],
         battery_context: BatteryContext,
+        miners: list,
     ) -> list[str]:
         """Return effective battery targets without lowering existing profiles.
 
         Battery target profiles are release targets, not a request to reset every
-        miner exactly to that profile. If one miner is below its battery target
-        while another miner is already above its battery target, the target action
-        must only raise the lower miner. Lowering remains handled by the dedicated
-        battery limit / battery step-down paths. This avoids mixed target plans
-        such as p2 -> p1 on one miner while another miner is raised.
+        miner exactly to that profile. They must only affect miners that are
+        currently active for distribution. Otherwise an inactive miner could
+        create a synthetic target change (for example off -> p1), start the
+        controller's min-switch timer, and block real active miners even though
+        no profile was actually applied. If one active miner is below its battery
+        target while another active miner is already above its battery target,
+        the target action must only raise the lower miner. Lowering remains
+        handled by the dedicated battery limit / battery step-down paths.
         """
         targets: list[str] = []
         for idx, policy in enumerate(battery_context.policies):
             current_profile = current_profiles[idx]
+            if idx >= len(miners) or not miners[idx].is_active_for_distribution():
+                targets.append(current_profile)
+                continue
             if policy.target_profile is None:
                 targets.append(current_profile)
                 continue
@@ -907,6 +916,8 @@ class BasicController:
     ) -> bool:
         total_delta_power_w = 0.0
         for idx, target_profile in enumerate(target_profiles):
+            if idx >= len(miners) or not miners[idx].is_active_for_distribution():
+                continue
             current_power_w = miners[idx].get_profile_power_w(current_profiles[idx])
             target_power_w = miners[idx].get_profile_power_w(target_profile)
             total_delta_power_w += max(0.0, target_power_w - current_power_w)

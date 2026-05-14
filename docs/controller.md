@@ -57,7 +57,7 @@ Vereinfacht arbeitet der Regler in dieser Reihenfolge:
 4. Batterie-Policies pro Miner berechnen
 5. Bei Batterieentladung mit Schutzbedingung stufenweise bis zum zulässigen Floor runterregeln
 6. Bei Batterieladung unter Lade-SOC ohne echten Netzexport stufenweise bis zum Min-Profil runterregeln
-7. Batterie-Zielprofil anwenden, falls erlaubt und das aktuelle Profil darunter liegt
+7. Batterie-Zielprofil nur für aktive Miner anwenden, falls erlaubt und das aktuelle Profil darunter liegt
 8. Bei Batterieentladung oberhalb des Entladeprofils stufenweise bis zum Entladeprofil runterregeln
 9. Netzbezug prüfen und nach Hold-Zeit runterregeln
 10. Netzeinspeisung prüfen und bei ausreichendem Überschuss hochregeln
@@ -320,6 +320,8 @@ Miner läuft bereits auf p2
 -> Batterie-Zielprofil setzt den Miner nicht auf p1 zurück
 -> bei echtem Netzexport darf die normale Netzregelung weiter hochregeln
 ```
+Hinweis: Batterie-Zielprofile wirken nur auf Miner, die aktuell in die Regelung/Verteilung aufgenommen sind. Inaktive oder nur beobachtete Miner dürfen kein synthetisches Batterie-Ziel erzeugen, weil sonst der interne Mindest-Schaltintervall-Timer starten könnte, obwohl kein realer Profilwechsel angewendet wurde.
+
 
 Die Lade-SOC-Grenze ist eine untere Freigabegrenze für Mining während aktiver Batterieladung. Wenn die Batterie lädt, Batterienutzung beim Laden für den Miner erlaubt ist, aber der SOC noch unter dieser Grenze liegt, wird der Miner nicht allein wegen der Batterieladung weiter betrieben. Ohne echten Netzexport reduziert der Regler stufenweise bis zum kleinsten geregelten Profil des Miners. Bei ON/OFF-Minern ist das typischerweise `off`.
 
