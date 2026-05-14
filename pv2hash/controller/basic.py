@@ -129,10 +129,10 @@ class BasicController:
         max_profiles = self._get_effective_battery_max_profiles(
             battery_context=battery_context,
         )
-        target_profiles = [
-            policy.target_profile or current_profiles[idx]
-            for idx, policy in enumerate(battery_context.policies)
-        ]
+        target_profiles = self._build_battery_target_profiles(
+            current_profiles=current_profiles,
+            battery_context=battery_context,
+        )
 
         if self.state.last_live_profiles is None:
             self.state.last_live_profiles = current_profiles.copy()
@@ -538,6 +538,31 @@ class BasicController:
                 if flag and flag not in flags:
                     flags.append(flag)
         return flags
+
+
+    @staticmethod
+    def _build_battery_target_profiles(
+        *,
+        current_profiles: list[str],
+        battery_context: BatteryContext,
+    ) -> list[str]:
+        """Return effective battery targets without lowering existing profiles.
+
+        Battery target profiles are release targets, not a request to reset every
+        miner exactly to that profile. If one miner is below its battery target
+        while another miner is already above its battery target, the target action
+        must only raise the lower miner. Lowering remains handled by the dedicated
+        battery limit / battery step-down paths. This avoids mixed target plans
+        such as p2 -> p1 on one miner while another miner is raised.
+        """
+        targets: list[str] = []
+        for idx, policy in enumerate(battery_context.policies):
+            current_profile = current_profiles[idx]
+            if policy.target_profile is None:
+                targets.append(current_profile)
+                continue
+            targets.append(max_profile(current_profile, policy.target_profile))
+        return targets
 
 
     @staticmethod

@@ -295,7 +295,7 @@ Ist der SOC über dem Mindest-SOC Laden?
 Welches Profil ist bei Ladung konfiguriert?
 ```
 
-Wenn die Bedingungen erfüllt sind, kann der Regler das Batterie-Ladeprofil als Zielprofil verwenden.
+Wenn die Bedingungen erfüllt sind, kann der Regler das Batterie-Ladeprofil als Freigabe-/Zielprofil verwenden. Dieses Zielprofil ist aber kein Reset-Befehl. Ein Miner, der bereits oberhalb des Batterie-Ladeprofils läuft, wird dadurch nicht auf das Ladeprofil zurückgesetzt. Absenkungen passieren nur über Batterie-Limits, Batterie-Stepdown oder die normale Netzbezugslogik.
 
 Beispiel:
 
@@ -304,8 +304,21 @@ Batterie lädt
 SOC = 95 %
 Mindest-SOC Laden = 90 %
 Profil bei Laden = p1
+Miner steht off
 
 -> Miner darf auf p1 gehen
+```
+
+Gegenbeispiel:
+
+```text
+Batterie lädt
+SOC = 95 %
+Profil bei Laden = p1
+Miner läuft bereits auf p2
+
+-> Batterie-Zielprofil setzt den Miner nicht auf p1 zurück
+-> bei echtem Netzexport darf die normale Netzregelung weiter hochregeln
 ```
 
 Die Lade-SOC-Grenze ist eine untere Freigabegrenze für Mining während aktiver Batterieladung. Wenn die Batterie lädt, Batterienutzung beim Laden für den Miner erlaubt ist, aber der SOC noch unter dieser Grenze liegt, wird der Miner nicht allein wegen der Batterieladung weiter betrieben. Ohne echten Netzexport reduziert der Regler stufenweise bis zum kleinsten geregelten Profil des Miners. Bei ON/OFF-Minern ist das typischerweise `off`.
@@ -379,7 +392,8 @@ Batterie lädt + keine echte Netzeinspeisung
 -> Batterie-Ladeprofil bleibt die Obergrenze
 
 Batterie lädt + echte Netzeinspeisung über der Hysterese
--> Batterie-Ladeprofil bleibt Ziel/Freigabe
+-> Batterie-Ladeprofil bleibt Ziel/Freigabe für Miner unterhalb dieses Profils
+-> bereits höhere Profile werden dadurch nicht abgesenkt
 -> harte Obergrenze wird gelockert
 -> normaler Netzanschluss-Regler darf weiter hochregeln
 ```
