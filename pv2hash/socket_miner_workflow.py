@@ -85,6 +85,19 @@ def _mark_waiting_for_socket(miner: Any, message: str) -> None:
         pass
 
 
+def _mark_socket_powered_off(miner: Any, message: str = "Steckdose ist aus.") -> None:
+    info = getattr(miner, "info", None)
+    if info is None:
+        return
+    try:
+        info.profile = "off"
+        info.power_w = 0.0
+        info.runtime_state = "socket_off"
+        info.last_error = None
+    except Exception:
+        pass
+
+
 def _decorate_workflow_payload(miner_item: dict[str, Any], state: dict[str, Any]) -> None:
     socket_payload = miner_item.get("socket")
     if not isinstance(socket_payload, dict):
@@ -204,8 +217,13 @@ async def _handle_profile_with_socket(
         state.update({"state": "running", "message": "Steckdose bereit.", "last_error": ""})
         return await original_set_profile(profile)
 
-    # Desired profile is off. Always let the miner stop/pause first, then start
-    # or continue the conservative socket-off timer.
+    # Desired profile is off. Stop/pause the miner first. Once the socket has
+    # already been powered off by this workflow, do not keep calling the miner API
+    # every control cycle while it is intentionally without power.
+    if state.get("state") == "socket_off":
+        _mark_socket_powered_off(miner)
+        return None
+
     result = await original_set_profile(profile)
     _reset_startup(state)
 
@@ -260,8 +278,10 @@ async def _handle_profile_with_socket(
             "last_socket_action_at": _now_iso(),
             "last_error": "",
         })
+        _mark_socket_powered_off(miner)
     else:
         state.update({"state": "socket_off", "message": "Steckdose ist aus.", "last_error": ""})
+        _mark_socket_powered_off(miner)
     return result
 
 
