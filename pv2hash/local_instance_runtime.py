@@ -59,6 +59,7 @@ def _patch_app_module(app_mod: Any) -> None:
     # that FastAPI interpreted as a query parameter.
     from pv2hash import local_instance_extensions as ext
     from pv2hash import socket_miner_assignment
+    from pv2hash import socket_miner_assignment_api
     import pv2hash.portal as portal_mod
 
     ext._patch_app_module(app_mod)
@@ -72,6 +73,7 @@ def _patch_app_module(app_mod: Any) -> None:
 
     _patch_location_settings_model(app_mod)
     socket_miner_assignment.install(app_mod)
+    socket_miner_assignment_api.install(app_mod)
 
     _remove_route(app_mod.app, "/api/portal/location/geocode", "POST")
 
