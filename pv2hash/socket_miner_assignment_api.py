@@ -12,7 +12,13 @@ def install(app_mod: Any) -> None:
     @app_mod.app.get("/api/miners/socket-assignment/model")
     async def api_miners_socket_assignment_model():
         assignment.sync_socket_assignments(app_mod.state.config)
-        runtime_sockets = app_mod._build_socket_snapshot_items()
+        runtime_payload = app_mod._build_runtime_snapshot_payload()
+        runtime_sockets = runtime_payload.get("sockets") if isinstance(runtime_payload.get("sockets"), list) else app_mod._build_socket_snapshot_items()
+        runtime_miners = {
+            str(item.get("key") or item.get("id") or ""): item
+            for item in (runtime_payload.get("miners") or [])
+            if isinstance(item, dict)
+        }
         socket_cfgs = assignment._socket_by_id(app_mod.state.config)
         miner_items: dict[str, dict[str, Any]] = {}
 
@@ -26,6 +32,9 @@ def install(app_mod: Any) -> None:
             selected_socket_id = str(socket_config.get("socket_id") or "")
             socket_cfg = socket_cfgs.get(selected_socket_id)
             runtime = assignment._runtime_socket_payload(runtime_sockets, selected_socket_id)
+            runtime_miner = runtime_miners.get(miner_id) or {}
+            runtime_socket = runtime_miner.get("socket") if isinstance(runtime_miner.get("socket"), dict) else {}
+            workflow = runtime_socket.get("workflow") if isinstance(runtime_socket.get("workflow"), dict) else {}
             real_socket_count = sum(
                 1 for item in app_mod.state.config.get("sockets", []) or [] if assignment._is_real_miner_socket(item)
             )
@@ -38,6 +47,7 @@ def install(app_mod: Any) -> None:
                 "socket_missing": bool(selected_socket_id and socket_cfg is None),
                 "options": assignment._available_socket_options(app_mod.state.config, miner_id, selected_socket_id),
                 "runtime": runtime or {},
+                "workflow": workflow,
                 "mode_options": [
                     {"value": "measure_only", "label": "Nur messen"},
                     {"value": "switching", "label": "Messen und schalten"},
