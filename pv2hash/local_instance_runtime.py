@@ -20,6 +20,35 @@ def _remove_route(app: Any, path: str, method: str) -> None:
     app.router.routes = kept
 
 
+def _patch_location_settings_model(app_mod: Any) -> None:
+    if getattr(app_mod, "_pv2hash_location_settings_model_patched", False):
+        return
+    original_build_settings_model = app_mod._build_settings_model
+
+    def build_settings_model():
+        model = original_build_settings_model()
+        for section in model.get("sections", []) or []:
+            if section.get("id") == "portal-location":
+                section["id"] = "instance-location"
+                section["title"] = "Standort"
+                section["subtitle"] = (
+                    "Optionaler Standort dieser lokalen PV2Hash-Instanz. "
+                    "Koordinaten werden nur bei aktiver Portal-Synchronisierung übertragen."
+                )
+                for field in section.get("fields", []) or []:
+                    if field.get("name") == "portal_location_address":
+                        field["label"] = "Adresse"
+                        field["help"] = (
+                            "Adresse der lokalen Instanz. Koordinaten können manuell eingetragen "
+                            "oder über den Button aus der Adresse ermittelt werden."
+                        )
+                break
+        return model
+
+    app_mod._build_settings_model = build_settings_model
+    app_mod._pv2hash_location_settings_model_patched = True
+
+
 def _patch_app_module(app_mod: Any) -> None:
     if getattr(app_mod, "_pv2hash_local_instance_runtime_patched", False):
         return
@@ -31,6 +60,7 @@ def _patch_app_module(app_mod: Any) -> None:
     from pv2hash import local_instance_extensions as ext
 
     ext._patch_app_module(app_mod)
+    _patch_location_settings_model(app_mod)
 
     _remove_route(app_mod.app, "/api/portal/location/geocode", "POST")
 
