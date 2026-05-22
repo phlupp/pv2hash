@@ -309,6 +309,19 @@ def _portal_location_from_config(config: dict[str, Any] | None) -> dict[str, Any
     }
 
 
+def _sample_ids_for_upload_marking(samples: list[dict[str, Any]]) -> list[str]:
+    ids: list[str] = []
+    for item in samples:
+        if not isinstance(item, dict):
+            continue
+        raw_ids = item.get("sample_ids")
+        if isinstance(raw_ids, list):
+            ids.extend(str(raw_id) for raw_id in raw_ids if raw_id)
+        elif item.get("sample_id"):
+            ids.append(str(item.get("sample_id")))
+    return ids
+
+
 def _patch_portal_send_snapshot() -> None:
     try:
         import pv2hash.portal as portal_mod
@@ -321,7 +334,7 @@ def _patch_portal_send_snapshot() -> None:
     def send_snapshot_with_datalogger(base_url, api_token, payload, *args, **kwargs):
         payload = _sanitize_snapshot_payload(payload if isinstance(payload, dict) else {})
         samples = _unsent_datalogger_samples_for_portal(DATALOGGER_PORTAL_LIMIT)
-        sample_ids = [str(item.get("sample_id")) for item in samples if isinstance(item, dict) and item.get("sample_id")]
+        sample_ids = _sample_ids_for_upload_marking(samples)
         payload["datalogger"] = {
             "schema_version": 1,
             "upload_mode": "queued",
