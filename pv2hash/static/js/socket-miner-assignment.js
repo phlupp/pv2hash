@@ -29,8 +29,26 @@
     return parts.join(' · ');
   }
 
+  function workflowText(workflow) {
+    if (!workflow || !workflow.state || workflow.state === 'idle') return 'Workflow: bereit';
+    if (workflow.message) return workflow.message;
+    if (workflow.state === 'startup_delay' && workflow.startup_remaining_text) return `Start in ${workflow.startup_remaining_text}`;
+    if (workflow.state === 'off_timer' && workflow.power_off_remaining_text) return `Power-Off in ${workflow.power_off_remaining_text}`;
+    if (workflow.state === 'socket_off') return 'Socket ausgeschaltet';
+    return `Workflow: ${workflow.state}`;
+  }
+
+  function workflowClass(workflow) {
+    const state = workflow && workflow.state ? String(workflow.state) : 'idle';
+    if (['running', 'socket_on', 'socket_off', 'idle'].includes(state)) return 'ok';
+    if (['startup_delay', 'off_timer'].includes(state)) return 'neutral';
+    if (state.includes('failed') || state.includes('error') || state.includes('unreachable') || state.includes('unavailable')) return 'bad';
+    return 'neutral';
+  }
+
   function renderMinerSection(miner) {
     const socket = miner.socket || {};
+    const workflow = miner.workflow || {};
     const options = miner.options || [];
     const runtimeText = socketStateText(miner.runtime || {});
     const modeOptions = miner.mode_options || [];
@@ -47,7 +65,7 @@
     }).join('');
     return `
       <h3 class="section-title">Stromversorgung</h3>
-      <div class="details-section" data-socket-assignment-section>
+      <div class="details-section" data-socket-assignment-section data-miner-id="${field('miner', miner.miner_id)}">
         <div class="miner-field-grid">
           <div class="field gui-field gui-field-half">
             <label>Steckdose</label>
@@ -62,7 +80,7 @@
             <select name="socket.mode" data-miner-socket-mode>
               ${modeHtml}
             </select>
-            <small class="field-help">„Nur messen“ schaltet nicht. „Messen und schalten“ bereitet die spätere automatische Stromsteuerung vor.</small>
+            <small class="field-help">„Nur messen“ schaltet nicht. „Messen und schalten“ aktiviert die sichere Socket-Start/Stop-Logik.</small>
           </div>
           <div class="field gui-field gui-field-half" data-switching-field>
             <label>Einschaltverzögerung</label>
@@ -76,8 +94,9 @@
           </div>
         </div>
         <div class="miner-meta" style="margin-top:.75rem;">
-          <span class="pill neutral">Socket: ${escapeHtml(miner.socket_name || 'keine')}</span>
-          <span class="pill neutral">${escapeHtml(runtimeText)}</span>
+          <span class="pill neutral" data-socket-name-pill>Socket: ${escapeHtml(miner.socket_name || 'keine')}</span>
+          <span class="pill neutral" data-socket-runtime-pill>${escapeHtml(runtimeText)}</span>
+          <span class="pill ${workflowClass(workflow)}" data-socket-workflow-pill>${escapeHtml(workflowText(workflow))}</span>
         </div>
       </div>
     `;
@@ -92,11 +111,28 @@
     }
   }
 
+  function updateMinerSection(section, miner) {
+    const runtimePill = section.querySelector('[data-socket-runtime-pill]');
+    const workflowPill = section.querySelector('[data-socket-workflow-pill]');
+    const namePill = section.querySelector('[data-socket-name-pill]');
+    if (runtimePill) runtimePill.textContent = socketStateText(miner.runtime || {});
+    if (namePill) namePill.textContent = `Socket: ${miner.socket_name || 'keine'}`;
+    if (workflowPill) {
+      workflowPill.textContent = workflowText(miner.workflow || {});
+      workflowPill.className = `pill ${workflowClass(miner.workflow || {})}`;
+    }
+  }
+
   function insertMinerSections(model) {
     for (const form of document.querySelectorAll('form[data-miner-config-form]')) {
       const minerId = form.dataset.minerId;
       const miner = model.miners && model.miners[minerId];
-      if (!miner || !miner.show_section || form.querySelector('[data-socket-assignment-section]')) continue;
+      if (!miner || !miner.show_section) continue;
+      const existing = form.querySelector('[data-socket-assignment-section]');
+      if (existing) {
+        updateMinerSection(existing, miner);
+        continue;
+      }
       const driverTitle = Array.from(form.querySelectorAll('h3.section-title')).find((item) => item.textContent.includes('Treiber-Konfiguration'));
       if (!driverTitle) continue;
       driverTitle.insertAdjacentHTML('beforebegin', renderMinerSection(miner));
@@ -113,26 +149,32 @@
     for (const card of document.querySelectorAll('[data-socket-card]')) {
       const socketId = card.dataset.socketId;
       const item = model.sockets && model.sockets[socketId];
-      if (!item || card.querySelector('[data-socket-assignment-pill]')) continue;
+      if (!item) continue;
       const meta = card.querySelector('summary .miner-meta');
       if (!meta) continue;
       const assignment = item.assignment || {};
-      const pill = document.createElement('span');
+      let pill = card.querySelector('[data-socket-assignment-pill]');
+      if (!pill) {
+        pill = document.createElement('span');
+        pill.dataset.socketAssignmentPill = '1';
+        meta.appendChild(pill);
+      }
       pill.className = `pill ${assignment.class || 'neutral'}`;
-      pill.dataset.socketAssignmentPill = '1';
       pill.textContent = assignment.role === 'miner'
         ? `Zugeordnet: ${assignment.target_name || assignment.target_id}`
         : 'Frei';
-      meta.appendChild(pill);
       if (assignment.role === 'miner') {
         const automatik = card.querySelector('input[name="control_enabled"]');
         if (automatik) {
           automatik.checked = false;
           automatik.disabled = true;
-          const help = document.createElement('small');
-          help.className = 'field-help';
-          help.textContent = 'Für Miner reservierte Sockets können nicht für Verbraucher-Automatik verwendet werden.';
-          automatik.closest('.field')?.appendChild(help);
+          if (!automatik.closest('.field')?.querySelector('[data-socket-assignment-help]')) {
+            const help = document.createElement('small');
+            help.className = 'field-help';
+            help.dataset.socketAssignmentHelp = '1';
+            help.textContent = 'Für Miner reservierte Sockets können nicht für Verbraucher-Automatik verwendet werden.';
+            automatik.closest('.field')?.appendChild(help);
+          }
         }
       }
     }
@@ -159,4 +201,5 @@
   } else {
     loadModel();
   }
+  window.setInterval(loadModel, 5000);
 })();
