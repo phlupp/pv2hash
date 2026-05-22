@@ -217,6 +217,20 @@ async def _handle_profile_with_socket(
         state.update({"state": "running", "message": "Steckdose bereit.", "last_error": ""})
         return await original_set_profile(profile)
 
+    # If a startup delay is active, an intermittent off decision must not start
+    # the socket-off timer. Otherwise long startup delays could race against the
+    # off timer and create an on/off loop. Keep the startup state until a later
+    # non-off request can apply the miner profile after the delay has elapsed.
+    startup_due = state.get("startup_due_monotonic")
+    if startup_due is not None:
+        remaining = max(0.0, float(startup_due) - now)
+        state.update({
+            "state": "startup_delay",
+            "message": f"Warte auf Miner-Start: {_format_remaining(remaining)} verbleibend.",
+        })
+        _mark_waiting_for_socket(miner, state["message"])
+        return None
+
     # Desired profile is off. Stop/pause the miner first. Once the socket has
     # already been powered off by this workflow, do not keep calling the miner API
     # every control cycle while it is intentionally without power.
