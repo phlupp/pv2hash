@@ -58,6 +58,7 @@ def _patch_app_module(app_mod: Any) -> None:
     # geocode route because the first implementation used a postponed annotation
     # that FastAPI interpreted as a query parameter.
     from pv2hash import local_instance_extensions as ext
+    from pv2hash import socket_miner_assignment
     import pv2hash.portal as portal_mod
 
     ext._patch_app_module(app_mod)
@@ -70,6 +71,7 @@ def _patch_app_module(app_mod: Any) -> None:
     app_mod.send_snapshot = portal_mod.send_snapshot
 
     _patch_location_settings_model(app_mod)
+    socket_miner_assignment.install(app_mod)
 
     _remove_route(app_mod.app, "/api/portal/location/geocode", "POST")
 
