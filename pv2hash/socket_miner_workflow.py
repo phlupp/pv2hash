@@ -7,6 +7,14 @@ from typing import Any, Awaitable, Callable
 from pv2hash import socket_miner_assignment as assignment
 
 _RUNTIME: dict[str, dict[str, Any]] = {}
+_RECOVERY_STATES_REQUIRING_STARTUP_DELAY = {
+    "socket_unavailable",
+    "socket_unreachable",
+    "socket_error",
+    "socket_on_failed",
+    "socket_off_failed",
+    "socket_off",
+}
 
 
 def _now_iso() -> str:
@@ -98,6 +106,20 @@ def _mark_socket_powered_off(miner: Any, message: str = "Steckdose ist aus.") ->
         pass
 
 
+def _start_startup_delay(state: dict[str, Any], socket_cfg: dict[str, Any], now: float, message_prefix: str) -> bool:
+    delay = max(0, int(socket_cfg.get("startup_delay_seconds") or 0))
+    state.update({
+        "state": "startup_delay" if delay else "socket_on",
+        "message": f"{message_prefix}; warte {_format_remaining(delay)} vor Miner-Start." if delay else f"{message_prefix}.",
+        "startup_started_at": _now_iso(),
+        "startup_due_at": datetime.fromtimestamp(time.time() + delay, UTC).isoformat(),
+        "startup_due_monotonic": now + delay,
+        "startup_delay_seconds": delay,
+        "last_error": "",
+    })
+    return delay > 0
+
+
 def _decorate_workflow_payload(miner_item: dict[str, Any], state: dict[str, Any]) -> None:
     socket_payload = miner_item.get("socket")
     if not isinstance(socket_payload, dict):
@@ -161,6 +183,7 @@ async def _handle_profile_with_socket(
 
     if not _profile_is_off(profile):
         _reset_off_timer(state)
+        previous_state = str(state.get("state") or "")
         try:
             socket_info = socket_adapter.get_status()
         except Exception as exc:
@@ -187,19 +210,18 @@ async def _handle_profile_with_socket(
                 _mark_waiting_for_socket(miner, msg)
                 return None
 
-            delay = max(0, int(socket_cfg.get("startup_delay_seconds") or 0))
-            state.update({
-                "state": "startup_delay" if delay else "socket_on",
-                "message": f"Steckdose eingeschaltet; warte {_format_remaining(delay)} vor Miner-Start." if delay else "Steckdose eingeschaltet.",
-                "startup_started_at": _now_iso(),
-                "startup_due_at": datetime.fromtimestamp(time.time() + delay, UTC).isoformat(),
-                "startup_due_monotonic": now + delay,
-                "startup_delay_seconds": delay,
-                "last_socket_action": "on",
-                "last_socket_action_at": _now_iso(),
-                "last_error": "",
-            })
-            if delay > 0:
+            state["last_socket_action"] = "on"
+            state["last_socket_action_at"] = _now_iso()
+            if _start_startup_delay(state, socket_cfg, now, "Steckdose eingeschaltet"):
+                _mark_waiting_for_socket(miner, state["message"])
+                return None
+
+        startup_due = state.get("startup_due_monotonic")
+        if startup_due is None and getattr(socket_info, "is_on", None) is True and previous_state in _RECOVERY_STATES_REQUIRING_STARTUP_DELAY:
+            # The socket recovered from an unsafe/unknown power state. Even when
+            # it is already on again, the miner behind it may still be booting.
+            # Always honor the configured startup delay before touching the API.
+            if _start_startup_delay(state, socket_cfg, now, "Steckdose ist wieder erreichbar"):
                 _mark_waiting_for_socket(miner, state["message"])
                 return None
 
