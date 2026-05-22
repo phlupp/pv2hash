@@ -58,8 +58,17 @@ def _patch_app_module(app_mod: Any) -> None:
     # geocode route because the first implementation used a postponed annotation
     # that FastAPI interpreted as a query parameter.
     from pv2hash import local_instance_extensions as ext
+    import pv2hash.portal as portal_mod
 
     ext._patch_app_module(app_mod)
+
+    # app.py imports send_snapshot directly at module import time:
+    #   from pv2hash.portal import ..., send_snapshot, ...
+    # Patching pv2hash.portal.send_snapshot alone is therefore not enough. The
+    # global function reference inside app.py must be rebound as well, otherwise
+    # the real portal upload bypasses the DataLogger queue wrapper.
+    app_mod.send_snapshot = portal_mod.send_snapshot
+
     _patch_location_settings_model(app_mod)
 
     _remove_route(app_mod.app, "/api/portal/location/geocode", "POST")
