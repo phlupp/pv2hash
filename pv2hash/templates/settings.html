@@ -76,19 +76,6 @@
                         </div>
                     </section>
 
-                    <section class="card top-gap" data-portal-location-tools>
-                        <div class="card-head">
-                            <div>
-                                <h2>Standort-Werkzeuge</h2>
-                                <p class="card-subtitle">Adresse in Koordinaten umwandeln. Die Werte werden erst mit „Einstellungen speichern“ dauerhaft übernommen.</p>
-                            </div>
-                        </div>
-                        <div class="actions start wrap top-gap">
-                            <button class="btn secondary" type="button" data-portal-location-geocode>Koordinaten aus Adresse ermitteln</button>
-                            <span class="muted" data-portal-location-geocode-status></span>
-                        </div>
-                    </section>
-
                     <section class="card top-gap">
                         <div class="actions">
                             <button class="btn" type="button" data-settings-save>Einstellungen speichern</button>
@@ -101,47 +88,76 @@
 
     <script>
     (() => {
-        const button = document.querySelector('[data-portal-location-geocode]');
-        if (!button) return;
-        const status = document.querySelector('[data-portal-location-geocode-status]');
-        const setStatus = (message) => { if (status) status.textContent = message || ''; };
-        button.addEventListener('click', async (event) => {
-            event.preventDefault();
+        function ensureLocationButton() {
             const addressField = document.querySelector('[name="portal_location_address"]');
-            const latField = document.querySelector('[name="portal_location_lat"]');
-            const lonField = document.querySelector('[name="portal_location_lon"]');
-            const address = (addressField && addressField.value ? addressField.value : '').trim();
-            if (!address) {
-                if (window.showToast) window.showToast('error', 'Bitte zuerst eine Standort-Adresse eingeben.');
-                setStatus('Adresse fehlt.');
-                return;
-            }
-            const oldText = button.textContent;
-            button.disabled = true;
-            button.textContent = 'Ermittle …';
-            setStatus('Frage Geocoder ab …');
-            try {
-                const response = await fetch('/api/portal/location/geocode', {
-                    method: 'POST',
-                    headers: {'content-type': 'application/json', 'accept': 'application/json'},
-                    body: JSON.stringify({address, save: false}),
-                });
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok || data.status === 'error') {
-                    throw new Error(data.message || response.statusText || 'Geocoding fehlgeschlagen.');
+            if (!addressField || document.querySelector('[data-portal-location-geocode]')) return;
+            const card = addressField.closest('.card');
+            if (!card) return;
+            const actions = document.createElement('div');
+            actions.className = 'actions start wrap top-gap';
+            actions.dataset.portalLocationTools = '1';
+            const button = document.createElement('button');
+            button.className = 'btn secondary';
+            button.type = 'button';
+            button.dataset.portalLocationGeocode = '1';
+            button.textContent = 'Koordinaten aus Adresse ermitteln';
+            const status = document.createElement('span');
+            status.className = 'muted';
+            status.dataset.portalLocationGeocodeStatus = '1';
+            actions.appendChild(button);
+            actions.appendChild(status);
+            card.appendChild(actions);
+            bindLocationButton(button, status);
+        }
+
+        function bindLocationButton(button, status) {
+            const setStatus = (message) => { if (status) status.textContent = message || ''; };
+            button.addEventListener('click', async (event) => {
+                event.preventDefault();
+                const addressField = document.querySelector('[name="portal_location_address"]');
+                const latField = document.querySelector('[name="portal_location_lat"]');
+                const lonField = document.querySelector('[name="portal_location_lon"]');
+                const address = (addressField && addressField.value ? addressField.value : '').trim();
+                if (!address) {
+                    if (window.showToast) window.showToast('error', 'Bitte zuerst eine Adresse eingeben.');
+                    setStatus('Adresse fehlt.');
+                    return;
                 }
-                if (latField) latField.value = data.location && data.location.lat != null ? data.location.lat : '';
-                if (lonField) lonField.value = data.location && data.location.lon != null ? data.location.lon : '';
-                setStatus(data.location && data.location.display_name ? data.location.display_name : 'Koordinaten übernommen.');
-                if (window.showToast) window.showToast('success', data.message || 'Koordinaten übernommen. Jetzt Einstellungen speichern.');
-            } catch (error) {
-                setStatus(error.message || 'Geocoding fehlgeschlagen.');
-                if (window.showToast) window.showToast('error', error.message || 'Geocoding fehlgeschlagen.');
-            } finally {
-                button.disabled = false;
-                button.textContent = oldText;
-            }
-        });
+                const oldText = button.textContent;
+                button.disabled = true;
+                button.textContent = 'Ermittle …';
+                setStatus('Frage Geocoder ab …');
+                try {
+                    const response = await fetch('/api/portal/location/geocode', {
+                        method: 'POST',
+                        headers: {'content-type': 'application/json', 'accept': 'application/json'},
+                        body: JSON.stringify({address, save: false}),
+                    });
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok || data.status === 'error') {
+                        throw new Error(data.message || response.statusText || 'Geocoding fehlgeschlagen.');
+                    }
+                    if (latField) latField.value = data.location && data.location.lat != null ? data.location.lat : '';
+                    if (lonField) lonField.value = data.location && data.location.lon != null ? data.location.lon : '';
+                    setStatus(data.location && data.location.display_name ? data.location.display_name : 'Koordinaten übernommen.');
+                    if (window.showToast) window.showToast('success', data.message || 'Koordinaten übernommen. Jetzt Einstellungen speichern.');
+                } catch (error) {
+                    setStatus(error.message || 'Geocoding fehlgeschlagen.');
+                    if (window.showToast) window.showToast('error', error.message || 'Geocoding fehlgeschlagen.');
+                } finally {
+                    button.disabled = false;
+                    button.textContent = oldText;
+                }
+            });
+        }
+
+        const observer = new MutationObserver(() => ensureLocationButton());
+        observer.observe(document.body, {childList: true, subtree: true});
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', ensureLocationButton);
+        } else {
+            ensureLocationButton();
+        }
     })();
     </script>
 </body>
