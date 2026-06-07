@@ -5,6 +5,9 @@ from datetime import UTC, datetime
 from typing import Any, Awaitable, Callable
 
 from pv2hash import socket_miner_assignment as assignment
+from pv2hash.logging_ext.setup import get_logger
+
+logger = get_logger("pv2hash.socket_miner_workflow")
 
 _RUNTIME: dict[str, dict[str, Any]] = {}
 _RECOVERY_STATES_REQUIRING_STARTUP_DELAY = {
@@ -241,17 +244,33 @@ async def _handle_profile_with_socket(
 
     # If a startup delay is active, an intermittent off decision must not start
     # the socket-off timer. Otherwise long startup delays could race against the
-    # off timer and create an on/off loop. Keep the startup state until a later
-    # non-off request can apply the miner profile after the delay has elapsed.
+    # off timer and create an on/off loop. Once the startup delay has elapsed,
+    # continue with the normal off workflow instead of staying stuck at 0s.
     startup_due = state.get("startup_due_monotonic")
     if startup_due is not None:
-        remaining = max(0.0, float(startup_due) - now)
-        state.update({
-            "state": "startup_delay",
-            "message": f"Warte auf Miner-Start: {_format_remaining(remaining)} verbleibend.",
-        })
-        _mark_waiting_for_socket(miner, state["message"])
-        return None
+        try:
+            startup_due_value = float(startup_due)
+        except Exception:
+            _reset_startup(state)
+            logger.warning(
+                "Socket workflow cleared invalid startup delay for miner %s before off workflow: %r",
+                miner_id,
+                startup_due,
+            )
+        else:
+            if now < startup_due_value:
+                remaining = startup_due_value - now
+                state.update({
+                    "state": "startup_delay",
+                    "message": f"Warte auf Miner-Start: {_format_remaining(remaining)} verbleibend.",
+                })
+                _mark_waiting_for_socket(miner, state["message"])
+                return None
+            _reset_startup(state)
+            logger.info(
+                "Socket workflow startup delay expired for miner %s; continuing off workflow",
+                miner_id,
+            )
 
     # Desired profile is off. Stop/pause the miner first. Once the socket has
     # already been powered off by this workflow, do not keep calling the miner API
