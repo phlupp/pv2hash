@@ -109,6 +109,43 @@ def _mark_socket_powered_off(miner: Any, message: str = "Steckdose ist aus.") ->
         pass
 
 
+def _mark_miner_poll_skipped_for_socket_off(miner: Any) -> Any:
+    info = getattr(miner, "info", None)
+    if info is None:
+        return None
+    try:
+        info.profile = "off"
+        info.power_w = 0.0
+        info.current_hashrate_ghs = 0.0
+        info.runtime_state = "socket_off"
+        info.reachable = False
+        info.last_error = None
+    except Exception:
+        pass
+    return info
+
+
+def _assigned_socket_is_off(app_mod: Any, socket_cfg: dict[str, Any], state: dict[str, Any]) -> bool:
+    if state.get("state") == "socket_off":
+        return True
+
+    socket_id = str(socket_cfg.get("socket_id") or "")
+    if not socket_id:
+        return False
+
+    socket_adapter = _socket_adapter(app_mod, socket_id)
+    if socket_adapter is None:
+        return False
+
+    try:
+        socket_info = socket_adapter.get_status()
+    except Exception:
+        return False
+
+    return bool(getattr(socket_info, "reachable", False)) and getattr(socket_info, "is_on", None) is False
+
+
+
 def _start_startup_delay(state: dict[str, Any], socket_cfg: dict[str, Any], now: float, message_prefix: str) -> bool:
     delay = max(0, int(socket_cfg.get("startup_delay_seconds") or 0))
     state.update({
@@ -344,6 +381,7 @@ def _wrap_miner_adapter(app_mod: Any, miner: Any) -> None:
     if getattr(miner, "_pv2hash_socket_workflow_wrapped", False):
         return
     original_set_profile = miner.set_profile
+    original_get_status = miner.get_status
 
     async def set_profile_with_socket(profile: str):
         return await _handle_profile_with_socket(
@@ -353,7 +391,22 @@ def _wrap_miner_adapter(app_mod: Any, miner: Any) -> None:
             profile=str(profile or "off"),
         )
 
+    async def get_status_with_socket():
+        info = getattr(miner, "info", None)
+        miner_id = str(getattr(info, "id", "") or "")
+        if miner_id:
+            socket_cfg = _socket_config_for_miner(app_mod, miner_id)
+            if socket_cfg.get("enabled") and _assigned_socket_is_off(
+                app_mod,
+                socket_cfg,
+                _workflow_state(miner_id),
+            ):
+                return _mark_miner_poll_skipped_for_socket_off(miner)
+
+        return await original_get_status()
+
     miner.set_profile = set_profile_with_socket
+    miner.get_status = get_status_with_socket
     miner._pv2hash_socket_workflow_wrapped = True
 
 
