@@ -42,6 +42,9 @@ class ControllerState:
     last_fallback_log_key: str | None = None
     last_live_hold_log_key: str | None = None
     last_import_log_key: str | None = None
+    last_export_log_key: str | None = None
+    export_hold_key: str | None = None
+    export_available_since_monotonic: float | None = None
     last_battery_log_key: str | None = None
 
 
@@ -73,6 +76,10 @@ class BasicController:
         self.switch_hysteresis_w = float(control_config.get("switch_hysteresis_w", 0))
         self.max_import_w = max(0.0, float(control_config.get("max_import_w", 200)))
         self.import_hold_seconds = float(control_config.get("import_hold_seconds", 15))
+        self.export_hold_seconds = max(
+            0.0,
+            float(control_config.get("export_hold_seconds", 0)),
+        )
         self.source_loss = control_config.get("source_loss", {})
         battery_config = battery_config or {}
         self.battery_charge_active_threshold_w = max(
@@ -147,6 +154,7 @@ class BasicController:
         action = "hold"
         summary = f"hold ({distribution_mode})"
         distribution_reason: str | None = None
+        export_hold_active = False
 
         capped_current_profiles = apply_profile_caps(current_profiles, max_profiles)
         if capped_current_profiles != current_profiles:
@@ -273,17 +281,43 @@ class BasicController:
                         and up_plan.delta_power_w > 0
                         and grid_power_w < -required_export_w
                     ):
-                        candidate_profiles = up_plan.profiles
-                        action = "step_up"
-                        distribution_reason = up_plan.reason
-                        summary = self._build_battery_summary(
-                            battery_context=battery_context,
-                            fallback=(
-                                f"step_up ({distribution_mode}, "
-                                f"need≈{up_plan.delta_power_w:.0f}W)"
-                            ),
+                        (
+                            export_hold_allowed,
+                            export_hold_elapsed,
+                            export_hold_remaining,
+                        ) = self._should_allow_step_up_for_export_hold(
+                            grid_power_w=grid_power_w,
+                            required_export_w=required_export_w,
+                            now_monotonic=now_mono,
+                            current_profiles=current_profiles,
+                            candidate_profiles=up_plan.profiles,
                         )
+                        if export_hold_allowed:
+                            candidate_profiles = up_plan.profiles
+                            action = "step_up"
+                            distribution_reason = up_plan.reason
+                            summary = self._build_battery_summary(
+                                battery_context=battery_context,
+                                fallback=(
+                                    f"step_up ({distribution_mode}, "
+                                    f"need≈{up_plan.delta_power_w:.0f}W)"
+                                ),
+                            )
+                        else:
+                            export_hold_active = True
+                            distribution_reason = up_plan.reason
+                            summary = self._build_battery_summary(
+                                battery_context=battery_context,
+                                fallback=(
+                                    f"hold ({distribution_mode}, export-hold, "
+                                    f"need≈{up_plan.delta_power_w:.0f}W, "
+                                    f"export≈{max(0.0, -grid_power_w):.0f}W, "
+                                    f"elapsed≈{export_hold_elapsed:.0f}s, "
+                                    f"remaining≈{export_hold_remaining:.0f}s)"
+                                ),
+                            )
                     elif up_plan.changed and up_plan.delta_power_w > 0:
+                        self._reset_export_tracking()
                         distribution_reason = up_plan.reason
                         summary = self._build_battery_summary(
                             battery_context=battery_context,
@@ -294,6 +328,7 @@ class BasicController:
                             ),
                         )
                     else:
+                        self._reset_export_tracking()
                         distribution_reason = up_plan.reason
                         summary = self._build_battery_summary(
                             battery_context=battery_context,
@@ -323,6 +358,8 @@ class BasicController:
                         )
 
         if candidate_profiles == current_profiles:
+            if not export_hold_active:
+                self._reset_export_tracking()
             self.state.last_live_profiles = current_profiles.copy()
             self.state.last_live_hold_log_key = None
             return ControlDecision(
@@ -402,6 +439,7 @@ class BasicController:
                             "max_import_w": self.max_import_w,
                             "switch_hysteresis_w": self.switch_hysteresis_w,
                             "import_hold_seconds": self.import_hold_seconds,
+                            "export_hold_seconds": self.export_hold_seconds,
                             "min_switch_interval_seconds": self.min_switch_interval_seconds,
                             "min_switch_elapsed_seconds": elapsed,
                             "min_switch_remaining_seconds": max(0.0, self.min_switch_interval_seconds - elapsed),
@@ -442,6 +480,9 @@ class BasicController:
         self.state.live_profiles_since_monotonic = now_mono
         self.state.last_live_hold_log_key = None
 
+        if action == "step_up":
+            self._reset_export_tracking()
+
         if action in {
             "step_down",
             "battery_limit",
@@ -449,6 +490,7 @@ class BasicController:
             "battery_charge_step_down",
         }:
             self._reset_import_tracking()
+            self._reset_export_tracking()
         else:
             self.state.last_import_log_key = None
 
@@ -476,6 +518,7 @@ class BasicController:
                     "max_import_w": self.max_import_w,
                     "switch_hysteresis_w": self.switch_hysteresis_w,
                     "import_hold_seconds": self.import_hold_seconds,
+                    "export_hold_seconds": self.export_hold_seconds,
                     "min_switch_interval_seconds": self.min_switch_interval_seconds,
                     "min_switch_interval_bypassed": min_switch_interval_bypassed,
                 },
@@ -504,6 +547,79 @@ class BasicController:
             },
         )
 
+
+    def _reset_export_tracking(self) -> None:
+        self.state.export_available_since_monotonic = None
+        self.state.export_hold_key = None
+        self.state.last_export_log_key = None
+
+    def _log_export_once(self, key: str, message: str, *args) -> None:
+        if self.state.last_export_log_key == key:
+            return
+        logger.info(message, *args)
+        self.state.last_export_log_key = key
+
+    def _should_allow_step_up_for_export_hold(
+        self,
+        *,
+        grid_power_w: float,
+        required_export_w: float,
+        now_monotonic: float,
+        current_profiles: list[str],
+        candidate_profiles: list[str],
+    ) -> tuple[bool, float, float]:
+        if self.export_hold_seconds <= 0:
+            return True, 0.0, 0.0
+
+        export_w = max(0.0, -float(grid_power_w))
+        hold_key = (
+            f"{','.join(current_profiles)}->{','.join(candidate_profiles)}:"
+            f"required={required_export_w:.1f}"
+        )
+
+        if self.state.export_hold_key != hold_key:
+            self.state.export_hold_key = hold_key
+            self.state.export_available_since_monotonic = now_monotonic
+            self.state.last_export_log_key = None
+
+        since = self.state.export_available_since_monotonic
+        if since is None:
+            since = now_monotonic
+            self.state.export_available_since_monotonic = since
+
+        elapsed = max(0.0, now_monotonic - since)
+        remaining = max(0.0, self.export_hold_seconds - elapsed)
+
+        if elapsed < self.export_hold_seconds:
+            self._log_export_once(
+                f"waiting:{hold_key}",
+                (
+                    "Export hold active: current=%s candidate=%s export=%.1fW "
+                    "required=%.1fW elapsed=%.1fs hold=%.1fs"
+                ),
+                ",".join(current_profiles),
+                ",".join(candidate_profiles),
+                export_w,
+                required_export_w,
+                elapsed,
+                self.export_hold_seconds,
+            )
+            return False, elapsed, remaining
+
+        self._log_export_once(
+            f"ready:{hold_key}",
+            (
+                "Export hold satisfied: current=%s candidate=%s export=%.1fW "
+                "required=%.1fW elapsed=%.1fs hold=%.1fs"
+            ),
+            ",".join(current_profiles),
+            ",".join(candidate_profiles),
+            export_w,
+            required_export_w,
+            elapsed,
+            self.export_hold_seconds,
+        )
+        return True, elapsed, 0.0
 
     def _build_debug_flags(
         self,
