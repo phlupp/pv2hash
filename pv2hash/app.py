@@ -860,6 +860,7 @@ def _build_settings_model() -> dict:
             _setting_field("min_switch_interval_seconds", "Min. Schaltabstand", "number", control_cfg.get("min_switch_interval_seconds", 60), min=0, step=1, unit="s", layout={"width": "third"}),
             _setting_field("max_import_w", "Max. Netzbezug", "number", control_cfg.get("max_import_w", 200), min=0, step=1, unit="W", layout={"width": "third"}),
             _setting_field("import_hold_seconds", "Netzbezug halten", "number", control_cfg.get("import_hold_seconds", 15), min=0, step=1, unit="s", layout={"width": "third"}),
+            _setting_field("export_hold_seconds", "Überschuss halten", "number", control_cfg.get("export_hold_seconds", 0), min=0, step=1, unit="s", help="Wie lange der für die nächste Leistungsstufe nötige Überschuss stabil anliegen muss, bevor hochgeregelt wird. 0 = bisheriges Verhalten.", layout={"width": "third"}),
         ]},
         {"id": "source-loss", "title": "Messwertausfall", "subtitle": "Verhalten, wenn Messwerte veralten oder die Quelle offline ist.", "fields": [
             _setting_field("stale_mode", "Bei veralteten Messwerten", "select", stale_loss.get("mode", "hold_current"), options=mode_options, layout={"width": "third"}),
@@ -895,6 +896,7 @@ def _apply_settings_payload(payload: dict[str, Any]) -> None:
     control["min_switch_interval_seconds"] = _safe_int(payload.get("min_switch_interval_seconds", 60), 60)
     control["max_import_w"] = max(0, _safe_int(payload.get("max_import_w", 200), 200))
     control["import_hold_seconds"] = _safe_int(payload.get("import_hold_seconds", 15), 15)
+    control["export_hold_seconds"] = max(0, _safe_int(payload.get("export_hold_seconds", 0), 0))
     control.setdefault("source_loss", {})
     control["source_loss"]["stale"] = {"mode": str(payload.get("stale_mode") or "hold_current").strip() or "hold_current", "fallback_profile": _normalize_fallback_profile(payload.get("stale_fallback_profile", "p1")), "hold_seconds": _safe_int(payload.get("stale_hold_seconds", 0), 0)}
     control["source_loss"]["offline"] = {"mode": str(payload.get("offline_mode") or "off_all").strip() or "off_all", "fallback_profile": _normalize_fallback_profile(payload.get("offline_fallback_profile", "p1")), "hold_seconds": _safe_int(payload.get("offline_hold_seconds", 0), 0)}

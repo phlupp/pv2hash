@@ -123,6 +123,7 @@ DEFAULT_CONFIG = {
         "switch_hysteresis_w": 100,
         "max_import_w": 200,
         "import_hold_seconds": 150,
+        "export_hold_seconds": 0,
         "source_loss": {
             "stale": {
                 "mode": "hold_current",
