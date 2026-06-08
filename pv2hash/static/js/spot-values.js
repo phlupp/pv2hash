@@ -3,6 +3,24 @@
   let refreshTimer = null;
   let refreshRunning = false;
 
+  function ensureSpotValuesStyles() {
+    if (document.getElementById('spotValuesRuntimeStyles')) return;
+    const style = document.createElement('style');
+    style.id = 'spotValuesRuntimeStyles';
+    style.textContent = `
+      .spot-values-table { table-layout: fixed; min-width: 980px; }
+      .spot-values-table th:nth-child(1), .spot-values-table td:nth-child(1) { width: 46%; }
+      .spot-values-table th:nth-child(2), .spot-values-table td:nth-child(2) { width: 34%; }
+      .spot-values-table th:nth-child(3), .spot-values-table td:nth-child(3) { width: 8%; }
+      .spot-values-table th:nth-child(4), .spot-values-table td:nth-child(4) { width: 12%; }
+      .spot-values-table code { color: #d5c7ff; font-family: Consolas, "Courier New", monospace; font-size: 12px; white-space: normal; word-break: break-word; }
+      .spot-values-table td { vertical-align: top; }
+      .spot-value-cell { font-family: Consolas, "Courier New", monospace; word-break: break-word; }
+      .spot-value-changed .spot-value-cell span { font-weight: 800; color: var(--warn); }
+    `;
+    document.head.appendChild(style);
+  }
+
   function escapeHtml(value) {
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;')
@@ -50,6 +68,12 @@
         </div>
         <div class="table-wrap">
           <table class="spot-values-table">
+            <colgroup>
+              <col style="width:46%">
+              <col style="width:34%">
+              <col style="width:8%">
+              <col style="width:12%">
+            </colgroup>
             <thead>
               <tr>
                 <th>Kanal</th>
@@ -92,7 +116,7 @@
       setUpdatedText(payload);
       window.setTimeout(() => {
         for (const row of document.querySelectorAll('.spot-value-changed')) row.classList.remove('spot-value-changed');
-      }, 1500);
+      }, 1800);
     } catch (error) {
       if (window.showToast) window.showToast('warning', error.message || 'Spot-Values konnten nicht aktualisiert werden.', { timeout: 5000 });
       console.debug('PV2Hash spot-values refresh failed:', error);
@@ -126,7 +150,9 @@
   });
 
   document.addEventListener('DOMContentLoaded', () => {
-    if (!document.querySelector('[data-spot-values-root]')) return;
+    const root = document.querySelector('[data-spot-values-root]');
+    if (!root) return;
+    ensureSpotValuesStyles();
     refreshSpotValues();
     startRefresh();
   });
