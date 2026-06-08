@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="de">
+<head>
+    {% set page_title = "Spot-Values · PV2Hash" %}
+    {% include "partials/head.html" %}
+</head>
+<body>
+    <div class="layout">
+        {% set nav_active = 'spot-values' %}
+        {% set nav_subtitle = instance_name %}
+        {% include "partials/nav.html" %}
+
+        <main class="content" data-spot-values-root data-refresh-seconds="{{ refresh_seconds }}">
+            <header class="topbar">
+                <div>
+                    <h1>Spot-Values</h1>
+                    <p>Technische Momentwerte aus Runtime, Regler und später weiteren Komponenten.</p>
+                </div>
+            </header>
+
+            <section class="card">
+                <div class="card-head">
+                    <div>
+                        <h2>Live-Momentwerte</h2>
+                        <p class="card-subtitle">Read-only Diagnoseansicht. Diese Seite löst keine Geräteabfragen und keine Reglerentscheidung aus.</p>
+                    </div>
+                    <span class="badge" data-spot-values-updated>—</span>
+                </div>
+                <div data-spot-values-sections>
+                    <p class="muted">Lade Spot-Values …</p>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="/static/js/spot-values.js" defer></script>
+</body>
+</html>
