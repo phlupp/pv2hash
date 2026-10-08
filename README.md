@@ -218,7 +218,7 @@ Liefert den aktuellen Laufzeitstatus als sauber JSON-kompatible API-Antwort.
 ## Installation
 
 PV2Hash wird ab v0.8.0 direkt über die öffentlichen [GitHub Releases](https://github.com/phlupp/pv2hash/releases) verteilt.
-Das Migrationsrelease v0.8.0 wird zusätzlich ein letztes Mal unter `https://get.pv2hash.xyz` bereitgestellt, damit bestehende Installationen automatisch umstellen können.
+Das Migrationsrelease v0.8.0 bleibt als letztes Update auf `https://get.pv2hash.xyz` verfügbar. Neue Releases ab v0.8.1 erscheinen ausschließlich auf GitHub.
 
 Ein Release enthält:
 
