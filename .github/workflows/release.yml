@@ -130,6 +130,7 @@ jobs:
             --latest
 
       - name: Validate get.pv2hash.xyz deployment secrets
+        if: ${{ inputs.version == '0.8.0' }}
         shell: bash
         env:
           GET_SSH_HOST: ${{ secrets.GET_SSH_HOST }}
@@ -149,6 +150,7 @@ jobs:
           test -n "$GET_BASE_URL" || (echo "Missing secret: GET_BASE_URL" && exit 1)
 
       - name: Create stable channel manifest
+        if: ${{ inputs.version == '0.8.0' }}
         shell: bash
         env:
           GET_BASE_URL: ${{ secrets.GET_BASE_URL }}
@@ -187,6 +189,7 @@ jobs:
           cat dist/channel/stable.json
 
       - name: Install SSH key for get.pv2hash.xyz
+        if: ${{ inputs.version == '0.8.0' }}
         shell: bash
         env:
           GET_SSH_HOST: ${{ secrets.GET_SSH_HOST }}
@@ -202,6 +205,7 @@ jobs:
           ssh-keyscan -p "$GET_SSH_PORT" "$GET_SSH_HOST" >> ~/.ssh/known_hosts
 
       - name: Upload release artifacts to get.pv2hash.xyz
+        if: ${{ inputs.version == '0.8.0' }}
         shell: bash
         env:
           GET_SSH_HOST: ${{ secrets.GET_SSH_HOST }}
@@ -226,6 +230,7 @@ jobs:
             "${REMOTE}:${REMOTE_PATH}/releases/${TAG}/"
 
       - name: Publish stable channel atomically
+        if: ${{ inputs.version == '0.8.0' }}
         shell: bash
         env:
           GET_SSH_HOST: ${{ secrets.GET_SSH_HOST }}
@@ -247,6 +252,7 @@ jobs:
           ${SSH_CMD} "${REMOTE}" \
             "mv '${REMOTE_PATH}/channels/stable.json.tmp' '${REMOTE_PATH}/channels/stable.json'"
       - name: Publish installer script atomically
+        if: ${{ inputs.version == '0.8.0' }}
         shell: bash
         env:
           GET_SSH_HOST: ${{ secrets.GET_SSH_HOST }}
