@@ -31,51 +31,6 @@
                         </article>
                     </section>
 
-                    <section class="card top-gap" data-portal-card>
-                        <div class="card-head">
-                            <div>
-                                <h2>Portal</h2>
-                                <p class="card-subtitle">Pairing, Token-Status und manueller Snapshot-Test für pv2hash.net.</p>
-                            </div>
-                            <span class="badge neutral" data-portal-status-badge>Nicht verbunden</span>
-                        </div>
-
-                        <div class="portal-status-grid">
-                            <div>
-                                <span class="muted">Portal UUID</span>
-                                <strong data-portal-field="portal_uuid">—</strong>
-                            </div>
-                            <div>
-                                <span class="muted">Token Prefix</span>
-                                <strong data-portal-field="api_token_prefix">—</strong>
-                            </div>
-                            <div>
-                                <span class="muted">Letzte Übertragung</span>
-                                <strong data-portal-field="last_success_at">—</strong>
-                            </div>
-                            <div>
-                                <span class="muted">Letzter Fehler</span>
-                                <strong data-portal-field="last_error">—</strong>
-                            </div>
-                        </div>
-
-                        <div class="form-grid gui-field-grid top-gap">
-                            <label class="gui-field gui-field-half">
-                                <span class="field-label">Pairing-Code</span>
-                                <input type="text" data-portal-pairing-code placeholder="XXXX-XXXX" autocomplete="off">
-                                <small class="help">Der API-Token wird nur einmal vom Portal geliefert und lokal gespeichert. Er wird nicht im Klartext angezeigt.</small>
-                            </label>
-                        </div>
-
-                        <div class="actions split top-gap">
-                            <button class="btn secondary" type="button" data-portal-disconnect>Verbindung trennen</button>
-                            <span class="actions">
-                                <button class="btn secondary" type="button" data-portal-test-snapshot>Test-Snapshot senden</button>
-                                <button class="btn" type="button" data-portal-pair>Portal verbinden</button>
-                            </span>
-                        </div>
-                    </section>
-
                     <section class="card top-gap">
                         <div class="actions">
                             <button class="btn" type="button" data-settings-save>Einstellungen speichern</button>
@@ -83,82 +38,22 @@
                     </section>
                 </form>
             </section>
+            <section class="card top-gap" data-exporters-root>
+                <div class="card-head"><div><h2>Datenexporte</h2><p class="card-subtitle">Mehrere Ziele unabhängig konfigurieren. Felddefinitionen kommen vom jeweiligen Exporter.</p></div></div>
+                <div data-exporters-list></div>
+                <div class="actions top-gap"><button class="btn secondary" type="button" data-exporter-add>Exportziel hinzufügen</button></div>
+                <div data-exporter-editor hidden class="top-gap">
+                    <div class="form-grid gui-field-grid top-gap">
+                        <label class="gui-field gui-field-half"><span class="field-label">Name</span><input name="exporter_name" type="text" maxlength="80"></label>
+                        <label class="gui-field gui-field-half"><span class="field-label">Typ</span><select name="exporter_type"></select></label>
+                        <label class="gui-field checkbox-row"><input name="exporter_enabled" type="checkbox"><span class="field-label">Export aktivieren</span></label>
+                    </div>
+                    <div class="form-grid gui-field-grid" data-exporter-fields></div>
+                    <div class="actions top-gap"><button class="btn" type="button" data-exporter-save>Exportziel speichern</button><button class="btn secondary" type="button" data-exporter-cancel>Abbrechen</button></div>
+                </div>
+            </section>
         </main>
     </div>
 
-    <script>
-    (() => {
-        function ensureLocationButton() {
-            const addressField = document.querySelector('[name="portal_location_address"]');
-            if (!addressField || document.querySelector('[data-portal-location-geocode]')) return;
-            const card = addressField.closest('.card');
-            if (!card) return;
-            const actions = document.createElement('div');
-            actions.className = 'actions start wrap top-gap';
-            actions.dataset.portalLocationTools = '1';
-            const button = document.createElement('button');
-            button.className = 'btn secondary';
-            button.type = 'button';
-            button.dataset.portalLocationGeocode = '1';
-            button.textContent = 'Koordinaten aus Adresse ermitteln';
-            const status = document.createElement('span');
-            status.className = 'muted';
-            status.dataset.portalLocationGeocodeStatus = '1';
-            actions.appendChild(button);
-            actions.appendChild(status);
-            card.appendChild(actions);
-            bindLocationButton(button, status);
-        }
-
-        function bindLocationButton(button, status) {
-            const setStatus = (message) => { if (status) status.textContent = message || ''; };
-            button.addEventListener('click', async (event) => {
-                event.preventDefault();
-                const addressField = document.querySelector('[name="portal_location_address"]');
-                const latField = document.querySelector('[name="portal_location_lat"]');
-                const lonField = document.querySelector('[name="portal_location_lon"]');
-                const address = (addressField && addressField.value ? addressField.value : '').trim();
-                if (!address) {
-                    if (window.showToast) window.showToast('error', 'Bitte zuerst eine Adresse eingeben.');
-                    setStatus('Adresse fehlt.');
-                    return;
-                }
-                const oldText = button.textContent;
-                button.disabled = true;
-                button.textContent = 'Ermittle …';
-                setStatus('Frage Geocoder ab …');
-                try {
-                    const response = await fetch('/api/portal/location/geocode', {
-                        method: 'POST',
-                        headers: {'content-type': 'application/json', 'accept': 'application/json'},
-                        body: JSON.stringify({address, save: false}),
-                    });
-                    const data = await response.json().catch(() => ({}));
-                    if (!response.ok || data.status === 'error') {
-                        throw new Error(data.message || response.statusText || 'Geocoding fehlgeschlagen.');
-                    }
-                    if (latField) latField.value = data.location && data.location.lat != null ? data.location.lat : '';
-                    if (lonField) lonField.value = data.location && data.location.lon != null ? data.location.lon : '';
-                    setStatus(data.location && data.location.display_name ? data.location.display_name : 'Koordinaten übernommen.');
-                    if (window.showToast) window.showToast('success', data.message || 'Koordinaten übernommen. Jetzt Einstellungen speichern.');
-                } catch (error) {
-                    setStatus(error.message || 'Geocoding fehlgeschlagen.');
-                    if (window.showToast) window.showToast('error', error.message || 'Geocoding fehlgeschlagen.');
-                } finally {
-                    button.disabled = false;
-                    button.textContent = oldText;
-                }
-            });
-        }
-
-        const observer = new MutationObserver(() => ensureLocationButton());
-        observer.observe(document.body, {childList: true, subtree: true});
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', ensureLocationButton);
-        } else {
-            ensureLocationButton();
-        }
-    })();
-    </script>
 </body>
 </html>
