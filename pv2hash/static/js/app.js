@@ -2097,7 +2097,7 @@
     label.textContent = 'Installationsbefehl für die aktuelle Stable-Version';
     const command = document.createElement('code');
     command.className = 'update-command';
-    command.textContent = 'curl -fsSL https://get.pv2hash.xyz/install.sh | sudo bash';
+    command.textContent = 'curl -fsSL https://github.com/phlupp/pv2hash/releases/latest/download/install.sh | sudo bash';
     commandWrap.appendChild(label);
     commandWrap.appendChild(command);
     card.appendChild(commandWrap);
