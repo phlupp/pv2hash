@@ -217,41 +217,31 @@ Liefert den aktuellen Laufzeitstatus als sauber JSON-kompatible API-Antwort.
 
 ## Installation
 
-PV2Hash wird über den öffentlichen Distributionsendpunkt **`https://get.pv2hash.xyz`** verteilt.
+PV2Hash wird ab v0.8.0 direkt über die öffentlichen [GitHub Releases](https://github.com/phlupp/pv2hash/releases) verteilt.
+Das Migrationsrelease v0.8.0 wird zusätzlich ein letztes Mal unter `https://get.pv2hash.xyz` bereitgestellt, damit bestehende Installationen automatisch umstellen können.
 
-Ein Release enthält mindestens:
+Ein Release enthält:
 
 - `pv2hash-<version>.tar.gz`
 - `manifest.json`
 - `SHA256SUMS`
+- `install.sh`
 
-### Neueste Release installieren
+### Neueste stabile Version installieren
 
 ```bash
-curl -fsSL https://get.pv2hash.xyz/install.sh | sudo bash
+curl -fsSL https://github.com/phlupp/pv2hash/releases/latest/download/install.sh | sudo bash
 ```
 
 ### Bestimmte Version installieren
 
 ```bash
-curl -fsSL https://get.pv2hash.xyz/install.sh | sudo env TAG=<tag> bash
+curl -fsSL https://github.com/phlupp/pv2hash/releases/latest/download/install.sh | sudo env TAG=v0.8.0 bash
 ```
 
-Beispiel:
+Der Installer lädt Paket, Manifest und SHA256-Prüfsummen aus dem jeweiligen GitHub Release und installiert die Anwendung unter `/opt/pv2hash/releases/<version>/`. Die aktiven Daten bleiben im separaten Datenverzeichnis erhalten.
 
-```bash
-curl -fsSL https://get.pv2hash.xyz/install.sh | sudo env TAG=v0.2.2 bash
-```
-
-Der Installer soll:
-
-- die gewünschte Release von `get.pv2hash.xyz` laden
-- Checksummen prüfen
-- nach `/opt/pv2hash/releases/<version>/` entpacken
-- einen `current`-Symlink setzen
-- ein Python-`venv` anlegen
-- Abhängigkeiten installieren
-- einen `systemd`-Dienst einrichten und starten
+Hinweis: Vor dem Ausführen eines aus dem Internet geladenen Installationsskripts dessen Inhalt und Herkunft prüfen. Alternativ zunächst `install.sh` herunterladen, prüfen und anschließend mit `sudo bash install.sh` starten.
 
 ---
 

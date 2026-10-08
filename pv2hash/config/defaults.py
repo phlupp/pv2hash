@@ -10,7 +10,7 @@ DEFAULT_CONFIG = {
         "instance_name": "PV2Hash Node",
         "log_level": "INFO",
         "check_updates": True,
-        "update_base_url": "https://get.pv2hash.xyz",
+        "update_base_url": "https://api.github.com/repos/phlupp/pv2hash",
         "update_channel": "stable",
         "update_repo": "phlupp/pv2hash",
     },

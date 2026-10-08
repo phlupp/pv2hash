@@ -11,7 +11,7 @@ import httpx
 from pv2hash.logging_ext.setup import get_logger
 from pv2hash.runtime import AppState, UpdateCheckState
 
-DEFAULT_UPDATE_BASE_URL = "https://get.pv2hash.xyz"
+DEFAULT_UPDATE_BASE_URL = "https://api.github.com/repos/phlupp/pv2hash"
 DEFAULT_UPDATE_CHANNEL = "stable"
 # Kept for older configs/UI fields. New installations use update_base_url + update_channel.
 DEFAULT_UPDATE_REPO = DEFAULT_UPDATE_BASE_URL
@@ -117,7 +117,8 @@ class UpdateChecker:
         return raw or DEFAULT_UPDATE_CHANNEL
 
     def _repo(self) -> str:
-        return f"{self._base_url()}/channels/{self._channel()}.json"
+        base = self._base_url()
+        return base + "/releases/latest" if base == DEFAULT_UPDATE_BASE_URL else f"{base}/channels/{self._channel()}.json"
 
     def _is_stale(self) -> bool:
         checked_at = self.state.update_check.checked_at
@@ -219,6 +220,22 @@ class UpdateChecker:
 
                 if not isinstance(feed, dict):
                     raise ValueError("Update-Feed hat kein gültiges JSON-Objekt geliefert")
+                if self._base_url() == DEFAULT_UPDATE_BASE_URL:
+                    if feed.get("draft") or feed.get("prerelease"):
+                        raise ValueError("GitHub hat kein stabiles Release geliefert")
+                    assets = {a.get("name"): a for a in feed.get("assets", []) if isinstance(a, dict)}
+                    archive = next((a for name, a in assets.items()
+                                    if name.startswith("pv2hash-") and name.endswith(".tar.gz")), None)
+                    if not archive or "manifest.json" not in assets or "SHA256SUMS" not in assets:
+                        raise ValueError("GitHub-Release enthält nicht alle PV2Hash-Paketdateien")
+                    feed = {"latest": {
+                        "tag": feed.get("tag_name"),
+                        "title": feed.get("name"),
+                        "released_at": feed.get("published_at"),
+                        "notes": feed.get("body"),
+                        "asset": {"name": archive["name"], "size_bytes": archive.get("size")},
+                        "manifest_url": assets["manifest.json"]["browser_download_url"],
+                    }}
 
                 if feed.get("updates_enabled") is False:
                     message = str(feed.get("message") or "Updates sind serverseitig deaktiviert.")

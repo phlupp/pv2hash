@@ -263,6 +263,10 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
             if location.get(key) in (None, "") and old_location.get(key) not in (None, ""):
                 location[key] = old_location[key]
     normalized.pop("portal", None)  # Retired portal credentials never persist again.
+    # v0.8.0: migrate the retired official update source without changing custom mirrors.
+    system = normalized.setdefault("system", {})
+    if str(system.get("update_base_url") or "").rstrip("/") == "https://get.pv2hash.xyz":
+        system["update_base_url"] = "https://api.github.com/repos/phlupp/pv2hash"
     return normalized
 
 
