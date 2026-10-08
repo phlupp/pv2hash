@@ -56,24 +56,30 @@ class InfluxDB2Destination:
         self.token = str(settings['token'])
         self.timeout = int(settings.get('timeout_seconds', 10))
         self.precision = str(settings.get('precision','ns'))
-        self.instance = str(config.get('id') or 'pv2hash')
+        self.instance = str(config.get('instance_id') or 'pv2hash')
+        self.instance_name = str(config.get('instance_name') or '')
+        self.miner_names = config.get('miner_names') or {}
 
     def send(self, kind, items):
         lines = []
         for item in items:
             ts = item.get('ts')
             if kind == 'samples':
-                tags = {'instance_id':item.get('instance_id') or self.instance}
+                tags = {'instance_id':item.get('instance_id') or self.instance, 'instance_name':self.instance_name}
                 fields = {k:v for k,v in item.items() if k not in ('miners','ts','instance_id')}
                 result = line('pv2hash_system',tags,fields,ts)
                 if result: lines.append(result)
                 for miner in item.get('miners',[]):
                     tags = {'instance_id':miner.get('instance_id') or item.get('instance_id') or self.instance,
-                            'miner_id':miner.get('miner_id') or miner.get('miner_key')}
+                            'instance_name':self.instance_name,
+                            'miner_id':miner.get('miner_id') or miner.get('miner_key'),
+                            'miner_name':miner.get('name') or self.miner_names.get(str(miner.get('miner_id') or ''))}
                     result = line('pv2hash_miner',tags,miner,ts)
                     if result: lines.append(result)
             elif kind == 'controller_events':
-                tags = {'instance_id':self.instance,'miner_id':item.get('miner_id') or item.get('miner_key'),
+                tags = {'instance_id':self.instance, 'instance_name':self.instance_name,
+                        'miner_id':item.get('miner_id') or item.get('miner_key'),
+                        'miner_name':item.get('miner_name') or self.miner_names.get(str(item.get('miner_id') or '')),
                         'reason_code':item.get('reason_code')}
                 fields = {k:v for k,v in item.items() if k not in ('ts','id')}
                 fields['event_id'] = int(item['id'])
