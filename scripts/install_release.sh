@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PV2HASH_UPDATE_BASE_URL="${PV2HASH_UPDATE_BASE_URL:-https://get.pv2hash.xyz}"
+PV2HASH_UPDATE_BASE_URL="${PV2HASH_UPDATE_BASE_URL:-https://api.github.com/repos/phlupp/pv2hash}"
 PV2HASH_UPDATE_BASE_URL="${UPDATE_BASE_URL:-${PV2HASH_UPDATE_BASE_URL}}"
 PV2HASH_UPDATE_CHANNEL="${PV2HASH_UPDATE_CHANNEL:-stable}"
 PV2HASH_UPDATE_CHANNEL="${CHANNEL:-${PV2HASH_UPDATE_CHANNEL}}"
@@ -130,6 +130,55 @@ normalize_tag() {
 
 fetch_release_metadata() {
     local base_url="${PV2HASH_UPDATE_BASE_URL%/}"
+
+    if [[ "${base_url}" == "https://api.github.com/repos/phlupp/pv2hash" ]]; then
+        if [[ "${TAG}" == "latest" ]]; then
+            FEED_URL="${base_url}/releases/latest"
+        else
+            TAG="$(normalize_tag "${TAG}")"
+            [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+                echo "Ungültiger GitHub-Release-Tag: ${TAG}" >&2
+                exit 1
+            }
+            FEED_URL="${base_url}/releases/tags/${TAG}"
+        fi
+        download_file "${FEED_URL}" "${TMP_DIR}/github-release.json"
+        readarray -t RELEASE_INFO < <(python3 - "${TMP_DIR}/github-release.json" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+release = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+tag = str(release.get("tag_name") or "")
+if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
+    raise SystemExit("Ungültiger GitHub-Release-Tag")
+if release.get("draft") or release.get("prerelease"):
+    raise SystemExit("Nur veröffentlichte stabile GitHub-Releases sind erlaubt")
+slug = tag[1:]
+assets = {a.get("name"): a.get("browser_download_url") for a in release.get("assets", [])}
+archive = f"pv2hash-{slug}.tar.gz"
+for name in (archive, "manifest.json", "SHA256SUMS"):
+    if not assets.get(name):
+        raise SystemExit(f"GitHub-Release enthält keine Datei {name}")
+for value in (tag, slug, archive, assets[archive], assets["manifest.json"], assets["SHA256SUMS"]):
+    print(value)
+PY
+)
+        [[ "${#RELEASE_INFO[@]}" -eq 6 ]] || {
+            echo "Fehler: unvollständige GitHub-Release-Metadaten" >&2
+            exit 1
+        }
+        TAG_NAME="${RELEASE_INFO[0]}"
+        VERSION_SLUG="${RELEASE_INFO[1]}"
+        ARCHIVE_NAME="${RELEASE_INFO[2]}"
+        ARCHIVE_URL="${RELEASE_INFO[3]}"
+        MANIFEST_URL="${RELEASE_INFO[4]}"
+        SHA256_URL="${RELEASE_INFO[5]}"
+        RELEASE_DIR="${RELEASES_DIR}/${VERSION_SLUG}"
+        TMP_RELEASE_DIR="${RELEASE_DIR}.tmp.$$"
+        return
+    fi
 
     if [[ "${TAG}" == "latest" ]]; then
         FEED_URL="${base_url}/channels/${PV2HASH_UPDATE_CHANNEL}.json"
@@ -401,7 +450,7 @@ show_result() {
     echo "PV2Hash wurde installiert/aktualisiert."
     echo "Version:      ${FULL_VERSION}"
     echo "Tag:          ${TAG_NAME}"
-    echo "Update-Feed:  ${PV2HASH_UPDATE_BASE_URL%/}/channels/${PV2HASH_UPDATE_CHANNEL}.json"
+    echo "Update-Quelle: ${PV2HASH_UPDATE_BASE_URL%/}"
     echo "Release dir:  ${RELEASE_DIR}"
     echo "Current:      ${CURRENT_LINK}"
     echo "Data dir:     ${APP_DATA_DIR}"
