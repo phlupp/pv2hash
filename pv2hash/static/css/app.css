@@ -2404,31 +2404,7 @@ body.sidebar-collapsed .nav-icon {
   border-color: rgba(155, 126, 255, .22);
 }
 
-.portal-status-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
 
-.portal-status-grid > div {
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 0.9rem;
-  padding: 0.75rem;
-  background: rgba(15, 23, 42, 0.35);
-}
-
-.portal-status-grid span {
-  display: block;
-  font-size: 0.78rem;
-  margin-bottom: 0.25rem;
-}
-
-.portal-status-grid strong {
-  display: block;
-  font-size: 0.9rem;
-  overflow-wrap: anywhere;
-}
 
 /* Data Logger controller event timeline */
 .datalogger-timeline-card {

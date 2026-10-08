@@ -338,15 +338,11 @@ class DataLogger:
                     miner_power_w REAL,
                     policy_mode TEXT,
                     distribution_mode TEXT,
-                    decision_context_json TEXT,
-                    portal_sent_at TEXT,
-                    upload_attempts INTEGER NOT NULL DEFAULT 0,
-                    last_upload_error TEXT
+                    decision_context_json TEXT
                 )
                 """
             )
             con.execute("CREATE INDEX IF NOT EXISTS idx_controller_events_ts ON controller_events(ts)")
-            con.execute("CREATE INDEX IF NOT EXISTS idx_controller_events_portal ON controller_events(event_type, portal_sent_at, id)")
             con.execute(
                 """
                 CREATE TABLE IF NOT EXISTS controller_debug_events (
@@ -371,7 +367,7 @@ class DataLogger:
                     policy_mode TEXT,
                     distribution_mode TEXT,
                     min_switch_remaining_s REAL,
-                    decision_context_json TEXT,
+                    decision_context_json TEXT
                     dedupe_key TEXT
                 )
                 """
@@ -492,7 +488,7 @@ class DataLogger:
         con.execute("DELETE FROM history_samples WHERE ts < ?", (cutoff,))
         con.execute("DELETE FROM history_miner_samples WHERE ts < ?", (cutoff,))
         con.execute("DELETE FROM history_events WHERE ts < ?", (cutoff,))
-        con.execute("DELETE FROM controller_events WHERE ts < ? AND portal_sent_at IS NOT NULL", (cutoff,))
+        con.execute("DELETE FROM controller_events WHERE ts < ?", (cutoff,))
         debug_retention_hours = _controller_debug_retention_hours((self._config_provider() or {}).get("datalogger", {}))
         debug_cutoff = (now - timedelta(hours=debug_retention_hours)).isoformat()
         con.execute("DELETE FROM controller_debug_events WHERE ts < ?", (debug_cutoff,))
@@ -545,26 +541,8 @@ class DataLogger:
             )
             return int(cur.lastrowid) if cur.lastrowid is not None else None
 
-    def unsent_controller_events_for_portal(self, *, limit: int = 50) -> list[dict[str, Any]]:
-        self._ensure_schema()
-        limit = max(1, min(200, int(limit or 50)))
-        with self._connect() as con:
-            con.row_factory = sqlite3.Row
-            rows = con.execute(
-                """
-                SELECT *
-                FROM controller_events
-                WHERE event_type = 'applied' AND portal_sent_at IS NULL
-                ORDER BY id ASC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
-        return [self._controller_event_row_to_portal_item(dict(row)) for row in rows]
-
-
     def latest_controller_event(self, *, event_type: str = "applied") -> dict[str, Any] | None:
-        """Return the newest controller event as a compact, portal-compatible dict."""
+        """Return the newest controller event as a compact local API dict."""
         self._ensure_schema()
         with self._connect() as con:
             con.row_factory = sqlite3.Row
@@ -580,38 +558,10 @@ class DataLogger:
             ).fetchone()
         if row is None:
             return None
-        return self._controller_event_row_to_portal_item(dict(row))
-
-    def mark_controller_events_uploaded(self, event_ids: list[int]) -> None:
-        ids = [int(item) for item in event_ids if item is not None]
-        if not ids:
-            return
-        self._ensure_schema()
-        now = _now_iso()
-        with self._connect() as con:
-            con.executemany(
-                "UPDATE controller_events SET portal_sent_at = ?, last_upload_error = NULL WHERE id = ?",
-                [(now, event_id) for event_id in ids],
-            )
-
-    def mark_controller_events_upload_failed(self, event_ids: list[int], error: str) -> None:
-        ids = [int(item) for item in event_ids if item is not None]
-        if not ids:
-            return
-        self._ensure_schema()
-        message = str(error or "Portal upload failed")[:500]
-        with self._connect() as con:
-            con.executemany(
-                """
-                UPDATE controller_events
-                SET upload_attempts = upload_attempts + 1, last_upload_error = ?
-                WHERE id = ?
-                """,
-                [(message, event_id) for event_id in ids],
-            )
+        return self._controller_event_row_to_item(dict(row))
 
     @staticmethod
-    def _controller_event_row_to_portal_item(row: dict[str, Any]) -> dict[str, Any]:
+    def _controller_event_row_to_item(row: dict[str, Any]) -> dict[str, Any]:
         try:
             flags = json.loads(row.get("flags_json") or "[]")
         except Exception:
@@ -644,8 +594,7 @@ class DataLogger:
     def record_controller_debug_event(self, event: dict[str, Any]) -> int | None:
         """Persist one local controller debug event best-effort with throttling.
 
-        Debug events are intentionally local-only. They are never sent to the
-        portal and are safe to drop when repeated frequently.
+        Debug events are local diagnostic data, throttled to limit disk use.
         """
         self._ensure_schema()
         cfg = (self._config_provider() or {}).get("datalogger", {})
@@ -826,7 +775,6 @@ class DataLogger:
             miner_sample_count = int(con.execute("SELECT COUNT(*) FROM history_miner_samples").fetchone()[0] or 0)
             event_count = int(con.execute("SELECT COUNT(*) FROM history_events").fetchone()[0] or 0)
             controller_event_count = int(con.execute("SELECT COUNT(*) FROM controller_events").fetchone()[0] or 0)
-            controller_event_unsent_count = int(con.execute("SELECT COUNT(*) FROM controller_events WHERE event_type = 'applied' AND portal_sent_at IS NULL").fetchone()[0] or 0)
             controller_debug_event_count = int(con.execute("SELECT COUNT(*) FROM controller_debug_events").fetchone()[0] or 0)
             oldest_sample_at = con.execute("SELECT MIN(ts) FROM history_samples").fetchone()[0]
             newest_sample_at = con.execute("SELECT MAX(ts) FROM history_samples").fetchone()[0]
@@ -840,7 +788,6 @@ class DataLogger:
             "miner_sample_count": miner_sample_count,
             "event_count": event_count,
             "controller_event_count": controller_event_count,
-            "controller_event_unsent_count": controller_event_unsent_count,
             "controller_debug_event_count": controller_debug_event_count,
             "controller_debug_retention_hours": _controller_debug_retention_hours((self._config_provider() or {}).get("datalogger", {})),
             "oldest_sample_at": oldest_sample_at,
@@ -1045,7 +992,7 @@ class DataLogger:
         markers: list[dict[str, Any]] = []
         for row_obj in rows:
             row = dict(row_obj)
-            item = self._controller_event_row_to_portal_item(row)
+            item = self._controller_event_row_to_item(row)
             old_profile = str(item.get("old_profile") or "").strip()
             new_profile = str(item.get("new_profile") or "").strip()
             miner_name = str(item.get("miner_name") or item.get("miner_key") or item.get("miner_id") or "Miner")

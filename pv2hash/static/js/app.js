@@ -1546,6 +1546,39 @@
     return card;
   }
 
+  function attachLocationLookup(container) {
+    const address = container.querySelector('[name="location_address"]');
+    if (!address) return;
+    const card = address.closest('.card');
+    if (!card) return;
+    const actions = document.createElement('div');
+    actions.className = 'actions top-gap';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn secondary';
+    button.textContent = 'Koordinaten aus Adresse ermitteln';
+    const message = document.createElement('span');
+    message.className = 'muted';
+    actions.append(button, message);
+    card.appendChild(actions);
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      message.textContent = 'Ermittle Koordinaten …';
+      try {
+        const result = await postJson('/api/location/geocode', {address: address.value.trim()});
+        const lat = container.querySelector('[name="location_lat"]');
+        const lon = container.querySelector('[name="location_lon"]');
+        if (lat) lat.value = result.location.lat;
+        if (lon) lon.value = result.location.lon;
+        message.textContent = result.location.display_name || 'Koordinaten ermittelt';
+        window.showToast('success', 'Koordinaten ermittelt. Bitte Einstellungen speichern.');
+      } catch (error) {
+        message.textContent = error.message || 'Koordinatenermittlung fehlgeschlagen';
+        window.showToast('error', message.textContent);
+      } finally { button.disabled = false; }
+    });
+  }
+
   function renderSettingsModel(model) {
     const container = document.querySelector('[data-settings-model-container]');
     if (!container) return;
@@ -1553,6 +1586,7 @@
     for (const section of model?.sections || []) {
       container.appendChild(createSettingsSection(section));
     }
+    attachLocationLookup(container);
   }
 
   async function loadSettingsModel() {
@@ -1590,7 +1624,6 @@
       window.showToast('success', data.message || 'Einstellungen gespeichert.');
       const navSubtitle = document.querySelector('[data-nav-subtitle]');
       if (navSubtitle && data.instance_name) navSubtitle.textContent = data.instance_name;
-      loadPortalStatus();
     } catch (error) {
       window.showToast('error', error.message || 'Einstellungen konnten nicht gespeichert werden.');
     } finally {
@@ -1599,126 +1632,137 @@
     }
   }
 
-  function getPortalBaseUrlFromSettings() {
-    const field = document.querySelector('[name="portal_base_url"]');
-    return field ? field.value : '';
+  let exporterModels = [];
+  let editingExporter = null;
+
+  function exporterEditorModel(type, settings = {}) {
+    const model = exporterModels.find(entry => entry.type === type);
+    return model ? { ...model, fields: model.fields.map(f => ({ ...f, value: f.type === 'password' ? '' : (settings[f.name] ?? f.value) })) } : null;
   }
 
-  function formatPortalDate(value) {
-    if (!value) return '—';
-    const date = new Date(value);
-    if (!Number.isFinite(date.getTime())) return String(value);
-    return date.toLocaleString();
-  }
-
-  function updatePortalStatusView(portal) {
-    const card = document.querySelector('[data-portal-card]');
-    if (!card) return;
-    const badge = card.querySelector('[data-portal-status-badge]');
-    const connected = Boolean(portal?.connected);
-    if (badge) {
-      badge.textContent = portal?.status_label || (connected ? 'Verbunden' : 'Nicht verbunden');
-      badge.classList.remove('neutral', 'ok', 'bad', 'warn');
-      badge.classList.add(connected ? 'ok' : (portal?.last_error ? 'bad' : 'neutral'));
+  function renderExporterFields(type, settings = {}) {
+    const root = document.querySelector('[data-exporters-root]');
+    const container = root?.querySelector('[data-exporter-fields]');
+    if (!container) return;
+    container.replaceChildren();
+    const model = exporterEditorModel(type, settings);
+    for (const field of model?.fields || []) {
+      const element = createSourceField(field, null);
+      if (element) container.appendChild(element);
     }
-
-    const values = {
-      portal_uuid: portal?.portal_uuid || '—',
-      api_token_prefix: portal?.api_token_prefix || '—',
-      last_success_at: formatPortalDate(portal?.last_success_at || portal?.last_snapshot_at),
-      last_error: portal?.last_error || '—',
-    };
-    for (const [key, value] of Object.entries(values)) {
-      const target = card.querySelector(`[data-portal-field="${key}"]`);
-      if (target) target.textContent = value;
-    }
-
-    const disconnect = card.querySelector('[data-portal-disconnect]');
-    const test = card.querySelector('[data-portal-test-snapshot]');
-    if (disconnect) disconnect.disabled = !connected;
-    if (test) test.disabled = !connected;
   }
 
-  async function loadPortalStatus() {
-    const card = document.querySelector('[data-portal-card]');
-    if (!card) return;
+  function openExporterEditor(entry = null) {
+    const root = document.querySelector('[data-exporters-root]');
+    if (!root) return;
+    editingExporter = entry;
+    const editor = root.querySelector('[data-exporter-editor]');
+    editor.hidden = false;
+    root.querySelector('[name=exporter_name]').value = entry?.name || '';
+    root.querySelector('[name=exporter_type]').value = entry?.type || exporterModels[0]?.type || '';
+    root.querySelector('[name=exporter_type]').disabled = Boolean(entry);
+    const enabled = root.querySelector('[name=exporter_enabled]');
+    enabled.checked = Boolean(entry?.enabled);
+    enabled.disabled = !entry?.test_ok;
+    enabled.title = !entry?.test_ok ? 'Zuerst speichern und Verbindung erfolgreich testen' : '';
+    renderExporterFields(root.querySelector('[name=exporter_type]').value,
+      Object.fromEntries((entry?.schema?.fields || []).map(field => [field.name, field.value])));
+  }
+
+  async function loadExporters() {
+    const root = document.querySelector('[data-exporters-root]');
+    if (!root) return;
     try {
-      const response = await fetch('/api/portal/status', { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
-      const data = await readJsonResponse(response, 'Portal-Status konnte nicht geladen werden.');
-      updatePortalStatusView(data.portal || {});
-    } catch (error) {
-      updatePortalStatusView({ connected: false, status_label: 'Fehler', last_error: error.message });
-    }
+      const response = await fetch('/api/exporters/config', {cache: 'no-store'});
+      const data = await readJsonResponse(response, 'Exportziele konnten nicht geladen werden.');
+      exporterModels = data.types || [];
+      const typeSelect = root.querySelector('[name=exporter_type]');
+      typeSelect.replaceChildren();
+      for (const item of exporterModels) {
+        const option = document.createElement('option');
+        option.value = item.type;
+        option.textContent = item.label;
+        typeSelect.appendChild(option);
+      }
+      const statusResponse = await fetch('/api/exporters/status', {cache: 'no-store'});
+      const statusData = await readJsonResponse(statusResponse, 'Exporter-Status nicht verfügbar.');
+      const statusById = new Map((statusData.exporters || []).map(item => [item.id, item]));
+      const list = root.querySelector('[data-exporters-list]');
+      list.replaceChildren();
+      for (const entry of data.exporters || []) {
+        const line = document.createElement('div');
+        line.className = 'actions split top-gap';
+        const caption = document.createElement('span');
+        const state = statusById.get(entry.id);
+        const streams = Object.values(state?.streams || {});
+        const error = streams.find(item => item.last_error)?.last_error;
+        const lastSuccess = streams.map(item => item.last_success_at).filter(Boolean).sort().at(-1);
+        const delivery = !entry.enabled ? (entry.test_ok ? 'Geprüft, deaktiviert' : 'Nicht geprüft, deaktiviert') : !state?.adapter_available ? 'Adapter fehlt'
+          : error ? `Fehler: ${error}` : lastSuccess ? `Letzter Export: ${new Date(lastSuccess).toLocaleString('de-DE')}` : 'Noch keine Übertragung';
+        const lag = state?.backlog_seconds;
+        const lagText = typeof lag === 'number' ? (lag <= 30 ? 'Synchronisiert' : `Rückstand: ${Math.floor(lag / 3600)}h ${Math.floor(lag % 3600 / 60)}m`) : 'Datenstand unbekannt';
+        const cursorText = state?.exported_sample_at ? ` · Datenstand: ${new Date(state.exported_sample_at).toLocaleString('de-DE')}` : '';
+        caption.textContent = `${entry.name} · ${entry.schema?.label || entry.type} · ${delivery}${entry.enabled ? ` · ${lagText}${cursorText}` : ''}`;
+        line.appendChild(caption);
+        const actions = document.createElement('span');
+        actions.className = 'actions';
+        const edit = document.createElement('button');
+        edit.type = 'button'; edit.className = 'btn secondary'; edit.textContent = 'Bearbeiten';
+        edit.addEventListener('click', () => openExporterEditor(entry));
+        const remove = document.createElement('button');
+        remove.type = 'button'; remove.className = 'btn secondary'; remove.textContent = 'Löschen';
+        remove.addEventListener('click', async () => {
+          if (!window.confirm(`Exportziel „${entry.name}“ wirklich löschen?`)) return;
+          try {
+            const result = await fetch(`/api/exporters/config/${encodeURIComponent(entry.id)}`, {method:'DELETE'});
+            await readJsonResponse(result, 'Löschen fehlgeschlagen.');
+            root.querySelector('[data-exporter-editor]').hidden = true;
+            await loadExporters();
+          } catch (error) { window.showToast('error', error.message); }
+        });
+        const test = document.createElement('button');
+        test.type = 'button'; test.className = 'btn secondary'; test.textContent = 'Verbindung testen';
+        test.addEventListener('click', async () => {
+          test.disabled = true;
+          try {
+            const result = await postJson(`/api/exporters/config/${encodeURIComponent(entry.id)}/test`, {});
+            window.showToast('success', result.message || 'Verbindungstest erfolgreich.');
+            await loadExporters();
+            if (editingExporter?.id === entry.id) openExporterEditor(result.exporters.find(x => x.id === entry.id));
+          } catch (error) { window.showToast('error', error.message || 'Verbindungstest fehlgeschlagen.'); }
+          finally { test.disabled = false; }
+        });
+        actions.append(edit, test, remove);
+        line.appendChild(actions);
+        list.appendChild(line);
+      }
+      if (!data.exporters?.length) list.textContent = 'Noch keine Exportziele konfiguriert.';
+    } catch (error) { window.showToast('error', error.message); }
   }
 
-  async function pairPortal(button) {
-    const card = document.querySelector('[data-portal-card]');
-    if (!card) return;
-    const codeInput = card.querySelector('[data-portal-pairing-code]');
-    const pairingCode = (codeInput?.value || '').trim();
-    if (!pairingCode) {
-      window.showToast('error', 'Bitte einen Pairing-Code eingeben.');
-      codeInput?.focus();
-      return;
-    }
-    const restore = setButtonBusy(button, 'Verbinde …');
-    try {
-      const data = await postJson('/api/portal/pair', { pairing_code: pairingCode, base_url: getPortalBaseUrlFromSettings() });
-      if (codeInput) codeInput.value = '';
-      updatePortalStatusView(data.portal || {});
-      if (data.model) renderSettingsModel(settingsModelFromPayload(data));
-      window.showToast('success', data.message || 'Portal verbunden.');
-    } catch (error) {
-      window.showToast('error', error.message || 'Portal-Verbindung fehlgeschlagen.');
-      await loadPortalStatus();
-    } finally {
-      restore();
-    }
-  }
-
-  async function sendPortalTestSnapshot(button) {
-    const restore = setButtonBusy(button, 'Sendet …');
-    try {
-      const data = await postJson('/api/portal/snapshot/test', { base_url: getPortalBaseUrlFromSettings() });
-      updatePortalStatusView(data.portal || {});
-      window.showToast('success', data.message || 'Test-Snapshot gesendet.');
-    } catch (error) {
-      window.showToast('error', error.message || 'Test-Snapshot fehlgeschlagen.');
-      await loadPortalStatus();
-    } finally {
-      restore();
-    }
-  }
-
-  async function disconnectPortal(button) {
-    if (!window.confirm('Portal-Verbindung lokal trennen und gespeicherten API-Token löschen?')) return;
-    const restore = setButtonBusy(button, 'Trenne …');
-    try {
-      const data = await postJson('/api/portal/disconnect', {});
-      updatePortalStatusView(data.portal || {});
-      if (data.model) renderSettingsModel(settingsModelFromPayload(data));
-      window.showToast('success', data.message || 'Portal-Verbindung getrennt.');
-    } catch (error) {
-      window.showToast('error', error.message || 'Portal-Verbindung konnte nicht getrennt werden.');
-      await loadPortalStatus();
-    } finally {
-      restore();
-    }
-  }
-
-  function setupPortalSettingsCard() {
-    const card = document.querySelector('[data-portal-card]');
-    if (!card || card.dataset.bound === '1') return;
-    card.dataset.bound = '1';
-
-    const pairButton = card.querySelector('[data-portal-pair]');
-    const testButton = card.querySelector('[data-portal-test-snapshot]');
-    const disconnectButton = card.querySelector('[data-portal-disconnect]');
-    pairButton?.addEventListener('click', (event) => { event.preventDefault(); pairPortal(pairButton); });
-    testButton?.addEventListener('click', (event) => { event.preventDefault(); sendPortalTestSnapshot(testButton); });
-    disconnectButton?.addEventListener('click', (event) => { event.preventDefault(); disconnectPortal(disconnectButton); });
-
-    loadPortalStatus();
+  function setupExporters() {
+    const root = document.querySelector('[data-exporters-root]');
+    if (!root) return;
+    root.querySelector('[data-exporter-add]').addEventListener('click', () => openExporterEditor());
+    root.querySelector('[name=exporter_type]').addEventListener('change', event => renderExporterFields(event.target.value));
+    root.querySelector('[data-exporter-cancel]').addEventListener('click', () => {root.querySelector('[data-exporter-editor]').hidden = true;});
+    root.querySelector('[data-exporter-save]').addEventListener('click', async () => {
+      const button = root.querySelector('[data-exporter-save]');
+      button.disabled = true;
+      try {
+        const fields = root.querySelector('[data-exporter-fields]');
+        const payload = {id:editingExporter?.id || undefined, name:root.querySelector('[name=exporter_name]').value,
+          type:root.querySelector('[name=exporter_type]').value,
+          enabled:root.querySelector('[name=exporter_enabled]').checked, settings:collectSettingsValues(fields)};
+        const response = await postJson('/api/exporters/config', payload);
+        if (response.status === 'error') throw new Error(response.message);
+        root.querySelector('[data-exporter-editor]').hidden = true;
+        await loadExporters();
+        window.showToast('success','Exportziel gespeichert.');
+      } catch (error) {window.showToast('error',error.message || 'Speichern fehlgeschlagen.');}
+      finally {button.disabled = false;}
+    });
+    loadExporters();
   }
 
   function setupSettingsPage() {
@@ -1741,7 +1785,7 @@
     }
 
     loadSettingsModel();
-    setupPortalSettingsCard();
+    setupExporters();
   }
 
 
