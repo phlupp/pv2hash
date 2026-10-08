@@ -193,7 +193,16 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
 
 
 export_manager = ExportManager(ExportSource(data_logger._db_path, _build_runtime_snapshot_payload), lambda: state.config)
-export_manager.register('influxdb2', InfluxDB2Destination)
+export_manager.register('influxdb2', lambda cfg: InfluxDB2Destination({
+    **cfg,
+    'instance_id': instance_identity.id,
+    'instance_name': state.config.get('system', {}).get('instance_name', 'PV2Hash Node'),
+    'miner_names': {
+        str(m.get('id')): str(m.get('name'))
+        for m in state.config.get('miners', [])
+        if m.get('id') and m.get('name')
+    },
+}))
 
 
 def _json_safe_datetime(value: Any) -> str | None:
