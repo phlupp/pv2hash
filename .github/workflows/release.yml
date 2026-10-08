@@ -115,6 +115,13 @@ jobs:
           cd "$DIST_DIR"
           sha256sum -c SHA256SUMS
 
+      - name: Prepare public installer asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/install_release.sh "$DIST_DIR/install.sh"
+          bash -n "$DIST_DIR/install.sh"
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -125,6 +132,7 @@ jobs:
             "$DIST_DIR/pv2hash-$VERSION_SLUG.tar.gz" \
             "$DIST_DIR/manifest.json" \
             "$DIST_DIR/SHA256SUMS" \
+            "$DIST_DIR/install.sh" \
             --title "PV2Hash $FULL_VERSION" \
             --notes "Release $FULL_VERSION" \
             --latest
