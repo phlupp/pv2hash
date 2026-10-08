@@ -361,6 +361,11 @@ extract_release() {
 }
 
 write_install_info() {
+    # Upgrade installations keep their old download source until this release is installed.
+    # After a successful installation, future update downloads use GitHub.
+    if [[ "${FULL_VERSION}" =~ ^0\.8\.[0-9]+$ || "${FULL_VERSION}" =~ ^[1-9][0-9]*\.[0-9]+\.[0-9]+$ ]]; then
+        PV2HASH_UPDATE_BASE_URL="https://api.github.com/repos/phlupp/pv2hash"
+    fi
     cat > "${INSTALL_INFO_FILE}" <<EOF_INFO
 PV2HASH_INSTALL_MODE=release
 PV2HASH_UPDATE_BASE_URL=${PV2HASH_UPDATE_BASE_URL}
