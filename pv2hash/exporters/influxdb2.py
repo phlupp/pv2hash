@@ -78,6 +78,20 @@ def mining_totals(miners):
     }
 
 
+def pool_active_state(value):
+    """SQLite tri-state -> a stable InfluxDB string field.
+
+    Missing / NULL is not inactive. Never write an InfluxDB field as null.
+    """
+    if value is None:
+        return 'unknown'
+    if value is True or value == 1:
+        return 'active'
+    if value is False or value == 0:
+        return 'inactive'
+    raise ValueError('Invalid pool activity status; expected NULL, 0, or 1')
+
+
 class InfluxDB2Destination:
     def __init__(self, config):
         settings = config.get('settings', {})
@@ -127,6 +141,36 @@ class InfluxDB2Destination:
                               text_fields=('event_type', 'old_profile',
                                            'requested_profile', 'new_profile',
                                            'policy_mode', 'distribution_mode'))
+                if result: lines.append(result)
+            elif kind in ('pool_state', 'pool_events'):
+                # Stable/low-cardinality series identity. Full BTC addresses,
+                # complete Stratum usernames and pool hosts are FIELDS,
+                # NEVER tags (also avoids exposing them in series labels).
+                tags = {
+                    'instance_id': item.get('instance_id') or self.instance,
+                    'miner_id': item.get('miner_id'),
+                    'pool_slot': item.get('pool_slot'),
+                }
+                if not tags['miner_id'] or tags['pool_slot'] is None:
+                    raise ValueError('Pool export requires miner_id and pool_slot')
+                fields = {
+                    'host': item.get('host'),
+                    'username': item.get('username'),
+                    'active_state': pool_active_state(item.get('is_active')),
+                }
+                if item.get('port') is not None:
+                    fields['port'] = int(item['port'])
+                if kind == 'pool_state':
+                    ts = item['last_seen_at']
+                    result = line('pv2hash_pool', tags, fields, ts,
+                                  text_fields=('host', 'username', 'active_state'))
+                else:
+                    ts = item['ts']
+                    fields['event_id'] = int(item['id'])
+                    fields['event_type'] = str(item['event_type'])
+                    result = line('pv2hash_pool_event', tags, fields, ts,
+                                  text_fields=('host', 'username', 'active_state',
+                                               'event_type'))
                 if result: lines.append(result)
             else:
                 raise ValueError('Unsupported export stream: ' + str(kind))

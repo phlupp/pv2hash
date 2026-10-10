@@ -69,7 +69,8 @@ class ExportManager:
             key = str(cfg.get('id') or '')
             if not key:
                 continue
-            streams = {name: self._state(key, name) for name in ('samples', 'controller_events')}
+            streams = {name: self._state(key, name) for name in
+                       ('samples', 'controller_events', 'pool_state', 'pool_events')}
             cursor = streams['samples']['cursor']
             backlog_seconds = None
             if latest_sample and cursor:
@@ -99,23 +100,42 @@ class ExportManager:
             try:
                 adapter = self.adapters[cfg['type']](cfg)
             except Exception as exc:
-                for stream in ('samples', 'controller_events'):
+                for stream in ('samples', 'controller_events', 'pool_state', 'pool_events'):
                     self._failure(key, stream, exc)
                 continue
-            for stream in ('samples', 'controller_events'):
+            for stream in ('samples', 'controller_events', 'pool_state', 'pool_events'):
                 state = self._state(key, stream)
                 now = datetime.now(timezone.utc)
                 if state['retry_after'] and datetime.fromisoformat(state['retry_after']) > now:
                     continue
+                # Last-known pool state is a periodic snapshot, whereas pool
+                # changes use a durable ID cursor and are never skipped.
+                if stream == 'pool_state' and state['last_success_at']:
+                    last = datetime.fromisoformat(state['last_success_at'])
+                    if (now - last).total_seconds() < 60:
+                        continue
                 try:
                     limit = max(1, min(int(cfg.get('batch_size', 120)), 1000))
-                    batch = (self.source.samples(after=state['cursor'], limit=limit)
-                             if stream == 'samples' else self.source.controller_events(
-                                 after_id=int(state['cursor'] or 0), limit=limit))
-                    if not batch['items']:
+                    if stream == 'samples':
+                        batch = self.source.samples(after=state['cursor'], limit=limit)
+                    elif stream == 'controller_events':
+                        batch = self.source.controller_events(
+                            after_id=int(state['cursor'] or 0), limit=limit)
+                    elif stream == 'pool_events':
+                        batch = self.source.pool_events(
+                            after_id=int(state['cursor'] or 0), limit=limit)
+                    else:
+                        batch = self.source.pool_state()
+
+                    if not batch['items'] and stream != 'pool_state':
                         continue
-                    adapter.send(stream, batch['items'])
-                    self._success(key, stream, str(batch['next_cursor']))
+                    if batch['items']:
+                        adapter.send(stream, batch['items'])
+                    # An empty inventory is a successful observation too;
+                    # checkpoint it to avoid polling an empty table every 10s.
+                    cursor = (now.isoformat() if stream == 'pool_state'
+                              else str(batch['next_cursor']))
+                    self._success(key, stream, cursor)
                 except Exception as exc:
                     self._failure(key, stream, exc)
 

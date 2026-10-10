@@ -314,6 +314,43 @@ class DataLogger:
             self._ensure_column(con, "history_miner_samples", "temp_asic_max_c", "REAL")
             con.execute("CREATE INDEX IF NOT EXISTS idx_history_miner_samples_ts ON history_miner_samples(ts)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_history_miner_samples_miner_ts ON history_miner_samples(miner_id, ts)")
+            # Last successfully observed Stratum pools. Unavailable device data
+            # does not remove rows; a confirmed empty list does.
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS miner_pools (
+                    miner_id TEXT NOT NULL,
+                    instance_id TEXT NOT NULL,
+                    pool_slot INTEGER NOT NULL,
+                    host TEXT NOT NULL,
+                    port INTEGER,
+                    username TEXT NOT NULL,
+                    is_active INTEGER,
+                    first_seen_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    PRIMARY KEY (miner_id, pool_slot)
+                )
+                """
+            )
+            con.execute("CREATE INDEX IF NOT EXISTS idx_miner_pools_username ON miner_pools(username)")
+            # Append only on configuration/active-slot changes, never per sample.
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS miner_pool_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts TEXT NOT NULL,
+                    instance_id TEXT NOT NULL,
+                    miner_id TEXT NOT NULL,
+                    pool_slot INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    host TEXT NOT NULL,
+                    port INTEGER,
+                    username TEXT NOT NULL,
+                    is_active INTEGER
+                )
+                """
+            )
+            con.execute("CREATE INDEX IF NOT EXISTS idx_miner_pool_events_miner_ts ON miner_pool_events(miner_id, ts)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_history_events_ts ON history_events(ts)")
             con.execute(
                 """
@@ -367,11 +404,14 @@ class DataLogger:
                     policy_mode TEXT,
                     distribution_mode TEXT,
                     min_switch_remaining_s REAL,
-                    decision_context_json TEXT
+                    decision_context_json TEXT,
                     dedupe_key TEXT
                 )
                 """
             )
+            # Some earlier installations created the table before dedupe_key
+            # existed; repair those DBs before creating the index as well.
+            self._ensure_column(con, "controller_debug_events", "dedupe_key", "TEXT")
             con.execute("CREATE INDEX IF NOT EXISTS idx_controller_debug_events_ts ON controller_debug_events(ts)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_controller_debug_events_dedupe ON controller_debug_events(dedupe_key, ts)")
             con.execute(
@@ -384,7 +424,7 @@ class DataLogger:
             )
             con.execute(
                 "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
-                ("datalogger_schema_version", "4"),
+                ("datalogger_schema_version", "5"),
             )
 
     @staticmethod
@@ -395,6 +435,92 @@ class DataLogger:
     def _ensure_column(self, con: sqlite3.Connection, table: str, column: str, definition: str) -> None:
         if column not in self._table_columns(con, table):
             con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    @staticmethod
+    def _sync_miner_pools(
+        con: sqlite3.Connection,
+        *,
+        instance_id: str,
+        miner_id: str,
+        pools: list[dict[str, Any]] | None,
+        ts: str,
+    ) -> None:
+        """Upsert current pools; record only changes to pool identity/status.
+
+        None means no reliable readback (e.g. offline miner or unsupported
+        driver) and MUST NOT delete prior observations. An explicit [] means
+        the device was read successfully and reports no configured pools.
+        """
+        if pools is None:
+            return
+
+        normalized: dict[int, tuple[str, int | None, str, int | None]] = {}
+        for pool in pools:
+            slot = int(pool["slot"])
+            if slot < 0 or slot in normalized:
+                raise ValueError(f"Invalid/duplicate Stratum pool slot: {slot}")
+            host = str(pool.get("host") or "").strip()
+            if not host:
+                raise ValueError(f"Missing Stratum pool host in slot {slot}")
+            port = pool.get("port")
+            port = int(port) if port not in (None, "") else None
+            if port is not None and not 1 <= port <= 65535:
+                raise ValueError(f"Invalid Stratum port in slot {slot}")
+            username = str(pool.get("username") or "").strip()
+            active = pool.get("is_active")
+            is_active = None if active is None else int(bool(active))
+            normalized[slot] = (host, port, username, is_active)
+
+        old_rows = con.execute(
+            "SELECT pool_slot, host, port, username, is_active, last_seen_at "
+            "FROM miner_pools WHERE miner_id = ?",
+            (miner_id,),
+        ).fetchall()
+        existing = {int(row[0]): row for row in old_rows}
+
+        def event(slot: int, action: str, values: tuple) -> None:
+            con.execute(
+                "INSERT INTO miner_pool_events "
+                "(ts, instance_id, miner_id, pool_slot, event_type, host, port, username, is_active) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (ts, instance_id, miner_id, slot, action, *values),
+            )
+
+        for slot, values in normalized.items():
+            old = existing.get(slot)
+            if old is None:
+                con.execute(
+                    "INSERT INTO miner_pools "
+                    "(miner_id, instance_id, pool_slot, host, port, username, is_active, "
+                    "first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (miner_id, instance_id, slot, *values, ts, ts),
+                )
+                event(slot, "added", values)
+            elif tuple(old[1:5]) != values:
+                con.execute(
+                    "UPDATE miner_pools SET instance_id=?, host=?, port=?, username=?, "
+                    "is_active=?, last_seen_at=? WHERE miner_id=? AND pool_slot=?",
+                    (instance_id, *values, ts, miner_id, slot),
+                )
+                event(slot, "changed", values)
+            else:
+                # Keep a heartbeat without rewriting the entire table every 10s.
+                prior = _parse_iso_datetime(old[5])
+                current = _parse_iso_datetime(ts)
+                if prior is None or current is None or (current - prior).total_seconds() >= 60:
+                    con.execute(
+                        "UPDATE miner_pools SET last_seen_at=? "
+                        "WHERE miner_id=? AND pool_slot=?",
+                        (ts, miner_id, slot),
+                    )
+
+        for slot, old in existing.items():
+            if slot not in normalized:
+                event(slot, "removed", tuple(old[1:5]))
+                con.execute(
+                    "DELETE FROM miner_pools WHERE miner_id=? AND pool_slot=?",
+                    (miner_id, slot),
+                )
 
     def _write_snapshot(self, snapshot: dict[str, Any], cfg: dict[str, Any]) -> None:
         self._ensure_schema()
@@ -476,6 +602,10 @@ class DataLogger:
                         miner.get("runtime_state"),
                     ),
                 )
+                self._sync_miner_pools(
+                    con, instance_id=instance_id, miner_id=miner_id,
+                    pools=miner.get("pools"), ts=ts,
+                )
 
             self._apply_retention(con, cfg)
 
@@ -487,6 +617,7 @@ class DataLogger:
         cutoff = (now - timedelta(days=int(cfg["retention_days"]))).isoformat()
         con.execute("DELETE FROM history_samples WHERE ts < ?", (cutoff,))
         con.execute("DELETE FROM history_miner_samples WHERE ts < ?", (cutoff,))
+        con.execute("DELETE FROM miner_pool_events WHERE ts < ?", (cutoff,))
         con.execute("DELETE FROM history_events WHERE ts < ?", (cutoff,))
         con.execute("DELETE FROM controller_events WHERE ts < ?", (cutoff,))
         debug_retention_hours = _controller_debug_retention_hours((self._config_provider() or {}).get("datalogger", {}))
