@@ -37,14 +37,45 @@ def timestamp_ns(value):
     return (delta.days * 86400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1000
 
 
-def line(measurement, tags, fields, ts):
-    numeric = {k:v for k,v in fields.items() if isinstance(v,(int,float,bool)) and v is not None}
-    encoded = [(esc_tag(k),field_value(v)) for k,v in numeric.items()]
+def line(measurement, tags, fields, ts, *, text_fields=()):
+    """Write numeric fields and only explicitly allowlisted text columns."""
+    selected = {k: v for k, v in fields.items()
+                if isinstance(v, (int, float, bool)) and v is not None}
+    for key in text_fields:
+        value = fields.get(key)
+        if isinstance(value, str) and value:
+            selected[key] = value
+    encoded = [(esc_tag(k),field_value(v)) for k,v in selected.items()]
     encoded = [(k,v) for k,v in encoded if v is not None]
     if not encoded:
         return None
     tag_text = ''.join(',' + esc_tag(k) + '=' + esc_tag(v) for k,v in tags.items() if v not in (None,''))
     return esc_measurement(measurement)+tag_text+' '+','.join(k+'='+v for k,v in encoded)+' '+str(timestamp_ns(ts))
+
+
+def _running(miner):
+    """Portal parity: only runtime_state=running means active mining."""
+    return str(miner.get('runtime_state') or '').strip().lower() == 'running'
+
+
+def _number(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    result = float(value)
+    return result if math.isfinite(result) else 0.0
+
+
+def mining_totals(miners):
+    """Never include stale hashrate reported by paused or stopped miners."""
+    running = [miner for miner in miners if _running(miner)]
+    hashrate_ghs = sum((_number(miner.get('hashrate_ghs')) for miner in running), 0.0)
+    return {
+        'registered_miner_count': len(miners),
+        'running_miner_count': len(running),
+        'running_miner_power_w': sum((_number(miner.get('power_w')) for miner in running), 0.0),
+        'running_hashrate_ghs': hashrate_ghs,
+        'running_hashrate_ths': hashrate_ghs / 1000.0,
+    }
 
 
 class InfluxDB2Destination:
@@ -66,15 +97,24 @@ class InfluxDB2Destination:
             ts = item.get('ts')
             if kind == 'samples':
                 tags = {'instance_id':item.get('instance_id') or self.instance, 'instance_name':self.instance_name}
+                miners = item.get('miners') or []
                 fields = {k:v for k,v in item.items() if k not in ('miners','ts','instance_id')}
-                result = line('pv2hash_system',tags,fields,ts)
+                result = line('pv2hash_system',tags,fields,ts,
+                              text_fields=('source_quality', 'battery_quality'))
                 if result: lines.append(result)
-                for miner in item.get('miners',[]):
+                # A dedicated measurement keeps portal-compatible mining stats
+                # isolated from any legacy field types in pv2hash_system.
+                result = line('pv2hash_mining', tags, mining_totals(miners), ts)
+                if result: lines.append(result)
+                for miner in miners:
                     tags = {'instance_id':miner.get('instance_id') or item.get('instance_id') or self.instance,
                             'instance_name':self.instance_name,
                             'miner_id':miner.get('miner_id') or miner.get('miner_key'),
                             'miner_name':miner.get('name') or self.miner_names.get(str(miner.get('miner_id') or ''))}
-                    result = line('pv2hash_miner',tags,miner,ts)
+                    miner_fields = dict(miner)
+                    miner_fields['mining_active'] = int(_running(miner))
+                    result = line('pv2hash_miner',tags,miner_fields,ts,
+                                  text_fields=('runtime_state', 'profile', 'driver'))
                     if result: lines.append(result)
             elif kind == 'controller_events':
                 tags = {'instance_id':self.instance, 'instance_name':self.instance_name,
@@ -83,7 +123,10 @@ class InfluxDB2Destination:
                         'reason_code':item.get('reason_code')}
                 fields = {k:v for k,v in item.items() if k not in ('ts','id')}
                 fields['event_id'] = int(item['id'])
-                result = line('pv2hash_controller_event',tags,fields,ts)
+                result = line('pv2hash_controller_event',tags,fields,ts,
+                              text_fields=('event_type', 'old_profile',
+                                           'requested_profile', 'new_profile',
+                                           'policy_mode', 'distribution_mode'))
                 if result: lines.append(result)
             else:
                 raise ValueError('Unsupported export stream: ' + str(kind))
