@@ -5,11 +5,12 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from pv2hash.logging_ext.setup import get_logger
 from pv2hash.miners.base import DriverAction, DriverDetailColumn, DriverField, MinerAdapter
-from pv2hash.models.miner import MinerInfo, MinerProfile, MinerProfiles
+from pv2hash.models.miner import MinerInfo, MinerPool, MinerProfile, MinerProfiles
 
 logger = get_logger("pv2hash.miners.axeos")
 
@@ -187,6 +188,123 @@ class AxeOsMiner(MinerAdapter):
             return f"{hours}h {minutes}m"
         return f"{minutes}m"
 
+    @staticmethod
+    def _pool_selection(value: Any) -> bool | None:
+        """Parse AxeOS isUsingFallbackStratum (not useFallbackStratum).
+
+        The latter controls a preference; it is not evidence of an active
+        connection. Treat absent/unknown statuses as undetermined.
+        """
+        if value is True or value == 1 or value == "1":
+            return True
+        if value is False or value == 0 or value == "0":
+            return False
+        return None
+
+    @staticmethod
+    def _pool_endpoint(value: Any, port: Any) -> tuple[str, int | None] | None:
+        """Extract Stratum hostname and port, discarding scheme/userinfo.
+
+        Firmware may supply stratum+tcp://host, host, host:port or IPv6.
+        Any embedded credentials must never enter the Pool model.
+        """
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            parsed = urlsplit(raw if "://" in raw else f"//{raw}")
+            host = parsed.hostname
+            if not host:
+                return None
+            effective_port = int(port) if port not in (None, "") else parsed.port
+            if effective_port is not None and not 1 <= effective_port <= 65535:
+                return None
+            return host, effective_port
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _parse_pools(cls, payload: dict[str, Any]) -> list[MinerPool] | None:
+        """Support legacy primary/fallback fields and modern AxeOS pools[].
+
+        None means absent/incomplete API pool data (do not erase DB cache).
+        [] means a confirmed empty modern pools list.
+        """
+        fallback_selected = cls._pool_selection(payload.get("isUsingFallbackStratum"))
+        modern = payload.get("pools")
+
+        def convert(slot: int, url: Any, port: Any, username: Any) -> MinerPool | None:
+            endpoint = cls._pool_endpoint(url, port)
+            if endpoint is None or username is None:
+                return None
+            return MinerPool(
+                slot=slot, host=endpoint[0], port=endpoint[1],
+                username=str(username).strip(), is_active=None,
+            )
+
+        if "pools" in payload:
+            if not isinstance(modern, list):
+                return None
+            observed: list[MinerPool] = []
+            for slot, entry in enumerate(modern):
+                if not isinstance(entry, dict):
+                    return None
+                if not str(entry.get("stratumURL") or "").strip():
+                    # Empty reserved entries may exist in the firmware pool list.
+                    # Incomplete populated entries must not wipe the last-known DB.
+                    if any(entry.get(k) not in (None, "") for k in ("stratumPort", "stratumUser")):
+                        return None
+                    continue
+                pool = convert(slot, entry.get("stratumURL"),
+                               entry.get("stratumPort"), entry.get("stratumUser"))
+                if pool is None:
+                    return None
+                observed.append(pool)
+            if fallback_selected is None:
+                return observed
+            try:
+                primary = int(payload.get("primaryPoolIndex", 0))
+                secondary = int(payload.get("secondaryPoolIndex", 1))
+            except (TypeError, ValueError):
+                return observed
+            active_slot = secondary if fallback_selected else primary
+            if active_slot not in {pool.slot for pool in observed}:
+                return observed
+            return [
+                MinerPool(slot=pool.slot, host=pool.host, port=pool.port,
+                          username=pool.username, is_active=(pool.slot == active_slot))
+                for pool in observed
+            ]
+
+        # Legacy AxeOS exposes individual primary/fallback Stratum fields.
+        primary_keys = ("stratumURL", "stratumPort", "stratumUser")
+        backup_keys = ("fallbackStratumURL", "fallbackStratumPort", "fallbackStratumUser")
+        if not any(k in payload for k in (*primary_keys, *backup_keys)):
+            return None
+
+        observed = []
+        for slot, keys in enumerate((primary_keys, backup_keys)):
+            url, port, username = (payload.get(key) for key in keys)
+            if not str(url or "").strip():
+                if any(payload.get(k) not in (None, "") for k in keys[1:]):
+                    return None
+                continue
+            pool = convert(slot, url, port, username)
+            if pool is None:
+                return None
+            observed.append(pool)
+
+        if not observed:
+            return None  # Legacy missing/empty fields are not definitive.
+        active_slot = int(fallback_selected) if fallback_selected is not None else None
+        if active_slot not in {pool.slot for pool in observed}:
+            return observed
+        return [
+            MinerPool(slot=pool.slot, host=pool.host, port=pool.port,
+                      username=pool.username, is_active=(pool.slot == active_slot))
+            for pool in observed
+        ]
+
     def _refresh_sync(self) -> dict[str, Any]:
         info = self._request_json("GET", "/api/system/info")
         try:
@@ -211,6 +329,9 @@ class AxeOsMiner(MinerAdapter):
         self.info.reachable = True
         self.info.last_error = None
         self.info.last_seen = now
+        # The DataLogger receives only the normalized Stratum identity,
+        # never the raw device response (which may contain passwords).
+        self.info.pools = self._parse_pools(payload)
         self.info.model = self._text(payload.get("deviceModel") or payload.get("boardVersion") or payload.get("ASICModel"), "axeOS")
         self.info.firmware_version = self._text(payload.get("axeOSVersion") or payload.get("version"), "") or None
         self.info.serial_number = self._text(payload.get("macAddr"), "") or self.info.serial_number
@@ -270,6 +391,8 @@ class AxeOsMiner(MinerAdapter):
         except Exception as exc:
             self.info.reachable = False
             self.info.runtime_state = "unreachable"
+            # A failed read must not advance last_seen_at for stale pool data.
+            self.info.pools = None
             self.info.last_error = f"HTTP read failed: {exc}"
             self.info.last_seen = datetime.now(UTC)
         return self.info
