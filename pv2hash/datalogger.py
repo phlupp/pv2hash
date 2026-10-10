@@ -404,11 +404,14 @@ class DataLogger:
                     policy_mode TEXT,
                     distribution_mode TEXT,
                     min_switch_remaining_s REAL,
-                    decision_context_json TEXT
+                    decision_context_json TEXT,
                     dedupe_key TEXT
                 )
                 """
             )
+            # Some earlier installations created the table before dedupe_key
+            # existed; repair those DBs before creating the index as well.
+            self._ensure_column(con, "controller_debug_events", "dedupe_key", "TEXT")
             con.execute("CREATE INDEX IF NOT EXISTS idx_controller_debug_events_ts ON controller_debug_events(ts)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_controller_debug_events_dedupe ON controller_debug_events(dedupe_key, ts)")
             con.execute(
