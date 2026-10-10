@@ -15,6 +15,20 @@ class MinerProfiles:
     p4: MinerProfile
 
 
+@dataclass(frozen=True)
+class MinerPool:
+    """Observed Stratum identity of one configured pool slot.
+
+    None for is_active means the device API did not identify an active pool.
+    Pool passwords are deliberately not part of this model.
+    """
+    slot: int
+    host: str
+    port: int | None
+    username: str
+    is_active: bool | None = None
+
+
 @dataclass
 class MinerInfo:
     id: str
@@ -50,6 +64,9 @@ class MinerInfo:
 
     reachable: bool = False
     runtime_state: str = "unknown"
+    # None means unobserved/unavailable; [] means observed with no pools.
+    # Never wipe last-known pools just because a miner is unreachable.
+    pools: list[MinerPool] | None = None
     current_hashrate_ghs: float | None = None
     temp_c: float | None = None
     temp_asic_min_c: float | None = None
