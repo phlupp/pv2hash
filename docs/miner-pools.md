@@ -146,6 +146,16 @@ change events. Never infer active connection from a preferred/primary slot.
 Old values can remain available as historical points; an offline device does
 not update `last_seen_at`.
 
+**Integration verified on `testvm01`**: existing four device/slot
+identities were exported from SQLite to the isolated `pv2hash-dev` InfluxDB
+bucket. Grafana Flux reads returned 4 `active_state`, 4 `host`, 4 `port`
+and 4 `username` fields. Two AxeOS entries were `"unknown"`; the two
+simulator entries were `"active"` and `"inactive"`. The 4 latest
+change-event series also returned event type, event ID and status. Both
+new stream cursors advanced with no errors, and all 36 regression tests
+passed. Existing miner telemetry continued to export with HTTP 204.
+Production nodes and devices were not modified.
+
 **Privacy:** complete Stratum logins may include BTC payout addresses.
 Keep both measurements in access-controlled InfluxDB buckets; do not include
 the login, host or raw API credentials in public dashboard panels. No
@@ -155,9 +165,7 @@ Stratum passwords or API passwords are stored/exported.
 
 1. Validate the Braiins gRPC and WhatsMiner API3 readbacks against physical
    devices when each is reachable; account for any firmware-specific nuances.
-2. Confirm real InfluxDB `pv2hash_pool` and `pv2hash_pool_event` series
-   in the isolated `pv2hash-dev` bucket, including `"unknown"` for AxeOS.
-3. Match the local observed Stratum username with DATUM's
+2. Match the local observed Stratum username with DATUM's
    `username_raw`; when possible, corroborate with source IP / pool host.
    Keep transient disconnects distinct from permanent configuration removal.
 
