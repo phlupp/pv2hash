@@ -58,10 +58,35 @@ The simulator exposes two configurable fake Stratum pool slots. Defaults use
 `settings.active_pool_slot` to 0 or 1 to simulate failover; this **does not**
 open Stratum connections.
 
+## axeOS driver (implemented in development branch)
+
+The existing read-only `GET /api/system/info` refresh now fills
+`MinerInfo.pools` on supported firmware:
+
+- Legacy: `stratumURL`, `stratumPort`, `stratumUser`, and optional
+  `fallbackStratumURL`, `fallbackStratumPort`, `fallbackStratumUser`
+  become slots 0 and 1.
+- New firmware: `pools[]` is the authoritative list (array index = slot).
+  `primaryPoolIndex` and `secondaryPoolIndex` identify preference slots.
+- **Actual active status** is only derived when the device provides
+  `isUsingFallbackStratum` and the relevant slot is present.
+  `useFallbackStratum` is a *preference*, not confirmation of connection.
+  Without a reliable indicator, `is_active = null`; do not assume pool 0.
+- Pool addresses are normalized to their hostname / IPv6 literal and port.
+  URLs containing schemes or userinfo are parsed; passwords are discarded.
+- Incomplete/unavailable pool information is `None`, not an empty list;
+  an API read failure does not refresh stored `last_seen_at` values.
+
+**Read-only physical-device verification:** an existing axeOS unit exposed
+both legacy primary and fallback entries (two full Stratum usernames).
+That firmware did not include `isUsingFallbackStratum`; both slots were
+recorded with unknown active status. A temporary SQLite database verified
+two persisted entries and two added events. Device settings were not changed.
+No host addresses or real Stratum usernames are committed to this repo.
+
 ## Next steps
 
-1. Test with real API readbacks: axeOS (first), Braiins/WhatsMiner (later),
-   including APIs reporting *configured* versus *currently connected* pool.
+1. Integrate with the Braiins and WhatsMiner APIs using the same model.
 2. Expose normalized Pool identities to the export layer, accounting for changes
    and preserving full usernames as **values**, not high-cardinality InfluxDB
    tags. Limit public access: BTC addresses and usernames reveal identities.
@@ -70,4 +95,7 @@ open Stratum connections.
 
 ## Tests
 
-`python3 -m unittest discover -s tests -p 'test_miner_pools.py' -v`
+```bash
+python3 -m unittest discover -s tests -p 'test_miner_pools.py' -v
+python3 -m unittest discover -s tests -p 'test_axeos_pool_readback.py' -v
+```
