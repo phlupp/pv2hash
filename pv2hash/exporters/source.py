@@ -42,6 +42,32 @@ class ExportSource:
         rows = self._rows("SELECT * FROM controller_events WHERE id > ? ORDER BY id LIMIT ?", (after_id, limit))
         return self._batch("controller_events", rows, after_id, "id")
 
+    def pool_state(self) -> dict[str, Any]:
+        """Current last-known pool identities (small, complete inventory).
+
+        A periodic inventory also bootstraps an exporter added after some pool
+        events have expired under the DataLogger's history retention policy.
+        There is no password in either SQLite pool table.
+        """
+        rows = self._rows(
+            "SELECT instance_id, miner_id, pool_slot, host, port, username, "
+            "is_active, first_seen_at, last_seen_at "
+            "FROM miner_pools ORDER BY miner_id, pool_slot", (),
+        )
+        return {"schema_version": self.schema_version, "kind": "pool_state",
+                "items": rows, "count": len(rows)}
+
+    def pool_events(self, *, after_id: int = 0, limit: int = 120) -> dict[str, Any]:
+        """Durable change-event stream; cursor is exclusive numeric event ID."""
+        limit = max(1, min(int(limit), 1000))
+        rows = self._rows(
+            "SELECT id, ts, instance_id, miner_id, pool_slot, event_type, "
+            "host, port, username, is_active "
+            "FROM miner_pool_events WHERE id > ? ORDER BY id LIMIT ?",
+            (after_id, limit),
+        )
+        return self._batch("pool_events", rows, after_id, "id")
+
     def _batch(self, kind: str, rows: list[dict[str, Any]], after: Any, field: str) -> dict[str, Any]:
         return {"schema_version": self.schema_version, "kind": kind, "items": rows,
                 "count": len(rows), "next_cursor": rows[-1][field] if rows else after}
