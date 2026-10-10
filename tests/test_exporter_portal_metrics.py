@@ -15,7 +15,7 @@ class ExporterPortalMetricsTest(unittest.TestCase):
         totals = mining_totals(miners)
         self.assertEqual(totals['registered_miner_count'], 4)
         self.assertEqual(totals['running_miner_count'], 2)
-        self.assertEqual(totals['running_miner_power_w'], 260)
+        self.assertEqual(totals['running_miner_power_w'], 260.0)
         self.assertEqual(totals['running_hashrate_ghs'], 17000)
         self.assertEqual(totals['running_hashrate_ths'], 17)
 
@@ -23,6 +23,10 @@ class ExporterPortalMetricsTest(unittest.TestCase):
         totals = mining_totals([])
         self.assertEqual(totals['registered_miner_count'], 0)
         self.assertEqual(totals['running_miner_count'], 0)
+        self.assertEqual(totals['running_miner_power_w'], 0.0)
+        self.assertEqual(totals['running_hashrate_ghs'], 0.0)
+        self.assertIsInstance(totals['running_miner_power_w'], float)
+        self.assertIsInstance(totals['running_hashrate_ghs'], float)
         self.assertEqual(totals['running_hashrate_ths'], 0)
 
     def test_text_fields_explicit_allowlist(self):
@@ -50,10 +54,12 @@ class ExporterPortalMetricsTest(unittest.TestCase):
             client.return_value.__enter__.return_value.post.return_value.status_code = 204
             InfluxDB2Destination(cfg).send('samples', samples)
             data = client.return_value.__enter__.return_value.post.call_args.kwargs['content'].decode()
+        self.assertIn('pv2hash_mining,', data)
         self.assertIn('registered_miner_count=2i', data)
         self.assertIn('running_miner_count=1i', data)
         self.assertIn('running_miner_power_w=100.0', data)
         self.assertIn('running_hashrate_ghs=5000.0', data)
+        self.assertEqual(len(data.splitlines()), 4)
         self.assertIn('mining_active=1i', data)
         self.assertIn('mining_active=0i', data)
         self.assertNotIn('password', data)
