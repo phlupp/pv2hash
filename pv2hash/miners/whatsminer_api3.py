@@ -13,7 +13,8 @@ from typing import Any
 
 from pv2hash.logging_ext.setup import get_logger
 from pv2hash.miners.base import DriverAction, DriverField, DriverFieldChoice, MinerAdapter
-from pv2hash.models.miner import MinerInfo, MinerProfile, MinerProfiles
+from pv2hash.models.miner import MinerInfo, MinerPool, MinerProfile, MinerProfiles
+from pv2hash.miners.pool_identity import pool_endpoint, explicit_bool
 
 logger = get_logger("pv2hash.miners.whatsminer_api3")
 
@@ -246,6 +247,46 @@ class WhatsminerApi3Miner(MinerAdapter):
     def _get_summary_status(self) -> dict[str, Any]:
         return self._send_request({"cmd": "get.miner.status", "param": "summary"})
 
+    def _get_pools_status(self) -> dict[str, Any]:
+        """WhatsMiner API3 read-only pool status request (no authentication)."""
+        return self._send_request({"cmd": "get.miner.status", "param": "pools"})
+
+    @staticmethod
+    def _parse_pools(response: dict[str, Any] | None) -> list[MinerPool] | None:
+        """Normalize API3 msg.pools; non-zero result is NOT an empty pool list.
+
+        Official API3 uses id (1-based), url, account and stratum-active.
+        Do not infer 'active' from the general pool connectivity 'status'.
+        """
+        if not isinstance(response, dict) or response.get("code") != 0:
+            return None
+        msg = response.get("msg")
+        if not isinstance(msg, dict) or not isinstance(msg.get("pools"), list):
+            return None
+        parsed = []
+        seen = set()
+        for index, item in enumerate(msg["pools"]):
+            if not isinstance(item, dict):
+                return None
+            try:
+                slot_id = item.get("id", index + 1)
+                slot = int(slot_id) - 1
+            except (ValueError, TypeError):
+                return None
+            if slot < 0 or slot in seen:
+                return None
+            seen.add(slot)
+            endpoint = pool_endpoint(item.get("url"))
+            account = item.get("account")
+            if endpoint is None or account is None:
+                return None
+            parsed.append(MinerPool(
+                slot=slot, host=endpoint[0], port=endpoint[1],
+                username=str(account).strip(),
+                is_active=explicit_bool(item.get("stratum-active")),
+            ))
+        return parsed
+
     def _get_fan_setting(self) -> dict[str, Any]:
         return self._send_request({"cmd": "get.fan.setting"})
 
@@ -293,6 +334,7 @@ class WhatsminerApi3Miner(MinerAdapter):
 
 
     def _set_unreachable(self, exc: Exception) -> None:
+        self.info.pools = None
         self.info.reachable = False
         self.info.runtime_state = "unreachable"
         self.info.last_error = str(exc)
@@ -394,6 +436,17 @@ class WhatsminerApi3Miner(MinerAdapter):
     def _refresh_status(self) -> dict[str, Any]:
         device = self._get_device_info()
         status = self._get_summary_status()
+        # Pool readback is optional. A failed/unsupported response must not
+        # break existing power/temperature telemetry or delete cached pools.
+        try:
+            pool_response = self._get_pools_status()
+            self.info.pools = self._parse_pools(pool_response)
+        except Exception as exc:
+            self.info.pools = None
+            logger.debug(
+                "WhatsMiner API3 pools read unavailable for %s (%s:%s): %s",
+                self.info.name, self.host, self.port, type(exc).__name__,
+            )
         try:
             fan_setting = self._get_fan_setting()
         except Exception as exc:
