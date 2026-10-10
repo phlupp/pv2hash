@@ -109,15 +109,57 @@ A real WhatsMiner API3 endpoint was not reachable from the test network
 during this implementation; parser, fallback and SQLite behavior were tested
 with representative documented API responses.
 
+## InfluxDB 2.x export of pool identities (implemented in dev branch)
+
+Two new per-destination streams preserve change history and current mappings.
+
+**`pool_state` inventory (every ~60 seconds):** reads the entire current
+`miner_pools` table, writes to measurement `pv2hash_pool` using the DB's
+`last_seen_at` as point timestamp. This also seeds newly enabled exporters
+when old `miner_pool_events` have passed retention. The stream's
+`last_success_at` is checkpointed even if the inventory is empty, to avoid
+unnecessary scans; `last_seen_at` is never fabricated when a device is
+unreachable. The inventory has no numeric ID cursor because it is a small
+complete, periodic readback.
+
+**`pool_events` changes:** reads `miner_pool_events` ordered by increasing
+event `id`. The cursor advances *only after* InfluxDB acknowledges the batch
+with HTTP 204. Failed writes are retried with existing manager backoff and
+may replay safely. Measurement: `pv2hash_pool_event`; fields include
+`event_id` and `event_type` (`added`, `changed`, `removed`).
+
+Both measurements use only `instance_id`, `miner_id` and `pool_slot`
+as tags. Full `username`, normalized `host`, and numeric `port` are
+**fields**; they are intentionally NOT tags. The pool activity is a string
+field `active_state` with precisely:
+
+| SQLite is_active | InfluxDB active_state |
+| --- | --- |
+| 1 | `"active"` |
+| 0 | `"inactive"` |
+| NULL | `"unknown"` |
+
+Only `event_type="removed"` means a configured pool disappeared; do not
+confuse `"inactive"` with `"removed"` or `"unknown"`. To determine
+**current** pool presence, combine latest inventory with *subsequent*
+change events. Never infer active connection from a preferred/primary slot.
+Old values can remain available as historical points; an offline device does
+not update `last_seen_at`.
+
+**Privacy:** complete Stratum logins may include BTC payout addresses.
+Keep both measurements in access-controlled InfluxDB buckets; do not include
+the login, host or raw API credentials in public dashboard panels. No
+Stratum passwords or API passwords are stored/exported.
+
 ## Next steps
 
 1. Validate the Braiins gRPC and WhatsMiner API3 readbacks against physical
    devices when each is reachable; account for any firmware-specific nuances.
-2. Expose normalized Pool identities to the export layer, accounting for changes
-   and preserving full usernames as **values**, not high-cardinality InfluxDB
-   tags. Limit public access: BTC addresses and usernames reveal identities.
-3. Match with DATUM client `username_raw` and, where appropriate, pool host
-   and port. Keep transient disconnects distinct from permanent config removal.
+2. Confirm real InfluxDB `pv2hash_pool` and `pv2hash_pool_event` series
+   in the isolated `pv2hash-dev` bucket, including `"unknown"` for AxeOS.
+3. Match the local observed Stratum username with DATUM's
+   `username_raw`; when possible, corroborate with source IP / pool host.
+   Keep transient disconnects distinct from permanent configuration removal.
 
 ## Tests
 
@@ -125,4 +167,5 @@ with representative documented API responses.
 python3 -m unittest discover -s tests -p 'test_miner_pools.py' -v
 python3 -m unittest discover -s tests -p 'test_axeos_pool_readback.py' -v
 python3 -m unittest discover -s tests -p 'test_braiins_whatsminer_pools.py' -v
+python3 -m unittest discover -s tests -p 'test_pool_exporter.py' -v
 ```
