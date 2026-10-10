@@ -126,6 +126,22 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
             "temp_asic_min_c": getattr(runtime_miner, "temp_asic_min_c", None) if runtime_miner else None,
             "temp_asic_max_c": getattr(runtime_miner, "temp_asic_max_c", None) if runtime_miner else None,
             "runtime_state": str(getattr(runtime_miner, "runtime_state", "unknown") or "unknown") if runtime_miner else "unknown",
+            # None = not yet observed (or unreachable); do not erase stored pools.
+            # Device passwords never enter the runtime snapshot.
+            "pools": (
+                [
+                    {
+                        "slot": pool.slot,
+                        "host": pool.host,
+                        "port": pool.port,
+                        "username": pool.username,
+                        "is_active": pool.is_active,
+                    }
+                    for pool in runtime_miner.pools
+                ]
+                if runtime_miner is not None and runtime_miner.pools is not None
+                else None
+            ),
         })
 
     source_cfg = state.config.get("source", {}) if state.config else {}
