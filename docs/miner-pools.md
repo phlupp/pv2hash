@@ -84,9 +84,35 @@ recorded with unknown active status. A temporary SQLite database verified
 two persisted entries and two added events. Device settings were not changed.
 No host addresses or real Stratum usernames are committed to this repo.
 
+## Braiins OS+ and WhatsMiner API3 (implemented in development branch)
+
+**Braiins OS+** uses the authenticated but read-only gRPC
+`PoolService.GetPoolGroups` call. It provides `pool_groups[].pools[]` with
+`url`, `user`, `active`, `enabled`, and `alive`. We flatten the ordered
+group pools into pool slots 0..N (a changed group order can change slot
+positions). In proto3 the Boolean `active=false` is omitted in JSON,
+so a successful complete readback interprets its default as false.
+The gRPC method is optional; errors do not interrupt ordinary status
+sampling or erase last-known pool rows. No pool-setting RPCs are used.
+
+**WhatsMiner API3** uses the read-only `get.miner.status` with
+`param="pools"`, distinct from the existing `summary` query. The documented
+response has `msg.pools[]`: `id` (1-based), `url`, `account` (full Stratum
+login), and `stratum-active`. The latter, when explicitly present, is used
+for `is_active`; a generic `status=alive` alone does not prove which pool
+is actively used. Failed, malformed, or unsupported responses are unknown
+(`None`), while a successfully returned empty array means no pools (`[]`).
+No authenticated `set.*` command is involved.
+
+The normalized model stores no pool passwords or embedded URL credentials.
+A real WhatsMiner API3 endpoint was not reachable from the test network
+during this implementation; parser, fallback and SQLite behavior were tested
+with representative documented API responses.
+
 ## Next steps
 
-1. Integrate with the Braiins and WhatsMiner APIs using the same model.
+1. Validate the Braiins gRPC and WhatsMiner API3 readbacks against physical
+   devices when each is reachable; account for any firmware-specific nuances.
 2. Expose normalized Pool identities to the export layer, accounting for changes
    and preserving full usernames as **values**, not high-cardinality InfluxDB
    tags. Limit public access: BTC addresses and usernames reveal identities.
@@ -98,4 +124,5 @@ No host addresses or real Stratum usernames are committed to this repo.
 ```bash
 python3 -m unittest discover -s tests -p 'test_miner_pools.py' -v
 python3 -m unittest discover -s tests -p 'test_axeos_pool_readback.py' -v
+python3 -m unittest discover -s tests -p 'test_braiins_whatsminer_pools.py' -v
 ```
