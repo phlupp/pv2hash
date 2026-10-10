@@ -68,11 +68,11 @@ def _number(value):
 def mining_totals(miners):
     """Never include stale hashrate reported by paused or stopped miners."""
     running = [miner for miner in miners if _running(miner)]
-    hashrate_ghs = sum(_number(miner.get('hashrate_ghs')) for miner in running)
+    hashrate_ghs = sum((_number(miner.get('hashrate_ghs')) for miner in running), 0.0)
     return {
         'registered_miner_count': len(miners),
         'running_miner_count': len(running),
-        'running_miner_power_w': sum(_number(miner.get('power_w')) for miner in running),
+        'running_miner_power_w': sum((_number(miner.get('power_w')) for miner in running), 0.0),
         'running_hashrate_ghs': hashrate_ghs,
         'running_hashrate_ths': hashrate_ghs / 1000.0,
     }
@@ -99,9 +99,12 @@ class InfluxDB2Destination:
                 tags = {'instance_id':item.get('instance_id') or self.instance, 'instance_name':self.instance_name}
                 miners = item.get('miners') or []
                 fields = {k:v for k,v in item.items() if k not in ('miners','ts','instance_id')}
-                fields.update(mining_totals(miners))
                 result = line('pv2hash_system',tags,fields,ts,
                               text_fields=('source_quality', 'battery_quality'))
+                if result: lines.append(result)
+                # A dedicated measurement keeps portal-compatible mining stats
+                # isolated from any legacy field types in pv2hash_system.
+                result = line('pv2hash_mining', tags, mining_totals(miners), ts)
                 if result: lines.append(result)
                 for miner in miners:
                     tags = {'instance_id':miner.get('instance_id') or item.get('instance_id') or self.instance,
