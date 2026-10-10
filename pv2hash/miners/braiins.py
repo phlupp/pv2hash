@@ -10,7 +10,8 @@ from google.protobuf.json_format import MessageToDict
 
 from pv2hash.logging_ext.setup import get_logger
 from pv2hash.miners.base import DriverAction, DriverField, MinerAdapter
-from pv2hash.models.miner import MinerInfo, MinerProfile, MinerProfiles
+from pv2hash.models.miner import MinerInfo, MinerPool, MinerProfile, MinerProfiles
+from pv2hash.miners.pool_identity import pool_endpoint
 from pv2hash.vendor.braiins_api_stubs_path import ensure_braiins_stubs_on_path
 
 ensure_braiins_stubs_on_path()
@@ -27,6 +28,8 @@ import bos.v1.configuration_pb2_grpc as configuration_pb2_grpc
 import bos.v1.miner_pb2 as miner_pb2
 import bos.v1.miner_pb2_grpc as miner_pb2_grpc
 import bos.v1.performance_pb2 as performance_pb2
+import bos.v1.pool_pb2 as pool_pb2
+import bos.v1.pool_pb2_grpc as pool_pb2_grpc
 import bos.v1.performance_pb2_grpc as performance_pb2_grpc
 import bos.v1.units_pb2 as units_pb2
 
@@ -67,6 +70,7 @@ class BraiinsMiner(MinerAdapter):
     - GetMinerStats
     - GetErrors
     - GetTunerState
+    - GetPoolGroups (optional; never changes mining configuration)
 
     Write:
     - PauseMining
@@ -498,8 +502,26 @@ class BraiinsMiner(MinerAdapter):
             except Exception:
                 tuner_state = {}
 
+            # Pool groups can be unsupported by older API implementations.
+            # A failure here must never break normal status/telemetry reads.
+            pool_groups: dict[str, Any] | None = None
+            try:
+                pool_stub = pool_pb2_grpc.PoolServiceStub(channel)
+                pool_msg = pool_stub.GetPoolGroups(
+                    pool_pb2.GetPoolGroupsRequest(),
+                    metadata=metadata,
+                    timeout=self.timeout_s,
+                )
+                pool_groups = self._msg_to_dict(pool_msg)
+            except Exception as exc:
+                logger.debug(
+                    "Braiins optional GetPoolGroups unavailable for %s (%s:%s): %s",
+                    self.info.name, self.host, self.port, type(exc).__name__,
+                )
+
             return {
                 "reachable": True,
+                "pool_groups": pool_groups,
                 "api_version": api_version,
                 "constraints": constraints,
                 "details": details,
@@ -544,6 +566,42 @@ class BraiinsMiner(MinerAdapter):
         self._token_expires_monotonic = now + max(60, timeout_value - 30)
         return self._token
 
+    @staticmethod
+    def _parse_pool_groups(data: dict[str, Any] | None) -> list[MinerPool] | None:
+        """Normalize Braiins GetPoolGroups responses; never copy passwords.
+
+        The protobuf response has pool_groups[].pools[] with url/user/active.
+        Since modern proto3 omits booleans when false, a successfully read
+        pool group's missing 'active' is the default False, not unknown.
+        """
+        if not isinstance(data, dict) or "pool_groups" not in data:
+            # A successful empty GetPoolGroups response serializes as {}.
+            if data == {}:
+                return []
+            return None
+        groups = data.get("pool_groups")
+        if not isinstance(groups, list):
+            return None
+        pools: list[MinerPool] = []
+        slot = 0
+        for group in groups:
+            if not isinstance(group, dict) or not isinstance(group.get("pools", []), list):
+                return None
+            for item in group.get("pools", []):
+                if not isinstance(item, dict):
+                    return None
+                endpoint = pool_endpoint(item.get("url"))
+                username = item.get("user")
+                if endpoint is None or username is None:
+                    return None  # Partial readback must not erase last-known data.
+                pools.append(MinerPool(
+                    slot=slot, host=endpoint[0], port=endpoint[1],
+                    username=str(username).strip(),
+                    is_active=item.get("active") is True,
+                ))
+                slot += 1
+        return pools
+
     def _apply_bundle(self, bundle: dict[str, Any]) -> None:
         self._last_bundle = dict(bundle or {})
         self._last_bundle_at = datetime.now(UTC)
@@ -560,6 +618,9 @@ class BraiinsMiner(MinerAdapter):
         hashboards = bundle.get("hashboards") or {}
         errors = bundle.get("errors") or {}
         tuner_state = bundle.get("tuner_state") or {}
+        groups = bundle.get("pool_groups")
+        # None = optional read failed. {} = successful empty response.
+        self.info.pools = self._parse_pool_groups(groups)
 
         self.info.api_version = self._format_api_version(api_version)
         self.info.current_hashrate_ghs = self._extract_hashrate_ghs(stats)
@@ -634,6 +695,7 @@ class BraiinsMiner(MinerAdapter):
             self.info.last_error = last_error
 
     def _set_runtime_defaults(self) -> None:
+        self.info.pools = None
         self.info.reachable = False
         self.info.runtime_state = "unknown"
         self.info.current_hashrate_ghs = None
