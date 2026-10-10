@@ -269,6 +269,13 @@ def build_miners(config: dict) -> list[MinerAdapter]:
                     battery_discharge_profile=_normalize_battery_override_profile(
                         miner_cfg.get("battery_discharge_profile", "p1")
                     ),
+                    pool_primary_host=str(settings.get("pool_primary_host", "pool-primary.invalid")),
+                    pool_primary_port=int(settings.get("pool_primary_port", 23334)),
+                    pool_primary_username=str(settings.get("pool_primary_username", "bc1qexample.sim-main")),
+                    pool_backup_host=str(settings.get("pool_backup_host", "pool-backup.invalid")),
+                    pool_backup_port=int(settings.get("pool_backup_port", 23334)),
+                    pool_backup_username=str(settings.get("pool_backup_username", "bc1qexample.sim-failover")),
+                    active_pool_slot=int(settings.get("active_pool_slot", 0)),
                 )
             )
             continue
