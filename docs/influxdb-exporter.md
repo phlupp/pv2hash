@@ -5,6 +5,7 @@ The InfluxDB exporter transmits local DataLogger samples without changing the mi
 ## Measurements
 
 - `pv2hash_system`: numeric DataLogger system fields, tagged with `instance_id` and `instance_name`
+- `pv2hash_mining`: derived active-mining totals from per-miner DataLogger samples, with stable integer counts and floating-point watt/hashrate fields; the separate measurement avoids conflicts with historical field types in `pv2hash_system`
 - `pv2hash_miner`: numeric DataLogger miner fields, tagged with `instance_id`, `instance_name`, `miner_id`, and `miner_name`
 - `pv2hash_controller_event`: controller event numeric fields, tagged with stable miner and reason identifiers
 
@@ -12,7 +13,7 @@ The InfluxDB exporter transmits local DataLogger samples without changing the mi
 
 Active mining is defined **exactly as in the retired PV2Hash Portal**: the miner's recorded `runtime_state` equals `running`, case-insensitively, after trimming whitespace. Reachability, control permission, positive hashrate, and power are not enough to infer active mining. Device hashrate values can remain positive while mining is paused.
 
-Added `pv2hash_system` fields for each sample:
+Added `pv2hash_mining` fields for each sample:
 
 | Field | Unit | Meaning |
 | --- | --- | --- |
@@ -23,6 +24,8 @@ Added `pv2hash_system` fields for each sample:
 | `running_hashrate_ths` | TH/s | Same sum divided by 1000 |
 
 Added `pv2hash_miner` field `mining_active` (integer 0/1), plus allowlisted string fields `runtime_state`, `profile`, and `driver`. Existing fields remain unchanged.
+
+A dedicated `pv2hash_mining` measurement is used for new totals. This avoids changing existing `pv2hash_system` field types when a miner switches from paused to running. All watt and hashrate totals remain floats even when the number is zero.
 
 Additional allowlisted text fields in `pv2hash_system`: `source_quality` and `battery_quality`. In `pv2hash_controller_event`: `event_type`, `old_profile`, `requested_profile`, `new_profile`, `policy_mode`, and `distribution_mode`. Arbitrary free text (messages, credentials, decisions, host addresses) is **not** exported.
 
