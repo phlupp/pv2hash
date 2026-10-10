@@ -1,7 +1,8 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from pv2hash.miners.base import DriverField, DriverFieldChoice, MinerAdapter
-from pv2hash.models.miner import MinerInfo, MinerProfile, MinerProfiles
+from pv2hash.models.miner import MinerInfo, MinerPool, MinerProfile, MinerProfiles
 
 
 class SimulatorMiner(MinerAdapter):
@@ -57,6 +58,22 @@ class SimulatorMiner(MinerAdapter):
                 create_phase="basic",
                 layout={"width": "half"},
             ),
+            DriverField(name="settings.pool_primary_host", label="Pool 1 Host", type="text",
+                        default="pool-primary.invalid", layout={"width": "half"}),
+            DriverField(name="settings.pool_primary_port", label="Pool 1 Port", type="number",
+                        default=23334, min=1, max=65535, layout={"width": "quarter"}),
+            DriverField(name="settings.pool_primary_username", label="Pool 1 Stratum-User", type="text",
+                        default="bc1qexample.sim-main", layout={"width": "half"}),
+            DriverField(name="settings.pool_backup_host", label="Failover Host", type="text",
+                        default="pool-backup.invalid", layout={"width": "half"}),
+            DriverField(name="settings.pool_backup_port", label="Failover Port", type="number",
+                        default=23334, min=1, max=65535, layout={"width": "quarter"}),
+            DriverField(name="settings.pool_backup_username", label="Failover Stratum-User", type="text",
+                        default="bc1qexample.sim-failover", layout={"width": "half"}),
+            DriverField(name="settings.active_pool_slot", label="Aktiver Pool-Slot (0/1)",
+                        type="number", default=0, min=0, max=1,
+                        help="Simulation des Failovers. Keine echte Verbindung zu einem Pool.",
+                        layout={"width": "quarter"}),
         ]
 
     def __init__(
@@ -77,6 +94,13 @@ class SimulatorMiner(MinerAdapter):
         use_battery_when_discharging: bool = False,
         battery_discharge_soc_min: float = 80.0,
         battery_discharge_profile: str = "p1",
+        pool_primary_host: str = "pool-primary.invalid",
+        pool_primary_port: int = 23334,
+        pool_primary_username: str = "bc1qexample.sim-main",
+        pool_backup_host: str = "pool-backup.invalid",
+        pool_backup_port: int = 23334,
+        pool_backup_username: str = "bc1qexample.sim-failover",
+        active_pool_slot: int = 0,
     ) -> None:
         profile_cfg = profiles or {
             "p1": {"power_w": 900},
@@ -98,6 +122,16 @@ class SimulatorMiner(MinerAdapter):
             else "off"
         )
 
+        self._configured_pools = [
+            MinerPool(slot=slot, host=host.strip(), port=int(port),
+                      username=username.strip())
+            for slot, host, port, username in (
+                (0, pool_primary_host, pool_primary_port, pool_primary_username),
+                (1, pool_backup_host, pool_backup_port, pool_backup_username),
+            )
+            if host and host.strip()
+        ]
+        self._active_pool_slot = int(active_pool_slot)
         self.info = MinerInfo(
             id=miner_id,
             name=name,
@@ -121,6 +155,7 @@ class SimulatorMiner(MinerAdapter):
             battery_discharge_profile=battery_discharge_profile,
             reachable=True,
             runtime_state="paused",
+            pools=self._simulated_pools(),
             control_mode="power_target",
             autotuning_enabled=True,
             power_target_min_w=float(profile_cfg["p1"]["power_w"]),
@@ -129,7 +164,21 @@ class SimulatorMiner(MinerAdapter):
         )
 
 
+    def _simulated_pools(self) -> list[MinerPool]:
+        return [
+            replace(pool, is_active=(pool.slot == self._active_pool_slot))
+            for pool in self._configured_pools
+        ]
+
+    def set_active_pool_slot(self, slot: int) -> None:
+        """Simulation-only failover switch, without any network access."""
+        if slot not in {pool.slot for pool in self._configured_pools}:
+            raise ValueError(f"Unknown simulated pool slot: {slot}")
+        self._active_pool_slot = slot
+        self.info.pools = self._simulated_pools()
+
     def _refresh_simulated_runtime(self) -> None:
+        self.info.pools = self._simulated_pools()
         profile = self.info.profile
         if not self.info.enabled:
             self.info.runtime_state = "disabled"
