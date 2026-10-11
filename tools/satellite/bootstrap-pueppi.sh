@@ -51,7 +51,12 @@ for target in 10.99.0.1 10.20.0.250; do
 done
 
 touch "$LOG"
-chmod 0600 "$LOG"
+if getent group adm >/dev/null 2>&1; then
+  chgrp adm "$LOG"
+  chmod 0640 "$LOG"
+else
+  chmod 0600 "$LOG"
+fi
 exec > >(tee -a "$LOG") 2>&1
 trap 'printf "[Pueppi] Abbruch (Exit %s), Diagnoseprotokoll %s\n" "$?" "$LOG" >&2' ERR
 log "Starte Einrichtung auf $(hostname). Lokale Default-Route und Miner-Konfiguration bleiben unveraendert."
