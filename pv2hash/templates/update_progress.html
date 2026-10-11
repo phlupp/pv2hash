@@ -139,7 +139,7 @@
             progressStartedAt.textContent = formatDate(selfUpdate && selfUpdate.started_at);
             progressFinishedAt.textContent = formatDate(selfUpdate && selfUpdate.finished_at);
             progressReleaseState.textContent = releaseStatus;
-            progressMessage.textContent = selfUpdate && selfUpdate.message ? selfUpdate.message : "—";
+            progressMessage.textContent = selfUpdate && (selfUpdate.phase_text || selfUpdate.message) ? (selfUpdate.phase_text || selfUpdate.message) : "—";
 
             if (selfUpdate && selfUpdate.last_error) {
                 progressError.hidden = false;
@@ -169,7 +169,7 @@
 
             if (selfStatus === "running") {
                 setBadge("Läuft", "status-warn");
-                progressTitle.textContent = "Update wird installiert";
+                progressTitle.textContent = selfUpdate.phase_step && selfUpdate.phase_total ? `Update wird installiert – Schritt ${selfUpdate.phase_step}/${selfUpdate.phase_total}` : "Update wird installiert";
                 progressSubtitle.textContent = "Der Dienst kann dabei kurzzeitig nicht erreichbar sein.";
                 return;
             }
