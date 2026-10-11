@@ -235,11 +235,12 @@ class AxeOsMiner(MinerAdapter):
 
         def convert(slot: int, url: Any, port: Any, username: Any) -> MinerPool | None:
             endpoint = cls._pool_endpoint(url, port)
-            if endpoint is None or username is None:
+            user = str(username or "").strip()
+            if endpoint is None or not user:
                 return None
             return MinerPool(
                 slot=slot, host=endpoint[0], port=endpoint[1],
-                username=str(username).strip(), is_active=None,
+                username=user, is_active=None,
             )
 
         if "pools" in payload:
@@ -250,9 +251,10 @@ class AxeOsMiner(MinerAdapter):
                 if not isinstance(entry, dict):
                     return None
                 if not str(entry.get("stratumURL") or "").strip():
-                    # Empty reserved entries may exist in the firmware pool list.
-                    # Incomplete populated entries must not wipe the last-known DB.
-                    if any(entry.get(k) not in (None, "") for k in ("stratumPort", "stratumUser")):
+                    # Empty slots may retain a firmware-default port. Only a
+                    # configured username without URL makes the readback
+                    # incomplete; port alone is not a pool.
+                    if str(entry.get("stratumUser") or "").strip():
                         return None
                     continue
                 pool = convert(slot, entry.get("stratumURL"),
@@ -286,7 +288,10 @@ class AxeOsMiner(MinerAdapter):
         for slot, keys in enumerate((primary_keys, backup_keys)):
             url, port, username = (payload.get(key) for key in keys)
             if not str(url or "").strip():
-                if any(payload.get(k) not in (None, "") for k in keys[1:]):
+                # Both Octaxe firmwares retain fallbackStratumPort when no
+                # fallback is configured. The primary is still valid.
+                # A username without its URL remains malformed.
+                if str(username or "").strip():
                     return None
                 continue
             pool = convert(slot, url, port, username)
