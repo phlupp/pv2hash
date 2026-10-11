@@ -26,6 +26,7 @@ fail() { printf 'FEHLER: %s\n' "$*" >&2; exit 1; }
 log() { printf '[Pueppi] %s\n' "$*"; }
 (( EUID == 0 )) || fail 'Start mit sudo erforderlich.'
 [[ -r /etc/os-release && -d /run/systemd/system ]] || fail 'Nur Linux mit systemd und /etc/os-release unterstuetzt.'
+# shellcheck disable=SC1091
 . /etc/os-release
 case "${ID:-}" in debian|raspbian|ubuntu) ;; *) fail "Nicht unterstuetzte Distribution: ${ID:-unbekannt}" ;; esac
 for target in "$ROOT" "$CONF" "$KEY" "$PUB" /etc/sudoers.d/91-pv2hash-pueppi-phlupp; do
@@ -44,7 +45,7 @@ fi
 # Stop on a directly connected overlap; never hijack a site's local network.
 for target in 10.99.0.1 10.20.0.250; do
   route="$(ip -4 route get "$target" 2>/dev/null)" || fail "Keine Route zu $target"
-  if [[ "$route" != *' via '* ]]; then
+  if [[ "$route" != *' via '* && "$route" != *" dev $IFACE "* ]]; then
     fail "$target wird bereits direkt/lokal erreicht ($route). Netzwerk vor Installation pruefen."
   fi
 done
@@ -52,7 +53,7 @@ done
 touch "$LOG"
 chmod 0600 "$LOG"
 exec > >(tee -a "$LOG") 2>&1
-trap 'code=$?; printf "[Pueppi] Abbruch (%s), Diagnoseprotokoll %s\n" "$code" "$LOG" >&2' ERR
+trap 'printf "[Pueppi] Abbruch (Exit %s), Diagnoseprotokoll %s\n" "$?" "$LOG" >&2' ERR
 log "Starte Einrichtung auf $(hostname). Lokale Default-Route und Miner-Konfiguration bleiben unveraendert."
 log "Bisherige IPv4-Default-Route: $(ip -4 route show default | head -n 1)"
 
@@ -69,7 +70,9 @@ if (( ${#need_packages[@]} > 0 )); then
   apt-get update
   apt-get install -y "${need_packages[@]}"
 fi
-command -v wg >/dev/null && command -v wg-quick >/dev/null && command -v sshd >/dev/null && command -v visudo >/dev/null || fail 'Systempakete fehlen weiterhin.'
+if ! command -v wg >/dev/null || ! command -v wg-quick >/dev/null || ! command -v sshd >/dev/null || ! command -v visudo >/dev/null; then
+  fail 'Systempakete fehlen weiterhin.'
+fi
 
 ensure_user() {
   local user="$1" home
