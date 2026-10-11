@@ -29,6 +29,60 @@ class AxeOsPoolParsingTest(TestCase):
         self.assertEqual(p[0].username, "bc1qABC.worker01")
         self.assertIsNone(p[0].is_active)
 
+    def test_legacy_blank_fallback_with_default_port_preserves_primary(self):
+        # Observed on two Octaxe devices: empty backup URL and login, port
+        # prefilled by firmware. This is an unused slot, not an API error.
+        data = {
+            "stratumURL": "stratum.phlupp.net", "stratumPort": 23334,
+            "stratumUser": "account.octaxe",
+            "fallbackStratumURL": "", "fallbackStratumPort": 3333,
+            "fallbackStratumUser": "",
+        }
+        pools = miner()._parse_pools(data)
+        self.assertIsNotNone(pools)
+        self.assertEqual([(p.slot, p.host, p.port, p.username, p.is_active)
+                          for p in pools],
+                         [(0, "stratum.phlupp.net", 23334, "account.octaxe", None)])
+        # Even when the device indicates a fallback preference, a missing
+        # backup slot must not be marked active.
+        data["isUsingFallbackStratum"] = True
+        self.assertEqual([p.is_active for p in miner()._parse_pools(data)],
+                         [None])
+
+    def test_modern_blank_pool_with_default_port_is_unused(self):
+        data = {"pools": [
+            {"stratumURL": "pool0.invalid", "stratumPort": 3333,
+             "stratumUser": "acct.worker"},
+            {"stratumURL": "", "stratumPort": 3333, "stratumUser": ""},
+            {"stratumURL": "pool2.invalid", "stratumPort": 4444,
+             "stratumUser": "acct.backup"},
+        ]}
+        pools = miner()._parse_pools(data)
+        self.assertEqual([(p.slot, p.host) for p in pools],
+                         [(0, "pool0.invalid"), (2, "pool2.invalid")])
+
+    def test_incomplete_backup_remains_unknown(self):
+        primary = {"stratumURL": "pool0.invalid", "stratumPort": 3333,
+                   "stratumUser": "acct.primary"}
+        for invalid in (
+            {"fallbackStratumURL": "", "fallbackStratumPort": 3333,
+             "fallbackStratumUser": "acct.unpaired"},
+            {"fallbackStratumURL": "pool1.invalid", "fallbackStratumPort": 4444,
+             "fallbackStratumUser": ""},
+        ):
+            with self.subTest(invalid_fields=tuple(invalid)):
+                self.assertIsNone(miner()._parse_pools({**primary, **invalid}))
+
+    def test_populated_pool_requires_nonblank_username(self):
+        self.assertIsNone(miner()._parse_pools({
+            "stratumURL": "pool0.invalid", "stratumPort": 3333,
+            "stratumUser": ""
+        }))
+        self.assertIsNone(miner()._parse_pools({"pools": [{
+            "stratumURL": "pool0.invalid", "stratumPort": 3333,
+            "stratumUser": ""
+        }]}))
+
     def test_legacy_fallback_active_and_primary_active(self):
         data = {
             "stratumURL": "primary.invalid", "stratumPort": 3333,
