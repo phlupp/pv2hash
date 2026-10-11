@@ -5,6 +5,8 @@ from urllib.parse import urlencode
 import math
 import httpx
 
+from pv2hash.version import APP_VERSION_FULL
+
 
 def esc_tag(value):
     return str(value).replace('\\', '\\\\').replace(' ', '\\ ').replace(',', '\\,').replace('=', '\\=')
@@ -113,8 +115,13 @@ class InfluxDB2Destination:
                 tags = {'instance_id':item.get('instance_id') or self.instance, 'instance_name':self.instance_name}
                 miners = item.get('miners') or []
                 fields = {k:v for k,v in item.items() if k not in ('miners','ts','instance_id')}
+                # Export the version installed on this PV2Hash node (not the
+                # version encoded in historical DataLogger samples). Keep it
+                # a string FIELD, never a series tag.
+                fields['pv2hash_version'] = APP_VERSION_FULL
                 result = line('pv2hash_system',tags,fields,ts,
-                              text_fields=('source_quality', 'battery_quality'))
+                              text_fields=('source_quality', 'battery_quality',
+                                           'pv2hash_version'))
                 if result: lines.append(result)
                 # A dedicated measurement keeps portal-compatible mining stats
                 # isolated from any legacy field types in pv2hash_system.
