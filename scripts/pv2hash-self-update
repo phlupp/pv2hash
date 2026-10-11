@@ -176,6 +176,9 @@ main() {
         DATA_ROOT="${DATA_ROOT}" \
         HOST="${PV2HASH_HOST:-0.0.0.0}" \
         PORT="${PV2HASH_PORT:-8000}" \
+        PV2HASH_UPDATE_PHASE_FILE="${DATA_DIR}/self_update_phase.json" \
+        PV2HASH_UPDATE_PHASE_TAG="${TAG}" \
+        PV2HASH_UPDATE_STARTED_AT="${STARTED_AT}" \
         bash "${INSTALL_SCRIPT}"
     } >> "${SELF_UPDATE_LOG}" 2>&1
     rc=$?
