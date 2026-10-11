@@ -2,6 +2,7 @@
 import unittest
 from unittest.mock import patch
 from pv2hash.exporters.influxdb2 import mining_totals, line, InfluxDB2Destination
+from pv2hash.version import APP_VERSION_FULL
 
 
 class ExporterPortalMetricsTest(unittest.TestCase):
@@ -38,6 +39,21 @@ class ExporterPortalMetricsTest(unittest.TestCase):
         self.assertIn('runtime_state="running"', result)
         self.assertNotIn('private_message', result)
 
+    def test_system_version_is_installed_version_not_sample_metadata(self):
+        cfg = {'settings': {'url': 'http://localhost:8086', 'org': 'test',
+                            'bucket': 'test', 'token': 'secret'},
+               'instance_id': 'node1', 'instance_name': 'Test Node'}
+        sample = {'ts': '2026-10-10T20:00:00Z', 'instance_id': 'node1',
+                  'pv2hash_version': 'stale-from-old-sample', 'grid_power_w': 12}
+        with patch('pv2hash.exporters.influxdb2.APP_VERSION_FULL', '0.9.1+build.42'):
+            with patch('pv2hash.exporters.influxdb2.httpx.Client') as client:
+                client.return_value.__enter__.return_value.post.return_value.status_code = 204
+                InfluxDB2Destination(cfg).send('samples', [sample])
+                data = client.return_value.__enter__.return_value.post.call_args.kwargs['content'].decode()
+        self.assertIn('pv2hash_version="0.9.1+build.42"', data)
+        self.assertNotIn('stale-from-old-sample', data)
+        self.assertNotIn('pv2hash_version=', data.split(' ', 1)[0])
+
     def test_send_emits_running_and_per_miner_fields(self):
         cfg = {'settings': {'url': 'http://localhost:8086', 'org': 'test',
                             'bucket': 'test', 'token': 'secret'},
@@ -55,6 +71,11 @@ class ExporterPortalMetricsTest(unittest.TestCase):
             InfluxDB2Destination(cfg).send('samples', samples)
             data = client.return_value.__enter__.return_value.post.call_args.kwargs['content'].decode()
         self.assertIn('pv2hash_mining,', data)
+        self.assertIn(f'pv2hash_version="{APP_VERSION_FULL}"', data)
+        system_line = next(row for row in data.splitlines()
+                           if row.startswith('pv2hash_system,'))
+        self.assertIn(f'pv2hash_version="{APP_VERSION_FULL}"', system_line)
+        self.assertNotIn('pv2hash_version=', system_line.split(' ', 1)[0])
         self.assertIn('registered_miner_count=2i', data)
         self.assertIn('running_miner_count=1i', data)
         self.assertIn('running_miner_power_w=100.0', data)

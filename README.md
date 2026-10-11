@@ -319,6 +319,22 @@ Trotz funktionierender echter Miner-Anbindung sollte der produktive Einsatz imme
 
 ---
 
+## Exportierte Node-Version (InfluxDB)
+
+Der InfluxDB-2-Exporter schreibt im Measurement `pv2hash_system` zusätzlich das
+**String-Field** `pv2hash_version` mit dem installierten Wert von
+`APP_VERSION_FULL` (beispielsweise `0.9.0`). Die Versionsnummer ist bewusst
+**kein Tag**, um keine zusätzlichen Zeitreihen bei Upgrades zu erzeugen.
+
+Die Angabe wird bei der Auslieferung des Messwerts erzeugt. Bei erneutem Versand
+älterer DataLogger-Samples steht daher die **zum Exportzeitpunkt installierte**
+Version im Feld; das ist keine lückenlose historische Installationschronik.
+
+Grafana kann `last()` je `instance_id` verwenden, um später die aktuelle
+PV2Hash-Version aller Nodes im Systembereich darzustellen.
+
+---
+
 ## Repository
 
 GitHub:
