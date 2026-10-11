@@ -1300,16 +1300,19 @@ def _update_runner_start_latest(update_status: dict) -> tuple[dict, int]:
 
 
 def _update_progress_value(runner_status: dict | None) -> int | None:
-    status = str((runner_status or {}).get("status") or "idle")
+    """Completed installation steps, not a time-remaining estimate."""
+    data = runner_status or {}
+    status = str(data.get("status") or "idle")
     if status == "starting":
-        return 10
+        return 0
     if status == "running":
-        return 65
+        step, total = data.get("phase_step"), data.get("phase_total")
+        if type(step) is int and type(total) is int and 1 <= step <= total:
+            return int(100 * (step - 1) / total)
+        return None  # Older installers have no structured progress.
     if status == "success":
         return 100
-    if status == "error":
-        return 100
-    return None
+    return None  # Do not show 100% for failed installations.
 
 
 def _build_system_update_model() -> dict[str, Any]:
