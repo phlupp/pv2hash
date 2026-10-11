@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from pv2hash.datalogger import DataLogger
+from pv2hash.miners.axeos import AxeOsMiner
 from pv2hash.exporters.source import ExportSource
 from pv2hash.exporters.manager import ExportManager
 from pv2hash.exporters.influxdb2 import InfluxDB2Destination, pool_active_state
@@ -67,6 +68,34 @@ class PoolExportTest(unittest.TestCase):
             client.return_value.__enter__.return_value.post.return_value.status_code = 204
             InfluxDB2Destination(self.config).send(stream, items)
             return client.return_value.__enter__.return_value.post.call_args.kwargs['content'].decode()
+
+    def test_octaxe_default_fallback_port_reaches_pool_inventory(self):
+        # Entire data chain: firmware-shaped response -> normalized pools ->
+        # SQLite -> Influx line protocol. No network calls or real miners.
+        adapter = AxeOsMiner(miner_id="octaxe", name="Octaxe", host="octaxe.invalid")
+        parsed = adapter._parse_pools({
+            "stratumURL": "stratum.phlupp.net",
+            "stratumPort": 23334,
+            "stratumUser": "account.octaxe",
+            "fallbackStratumURL": "",
+            "fallbackStratumPort": 3333,
+            "fallbackStratumUser": "",
+            "stratumPassword": "NEVER_STORED",
+        })
+        self.assertIsNotNone(parsed)
+        self.assertEqual(len(parsed), 1)
+        self.write(0, [{
+            "slot": p.slot, "host": p.host, "port": p.port,
+            "username": p.username, "is_active": p.is_active,
+        } for p in parsed])
+        inventory = self.source.pool_state()
+        self.assertEqual(inventory["count"], 1)
+        line_protocol = self.capture("pool_state", inventory["items"])
+        self.assertIn('host="stratum.phlupp.net"', line_protocol)
+        self.assertIn('username="account.octaxe"', line_protocol)
+        self.assertIn('active_state="unknown"', line_protocol)
+        self.assertNotIn("NEVER_STORED", line_protocol)
+        self.assertEqual(line_protocol.count("\n"), 1)
 
     def test_tribool_string_conversion(self):
         self.assertEqual(pool_active_state(None), "unknown")
