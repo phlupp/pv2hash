@@ -57,6 +57,22 @@ class SelfUpdateProgressTest(unittest.TestCase):
         self.assertEqual(calc({"status": "success"}), 100)
         self.assertIsNone(calc({"status": "error"}))
 
+    def test_unknown_and_failed_progress_not_reported_as_complete(self):
+        # Source-level regression: no JS engine required on the Debian test VM.
+        script = (ROOT / "pv2hash/static/js/app.js").read_text()
+        formatter = script.split("function systemSetProgress(", 1)[1].split(
+            "function systemUpdateBadge(", 1)[0]
+        self.assertIn("typeof value !== 'number'", formatter)
+        self.assertIn("bar.removeAttribute('aria-valuenow')", formatter)
+        overlay = script.split("function renderSystemUpdateOverlay(", 1)[1].split(
+            "function systemUserIsEditingImportForm(", 1)[0]
+        error_branch = overlay.split("if (runner?.status === 'error')", 1)[1]
+        self.assertIn("systemSetProgress(fill, percent, null);", error_branch)
+        self.assertNotIn("runner.progress_percent ?? 100", error_branch)
+        success_branch = overlay.split("if (runner?.status === 'success')", 1)[1].split(
+            "if (runner?.status === 'error')", 1)[0]
+        self.assertIn("runner.progress_percent ?? 100", success_branch)
+
     def installer_functions(self):
         installer = (ROOT / "scripts/install_release.sh").read_text()
         self.assertEqual(installer.count('\nmain "$@"'), 1)
