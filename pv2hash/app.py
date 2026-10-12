@@ -3569,22 +3569,11 @@ async def system_page(request: Request):
     )
 
 
-@app.get("/system/update-progress")
-async def system_update_progress_page(request: Request):
-    update_status = update_checker.snapshot()
-
-    context = {
-        "request": request,
-        "instance_name": state.config["system"]["instance_name"],
-        "app_version_full": APP_VERSION_FULL,
-        "update_status": update_status,
-        "update_runner_status": _update_runner_snapshot(update_status),
-    }
-    return templates.TemplateResponse(
-        request=request,
-        name="update_progress.html",
-        context=context,
-    )
+@app.get("/system/update-progress", include_in_schema=False)
+async def system_update_progress_redirect():
+    # Backwards compatibility for bookmarks and links from older releases.
+    # The standalone progress page is no longer needed: /system has the overlay.
+    return RedirectResponse(url="/system", status_code=303)
 
 
 @app.post("/api/system/reload")
@@ -3742,7 +3731,7 @@ async def api_system_self_update():
     update_status = await update_checker.refresh()
     payload, status_code = _update_runner_start_latest(update_status)
     response_payload = dict(payload)
-    response_payload["progress_url"] = "/system/update-progress"
+    response_payload["progress_url"] = "/system"
     return JSONResponse(content=jsonable_encoder(response_payload), status_code=status_code)
 
 
