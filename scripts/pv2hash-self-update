@@ -4,10 +4,19 @@ set -euo pipefail
 INSTALL_INFO_FILE="/etc/pv2hash/install.env"
 TAG="${1:-}"
 PROBE_ONLY=0
+WORKER_MODE=0
+UPDATE_UNIT="pv2hash-self-update"
 
 if [[ "${TAG}" == "--probe" ]]; then
+    [[ "$#" -eq 1 ]] || { echo "Ungültige Probe-Argumente." >&2; exit 2; }
     PROBE_ONLY=1
     TAG=""
+elif [[ "${TAG}" == "--worker" ]]; then
+    [[ "$#" -eq 2 ]] || { echo "Ungültige Worker-Argumente." >&2; exit 2; }
+    WORKER_MODE=1
+    TAG="$2"
+else
+    [[ "$#" -eq 1 ]] || { echo "Ein Release-Tag ist erforderlich." >&2; exit 2; }
 fi
 
 fail() {
@@ -93,6 +102,7 @@ write_state() {
 import json
 import os
 import sys
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -112,7 +122,22 @@ payload = {
 
 path = Path(sys.argv[1])
 path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+# Never expose a truncated JSON status if the worker is interrupted.
+temp_name = None
+try:
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent,
+        prefix=".self-update-state-", delete=False,
+    ) as tmp:
+        temp_name = tmp.name
+        json.dump(payload, tmp, indent=2, ensure_ascii=False)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+    os.chmod(temp_name, 0o644)
+    os.replace(temp_name, path)
+finally:
+    if temp_name and os.path.exists(temp_name):
+        os.unlink(temp_name)
 PY
 
     chown "${APP_USER_NAME}:${APP_GROUP_NAME}" "${STATE_FILE}" || true
@@ -126,8 +151,16 @@ cleanup_stale_lock() {
         pid="$(cat "${LOCK_PID_FILE}" 2>/dev/null || true)"
     fi
 
-    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
-        fail "Es läuft bereits ein Update."
+    # A previous PID may have been reused by an unrelated process. Treat an
+    # existing PID as our worker only if its argv still refers to this helper.
+    if [[ "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null; then
+        local args=""
+        if [[ -r "/proc/${pid}/cmdline" ]]; then
+            args="$(tr '\0' '\n' < "/proc/${pid}/cmdline" || true)"
+        fi
+        if [[ "${args}" == *"${BASH_SOURCE[0]}"* && "${args}" == *"--worker"* ]]; then
+            fail "Es läuft bereits ein Update."
+        fi
     fi
 
     rm -rf "${LOCK_DIR}"
@@ -147,22 +180,59 @@ release_lock() {
     rm -rf "${LOCK_DIR}" 2>/dev/null || true
 }
 
+handle_stop() {
+    local signal="$1"
+    trap - HUP INT TERM
+    write_state "error" "Update-Worker wurde durch Signal ${signal} unterbrochen." \
+        "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "Signal ${signal}" "" || true
+    exit 143
+}
+
+verify_worker_unit() {
+    # The sudoers rule historically permits arguments to the helper. Do not
+    # allow "--worker" to bypass the isolated service by calling sudo directly.
+    require_command systemctl
+    local unit_pid=""
+    unit_pid="$(systemctl show --property=MainPID --value "${UPDATE_UNIT}.service" 2>/dev/null || true)"
+    [[ "${unit_pid}" == "$$" ]] || fail "Update-Worker muss in seiner eigenen systemd-Unit laufen."
+}
+
+dispatch_update() {
+    require_command systemd-run
+    # A transient service gets its OWN systemd cgroup. 'setsid' alone cannot
+    # protect a child of pv2hash.service from KillMode=control-group on restart.
+    # A fixed unit name additionally prevents two concurrent dispatches.
+    systemd-run --quiet --collect --service-type=exec \
+        --unit="${UPDATE_UNIT}" --property=RuntimeMaxSec=1800 \
+        "${BASH_SOURCE[0]}" --worker "${TAG}"
+}
+
 main() {
     require_root
     require_command python3
     parse_install_info
 
     if [[ "${PROBE_ONLY}" -eq 1 ]]; then
+        require_command systemd-run
         exit 0
     fi
 
     [[ -n "${TAG}" ]] || fail "Release-Tag fehlt."
     tag_to_version_full "${TAG}" >/dev/null || fail "Ungültiges Release-Tag: ${TAG}"
 
+    if [[ "${WORKER_MODE}" -eq 0 ]]; then
+        dispatch_update
+        exit 0
+    fi
+
+    verify_worker_unit
     STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
     acquire_lock
     trap release_lock EXIT
+    trap 'handle_stop TERM' TERM
+    trap 'handle_stop INT' INT
+    trap 'handle_stop HUP' HUP
 
     write_state "running" "Update auf $(tag_to_version_full "${TAG}") läuft …" "" "" ""
 

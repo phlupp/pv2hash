@@ -188,6 +188,36 @@ class SelfUpdateManager:
     def _lock_exists(self) -> bool:
         return self.lock_dir.exists()
 
+    def _lock_has_live_worker(self) -> bool:
+        """Distinguish a running worker from an abandoned directory/reused PID."""
+        try:
+            pid = int((self.lock_dir / "pid").read_text(encoding="utf-8").strip())
+            if pid <= 0:
+                return False
+        except (OSError, ValueError):
+            return False
+
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # Our application runs unprivileged; the worker runs as root.
+            pass
+        except OSError:
+            return False
+
+        try:
+            args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        except OSError:
+            # If procfs access is restricted, prefer not to finalize a
+            # potentially active update until its actual worker exits.
+            return True
+        return (
+            str(self.helper_path).encode("utf-8") in args
+            and b"--worker" in args
+        )
+
     def _parse_iso(self, value: Any) -> datetime | None:
         raw = str(value or "").strip()
         if not raw:
@@ -227,7 +257,11 @@ class SelfUpdateManager:
         helper_path = str(file_state.get("helper_path") or self.helper_path)
         log_file = file_state.get("log_file")
 
-        if target_version_full and target_version_full == self.current_version_full:
+        # Restarted PV2Hash can report the new version before the isolated
+        # worker has finished its final checks/status write. Let that worker
+        # complete; recover only when its lock has no living owner.
+        live_worker = self._lock_has_live_worker()
+        if target_version_full and target_version_full == self.current_version_full and not live_worker:
             finished_at = str(file_state.get("finished_at") or "").strip() or self._now_iso()
             self._write_state(
                 status="success",
@@ -251,12 +285,11 @@ class SelfUpdateManager:
             )
             return self._read_state()
 
-        lock_exists = self._lock_exists()
         started_age = self._seconds_since(started_at)
 
         if (
             base_status == "starting"
-            and not lock_exists
+            and not live_worker
             and started_age is not None
             and started_age >= STARTING_TIMEOUT_SECONDS
         ):
@@ -275,7 +308,7 @@ class SelfUpdateManager:
             )
             return self._read_state()
 
-        if base_status == "running" and not lock_exists:
+        if base_status == "running" and not live_worker:
             self._write_error_state(
                 message="Update ist nicht mehr aktiv. Bitte erneut starten.",
                 last_error="Kein aktiver Update-Prozess mehr gefunden.",
@@ -428,10 +461,13 @@ class SelfUpdateManager:
                 return
 
             returncode = process.poll()
-            if returncode is not None:
-                raise SelfUpdateError(f"Helper wurde vorzeitig beendet (Exitcode {returncode}).")
+            # The privileged dispatcher may exit successfully before the
+            # independent systemd worker has persisted its 'running' state.
+            # A nonzero dispatcher exit is still an immediate launch failure.
+            if returncode is not None and returncode != 0:
+                raise SelfUpdateError(f"Helper-Start fehlgeschlagen (Exitcode {returncode}).")
 
-        raise SelfUpdateError("Helper hat den Laufzustand nicht rechtzeitig bestätigt.")
+        raise SelfUpdateError("Update-Worker hat den Laufzustand nicht rechtzeitig bestätigt.")
 
     def start_latest(
         self,
