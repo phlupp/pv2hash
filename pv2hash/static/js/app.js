@@ -1882,18 +1882,30 @@
   }
 
   function systemSetProgress(fill, percentElement, value) {
-    const percent = Number(value);
-    if (!Number.isFinite(percent)) {
-      if (fill) fill.style.width = '0%';
+    // null means the installer has not supplied a measured phase. Number(null)
+    // would incorrectly turn that unknown state into a displayed 0%.
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      if (fill) {
+        fill.style.width = '0%';
+        const bar = fill.closest('.update-progress-bar');
+        if (bar) {
+          bar.removeAttribute('aria-valuenow');
+          bar.setAttribute('aria-valuetext', 'Installationsfortschritt unbekannt');
+        }
+      }
       if (percentElement) percentElement.textContent = '—';
       return false;
     }
+    const percent = value;
 
     const bounded = Math.max(0, Math.min(100, Math.round(percent)));
     if (fill) {
       fill.style.width = `${bounded}%`;
       const bar = fill.closest('.update-progress-bar');
-      if (bar) bar.setAttribute('aria-valuenow', String(bounded));
+      if (bar) {
+        bar.setAttribute('aria-valuenow', String(bounded));
+        bar.removeAttribute('aria-valuetext');
+      }
     }
     if (percentElement) percentElement.textContent = `${bounded}%`;
     return true;
@@ -2326,7 +2338,7 @@
         actionLink.textContent = 'Zur Systemseite';
         actionLink.className = 'btn btn-secondary';
       }
-      systemSetProgress(fill, percent, runner.progress_percent ?? 100);
+      systemSetProgress(fill, percent, null);
       return;
     }
 
