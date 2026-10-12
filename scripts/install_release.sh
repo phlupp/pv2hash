@@ -57,17 +57,65 @@ require_command() {
 }
 
 install_system_packages() {
+    # The release updater runs on provisioned Debian hosts. Repeating
+    # apt-get update/install on every release needlessly delays the reboot.
+    # Fresh installations still receive the original package bootstrap.
+    local packages=(ca-certificates curl sudo tar python3 python3-venv python3-pip)
+    local package
+    local missing=()
+    if command -v dpkg-query >/dev/null 2>&1; then
+        for package in "${packages[@]}"; do
+            if [[ "$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)" != "install ok installed" ]]; then
+                missing+=("$package")
+            fi
+        done
+        if [[ "${#missing[@]}" -eq 0 ]]; then
+            echo "Systempakete bereits vorhanden; apt-Prüfung übersprungen."
+            return 0
+        fi
+    else
+        missing=("${packages[@]}")
+    fi
     export DEBIAN_FRONTEND=noninteractive
-
     apt-get update
-    apt-get install -y \
-        ca-certificates \
-        curl \
-        sudo \
-        tar \
-        python3 \
-        python3-venv \
-        python3-pip
+    apt-get install -y "${missing[@]}"
+}
+
+# Only the root-run release installer writes these fixed, non-sensitive stages.
+# The file is optional: regular interactive/initial installations also work.
+report_update_phase() {
+    local step="$1" phase="$2"
+    [[ -n "${PV2HASH_UPDATE_PHASE_FILE:-}" && -n "${PV2HASH_UPDATE_PHASE_TAG:-}" && -n "${PV2HASH_UPDATE_STARTED_AT:-}" ]] || return 0
+    PHASE_STEP="$step" PHASE_NAME="$phase" python3 - "${PV2HASH_UPDATE_PHASE_FILE}" <<'PY_PHASE' || true
+import json
+import os
+import sys
+import tempfile
+from datetime import UTC, datetime
+from pathlib import Path
+
+target = Path(sys.argv[1])
+payload = {
+    "target_tag": os.environ["PV2HASH_UPDATE_PHASE_TAG"],
+    "started_at": os.environ["PV2HASH_UPDATE_STARTED_AT"],
+    "step": int(os.environ["PHASE_STEP"]),
+    "total": 7,
+    "phase": os.environ["PHASE_NAME"],
+    "updated_at": datetime.now(UTC).isoformat(),
+}
+target.parent.mkdir(parents=True, exist_ok=True)
+temp_name = None
+try:
+    with tempfile.NamedTemporaryFile(mode="w", dir=target.parent, prefix=".update-phase-", delete=False) as f:
+        temp_name = f.name
+        json.dump(payload, f, ensure_ascii=False)
+    os.chmod(temp_name, 0o644)
+    os.replace(temp_name, target)
+except OSError:
+    if temp_name is not None:
+        Path(temp_name).unlink(missing_ok=True)
+    raise
+PY_PHASE
 }
 
 ensure_system_requirements() {
@@ -355,8 +403,12 @@ extract_release() {
     mv "${TMP_RELEASE_DIR}" "${RELEASE_DIR}"
     chown -h "${APP_USER}:${APP_GROUP}" "${RELEASE_DIR}/data"
 
+}
+
+install_python_dependencies() {
     runuser -u "${APP_USER}" -- python3 -m venv "${RELEASE_DIR}/venv"
-    runuser -u "${APP_USER}" -- "${RELEASE_DIR}/venv/bin/pip" install --upgrade pip wheel
+    # The venv's bundled pip installs wheel packages without a redundant
+    # self-upgrade; no grpcio-tools compiler is required at runtime.
     runuser -u "${APP_USER}" -- "${RELEASE_DIR}/venv/bin/pip" install -r "${RELEASE_DIR}/requirements.txt"
 }
 
@@ -472,18 +524,26 @@ main() {
     trap cleanup EXIT
 
     require_root
+    report_update_phase 1 "Systempakete prüfen"
     install_system_packages
     ensure_system_requirements
     ensure_user_and_dirs
 
     TMP_DIR="$(mktemp -d)"
+    report_update_phase 2 "Release-Metadaten laden"
     fetch_release_metadata
+    report_update_phase 3 "Herunterladen und Prüfsummen kontrollieren"
     download_and_verify_assets
+    report_update_phase 4 "Release-Dateien entpacken"
     extract_release
+    report_update_phase 5 "Python-Umgebung und Abhängigkeiten einrichten"
+    install_python_dependencies
+    report_update_phase 6 "Neue Version aktivieren"
     install_self_update_helper
     activate_release
     write_install_info
     write_systemd_unit
+    report_update_phase 7 "PV2Hash-Dienst neu starten"
     enable_and_restart_service
     show_result
 }

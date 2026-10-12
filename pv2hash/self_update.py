@@ -292,6 +292,39 @@ class SelfUpdateManager:
 
         return file_state
 
+    def _read_update_phase(self, state: dict[str, Any]) -> dict[str, Any]:
+        """Only trust steps from the currently running installer invocation."""
+        if state.get("status") != "running":
+            return {}
+        path = self.state_file.with_name("self_update_phase.json")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return {}
+            if (
+                data.get("target_tag") != state.get("target_tag")
+                or data.get("started_at") != state.get("started_at")
+            ):
+                return {}
+            step = data.get("step")
+            total = data.get("total")
+            phase = data.get("phase")
+            if (
+                type(step) is not int or type(total) is not int
+                or not (1 <= step <= total <= 20)
+                or not isinstance(phase, str)
+                or not (1 <= len(phase) <= 100)
+            ):
+                return {}
+            return {
+                "phase_step": step,
+                "phase_total": total,
+                "phase_name": phase,
+                "phase_text": f"Schritt {step} von {total}: {phase}",
+            }
+        except (OSError, ValueError, TypeError):
+            return {}
+
     def snapshot(
         self,
         *,
@@ -346,7 +379,9 @@ class SelfUpdateManager:
             and bool(available_release_tag)
         )
 
+        phase_state = self._read_update_phase(file_state) if running else {}
         return {
+            **phase_state,
             "enabled": True,
             "configured": helper_configured,
             "install_info_exists": bool(install_info),

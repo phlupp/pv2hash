@@ -2271,14 +2271,18 @@
         badge.className = runner.status === 'starting' ? 'status-pill status-info' : 'status-pill status-warn';
       }
       if (title) title.textContent = runner.status === 'starting' ? 'Update startet' : 'Update wird installiert';
-      if (subtitle) subtitle.textContent = 'Der Dienst kann dabei kurzzeitig nicht erreichbar sein.';
-      if (message) message.textContent = runner.message || 'Update läuft …';
+      if (subtitle) subtitle.textContent = runner.phase_text || 'Der Dienst kann dabei kurzzeitig nicht erreichbar sein.';
+      if (message) message.textContent = runner.phase_text || runner.message || 'Update läuft …';
       if (actionLink) {
         actionLink.href = '/system/update-progress';
         actionLink.textContent = 'Fortschrittsseite öffnen';
         actionLink.className = 'btn btn-secondary';
       }
       systemSetProgress(fill, percent, runner.progress_percent);
+      // A phase is a completed-step marker, not a prediction of remaining time.
+      if (percent && runner.phase_step && runner.phase_total) {
+        percent.textContent = `Schritt ${runner.phase_step}/${runner.phase_total}`;
+      }
       return;
     }
 
