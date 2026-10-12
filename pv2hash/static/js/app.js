@@ -100,7 +100,6 @@
   }
 
   function backendOverlaySuppressed() {
-    if (window.location.pathname === '/system/update-progress') return true;
     const updateOverlay = document.getElementById('updateOverlay');
     return Boolean(updateOverlay && !updateOverlay.hidden);
   }
@@ -2271,6 +2270,7 @@
     const percent = document.getElementById('updateOverlayProgressPercent');
     const fill = document.getElementById('updateOverlayProgressFill');
     const message = document.getElementById('updateOverlayMessage');
+    const actionContainer = document.getElementById('updateOverlayActions');
     const actionLink = document.getElementById('updateOverlayActionLink');
 
     const running = !!runner?.running;
@@ -2285,11 +2285,9 @@
       if (title) title.textContent = runner.status === 'starting' ? 'Update startet' : 'Update wird installiert';
       if (subtitle) subtitle.textContent = runner.phase_text || 'Der Dienst kann dabei kurzzeitig nicht erreichbar sein.';
       if (message) message.textContent = runner.phase_text || runner.message || 'Update läuft …';
-      if (actionLink) {
-        actionLink.href = '/system/update-progress';
-        actionLink.textContent = 'Fortschrittsseite öffnen';
-        actionLink.className = 'btn btn-secondary';
-      }
+      // The overlay itself tracks updates and reconnects; no separate page link.
+      if (actionContainer) actionContainer.hidden = true;
+      if (actionLink) actionLink.hidden = true;
       systemSetProgress(fill, percent, runner.progress_percent);
       // A phase is a completed-step marker, not a prediction of remaining time.
       if (percent && runner.phase_step && runner.phase_total) {
@@ -2313,7 +2311,9 @@
       if (title) title.textContent = 'Update abgeschlossen';
       if (subtitle) subtitle.textContent = 'PV2Hash wurde erfolgreich aktualisiert. Weiterleitung zum Dashboard …';
       if (message) message.textContent = runner.message || 'Update erfolgreich abgeschlossen.';
+      if (actionContainer) actionContainer.hidden = false;
       if (actionLink) {
+        actionLink.hidden = false;
         actionLink.href = '/';
         actionLink.textContent = 'Zum Dashboard';
         actionLink.className = 'btn btn-info';
@@ -2333,7 +2333,9 @@
       if (title) title.textContent = 'Update fehlgeschlagen';
       if (subtitle) subtitle.textContent = 'Bitte prüfe die Details auf der Systemseite.';
       if (message) message.textContent = runner.message || runner.last_error || 'Update fehlgeschlagen.';
+      if (actionContainer) actionContainer.hidden = false;
       if (actionLink) {
+        actionLink.hidden = false;
         actionLink.href = '/system';
         actionLink.textContent = 'Zur Systemseite';
         actionLink.className = 'btn btn-secondary';
