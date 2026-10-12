@@ -57,6 +57,53 @@ class SelfUpdateProgressTest(unittest.TestCase):
         self.assertEqual(calc({"status": "success"}), 100)
         self.assertIsNone(calc({"status": "error"}))
 
+    def test_unknown_and_failed_progress_not_reported_as_complete(self):
+        # Source-level regression: no JS engine required on the Debian test VM.
+        script = (ROOT / "pv2hash/static/js/app.js").read_text()
+        formatter = script.split("function systemSetProgress(", 1)[1].split(
+            "function systemUpdateBadge(", 1)[0]
+        self.assertIn("typeof value !== 'number'", formatter)
+        self.assertIn("bar.removeAttribute('aria-valuenow')", formatter)
+        overlay = script.split("function renderSystemUpdateOverlay(", 1)[1].split(
+            "function systemUserIsEditingImportForm(", 1)[0]
+        error_branch = overlay.split("if (runner?.status === 'error')", 1)[1]
+        self.assertIn("systemSetProgress(fill, percent, null);", error_branch)
+        self.assertNotIn("runner.progress_percent ?? 100", error_branch)
+        success_branch = overlay.split("if (runner?.status === 'success')", 1)[1].split(
+            "if (runner?.status === 'error')", 1)[0]
+        self.assertIn("runner.progress_percent ?? 100", success_branch)
+
+    def test_standalone_progress_page_removed_with_compat_redirect(self):
+        backend = (ROOT / "pv2hash/app.py").read_text()
+        js = (ROOT / "pv2hash/static/js/app.js").read_text()
+        page = (ROOT / "pv2hash/templates/system.html").read_text()
+        css = (ROOT / "pv2hash/static/css/app.css").read_text()
+        self.assertFalse((ROOT / "pv2hash/templates/update_progress.html").exists())
+        self.assertNotIn('name="update_progress.html"', backend)
+        self.assertIn('return RedirectResponse(url="/system", status_code=303)', backend)
+        self.assertIn('response_payload["progress_url"] = "/system"', backend)
+        self.assertNotIn("/system/update-progress", js)
+        self.assertNotIn("/system/update-progress", page)
+        self.assertNotIn("Fortschrittsseite öffnen", js + page)
+        self.assertNotIn(".update-progress-shell", css)
+
+    def test_running_overlay_has_no_page_button_and_keeps_exit_on_error(self):
+        js = (ROOT / "pv2hash/static/js/app.js").read_text()
+        overlay = js.split("function renderSystemUpdateOverlay(", 1)[1].split(
+            "function systemUserIsEditingImportForm(", 1)[0]
+        running = overlay.split("if (running) {", 1)[1].split(
+            "if (runner?.status === 'success')", 1)[0]
+        self.assertIn("actionContainer.hidden = true;", running)
+        self.assertIn("actionLink.hidden = true;", running)
+        success = overlay.split("if (runner?.status === 'success')", 1)[1].split(
+            "if (runner?.status === 'error')", 1)[0]
+        failed = overlay.split("if (runner?.status === 'error')", 1)[1]
+        self.assertIn("actionContainer.hidden = false;", success)
+        self.assertIn("actionContainer.hidden = false;", failed)
+        self.assertIn("actionLink.hidden = false;", success)
+        self.assertIn("actionLink.hidden = false;", failed)
+        self.assertIn("actionLink.href = '/system';", failed)
+
     def installer_functions(self):
         installer = (ROOT / "scripts/install_release.sh").read_text()
         self.assertEqual(installer.count('\nmain "$@"'), 1)
