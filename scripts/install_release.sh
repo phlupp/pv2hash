@@ -446,7 +446,17 @@ install_self_update_helper() {
     fi
 
     install -d -m 0755 /usr/local/libexec
-    install -m 0755 "${helper_source}" "${SELF_UPDATE_HELPER_PATH}"
+    # The updater is executing this same helper while the new release is
+    # installed. Replace the inode atomically so its running Bash interpreter
+    # can finish reading the original script after the service restart.
+    local helper_temp
+    helper_temp="$(mktemp "${SELF_UPDATE_HELPER_PATH}.XXXXXX")"
+    if ! install -m 0755 "${helper_source}" "${helper_temp}"; then
+        rm -f "${helper_temp}"
+        echo "Update-Helper konnte nicht bereitgestellt werden." >&2
+        exit 1
+    fi
+    mv -f "${helper_temp}" "${SELF_UPDATE_HELPER_PATH}"
 
     cat > "${SELF_UPDATE_SUDOERS_FILE}" <<EOF_SUDOERS
 Cmnd_Alias PV2HASH_SELF_UPDATE = ${SELF_UPDATE_HELPER_PATH}, ${SELF_UPDATE_HELPER_PATH} *
