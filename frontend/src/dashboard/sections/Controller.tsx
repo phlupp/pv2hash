@@ -5,7 +5,6 @@ import type { DashboardContext } from '../types';
 
 function ControllerSection({ context }: { context: DashboardContext }) {
   const data = context.live?.cards.controller;
-  const waiting = data?.ring_state === 'waiting';
   const progress = typeof data?.ring_progress === 'number'
     ? Math.max(0, Math.min(100, data.ring_progress * 100))
     : 100;
@@ -16,16 +15,15 @@ function ControllerSection({ context }: { context: DashboardContext }) {
         <Stack gap="xs">
           <Group justify="space-between" align="center" gap="xs">
             <Text fw={600} size="sm">{data?.summary || 'Reglerstatus wird geladen'}</Text>
-            <Badge size="xs" color={waiting ? 'orange' : 'gray'} variant="light">
+            <Badge size="xs" color="gray" variant="light">
               {data?.ring_inner || '—'}
             </Badge>
           </Group>
           <Text size="xs" c="dimmed">{data?.last_switch || 'Keine Regleraktion verfügbar'}</Text>
           {data?.last_event_meta && <Text size="xs" c="dimmed">{data.last_event_meta}</Text>}
           {data?.ring_state !== 'disabled' && (
-            <Progress aria-label="Mindest-Schaltintervall" value={progress} size="xs" radius="xs" color={waiting ? 'orange' : 'teal'} />
+            <Progress aria-label="Mindest-Schaltintervall" value={progress} size="sm" radius="xs" color="violet" />
           )}
-          <Text size="xs" c="dimmed">{data?.ring_hint || 'Regler-Wartezeit nicht verfügbar'}</Text>
         </Stack>
       </Card>
     </Stack>

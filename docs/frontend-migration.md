@@ -118,3 +118,10 @@ SemVer allein garantiert nicht die Kompatibilität zum Backend.
 - Der Badge kennzeichnet die Qualität/Verfügbarkeit des gemeldeten **Messwerts**, nicht automatisch eine gemessene Netzwerkverbindungsqualität.
 - Mobile Darstellung: Bei nur zwei Kacheln nebeneinander darf das vollständige Badge auf eine zweite Zeile umbrechen. Informationsgehalt geht vor unverständlicher Abkürzung; horizontales Scrollen ist nicht erlaubt.
 - Mit späterer separater PV-Source: zuerst Datenmodell/API um `pv_quality` und echte Quellenidentität ergänzen, dann den Badge anbinden. Keine Scheinwerte.
+
+
+### Regelungs-Countdown (GUI 2.0.0-dev.3)
+- Die Restzeit erscheint **nur im neutralen grauen Badge**, nicht doppelt in einer Zusatzzeile.
+- Der Fortschrittsbalken erhält Mantine-`sm` statt `xs` (etwas höher), in ruhigem Akzent-Violett.
+- Warten auf das Mindest-Schaltintervall ist ein normaler Zustand, **keine Warnung**. Orange/Rot bleibt echten Warnungen und Fehlern vorbehalten.
+- Verfügbare Controller-API-Daten bleiben unangetastet. Die letzte Regleraktion und Ereignismetadaten bleiben sichtbar.
