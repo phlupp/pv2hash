@@ -1,0 +1,68 @@
+:root {
+  color-scheme: dark;
+  --pv-bg: #171a33;
+  --pv-sidebar: #11162c;
+  --pv-panel: #292e55;
+  --pv-accent: #8d63ff;
+}
+
+html, body, #root {
+  min-height: 100%;
+}
+
+body {
+  background: linear-gradient(165deg, #1b1f3d 0%, #161933 100%);
+}
+
+.pv-brand-accent { color: var(--pv-accent); }
+
+.pv-shell { --mantine-color-body: var(--pv-bg); }
+
+.pv-navbar {
+  background: rgba(15, 18, 38, .98);
+  border-right: 1px solid rgba(255,255,255,.08);
+}
+
+.pv-nav-group {
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.pv-nav-item {
+  border-radius: 10px;
+  min-height: 43px;
+  color: #e2e5fa;
+  margin: 3px 0;
+}
+
+.pv-nav-item[data-active] {
+  background: rgba(141, 99, 255, .17);
+  color: #eee8ff;
+  border: 1px solid rgba(141,99,255,.3);
+}
+
+.pv-nav-item:not([data-active]):hover {
+  background: rgba(255,255,255,.07);
+}
+
+.pv-main {
+  max-width: 1700px;
+  margin: 0 auto;
+  padding-top: 24px;
+  padding-bottom: 32px;
+}
+
+.pv-card {
+  background: linear-gradient(180deg, rgba(48,53,98,.95), rgba(34,39,78,.96));
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 16px;
+}
+
+.pv-mobile-header {
+  background: #11162c;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+@media (max-width: 48em) {
+  .pv-main { padding-top: 16px; }
+}
