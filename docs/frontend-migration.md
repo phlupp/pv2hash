@@ -51,3 +51,15 @@ an die unveränderte FastAPI-Testinstanz auf `127.0.0.1:8000` weitergeleitet.
 - Keine Veränderung der bestehenden Controller-Logik im Zuge der GUI-Migration.
 - Bestehende Konfiguration, Adapterschemata, API-Antworten und Updatepfade absichern.
 - Prognosen, Messwerte und simulierte Demo-Daten klar auseinanderhalten.
+
+
+## Designregel: Informationsdichte und Mantine-Standards (Phase 0.1)
+
+- Keine selbst gestalteten Kachel-Hintergründe, Farbverläufe oder großen Radien.
+- Cards verwenden Mantines globale Komponenten-Defaults (Border, sm-Padding, sm-Radius, kein Schatten).
+- Gemeinsame Theme-Tokens in `frontend/src/theme.ts`; nur Navigation und wenige Layoutregeln in `frontend/src/styles.css`.
+- Kennzahlen platzsparend: vier Spalten am Desktop und zwei auf kleinen Smartphones; kompakter Text und geringe Kartenhöhe.
+- Statusmeldungen als schmale Zeilen statt vollflächiger Statuskarten, wenn kein größerer Inhalt notwendig ist.
+- Diagramme verwenden dieselben Mantine-Cards und eine wiederverwendbare ECharts-Komponente.
+- Mehr Informationsdichte bedeutet nicht kleinere Bedienelemente: Mobile Navigation und Touch-Ziele bleiben gut erreichbar.
+- Vor der späteren produktiven Freigabe die Komponentenvisuell in beiden Viewports abnehmen.

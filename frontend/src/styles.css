@@ -1,9 +1,6 @@
 :root {
   color-scheme: dark;
-  --pv-bg: #171a33;
-  --pv-sidebar: #11162c;
-  --pv-panel: #292e55;
-  --pv-accent: #8d63ff;
+  --pv-accent: #9b79ff;
 }
 
 html, body, #root {
@@ -11,16 +8,15 @@ html, body, #root {
 }
 
 body {
-  background: linear-gradient(165deg, #1b1f3d 0%, #161933 100%);
+  background: var(--mantine-color-body);
 }
 
 .pv-brand-accent { color: var(--pv-accent); }
 
-.pv-shell { --mantine-color-body: var(--pv-bg); }
-
+/* Navigation identity remains recognizable; content uses Mantine defaults. */
 .pv-navbar {
-  background: rgba(15, 18, 38, .98);
-  border-right: 1px solid rgba(255,255,255,.08);
+  background: var(--mantine-color-dark-9);
+  border-right: 1px solid var(--mantine-color-dark-6);
 }
 
 .pv-nav-group {
@@ -29,40 +25,34 @@ body {
 }
 
 .pv-nav-item {
-  border-radius: 10px;
+  border-radius: var(--mantine-radius-sm);
   min-height: 43px;
-  color: #e2e5fa;
+  color: var(--mantine-color-dark-1);
   margin: 3px 0;
 }
 
 .pv-nav-item[data-active] {
-  background: rgba(141, 99, 255, .17);
-  color: #eee8ff;
-  border: 1px solid rgba(141,99,255,.3);
+  background: var(--mantine-color-violet-light);
+  color: var(--mantine-color-violet-2);
 }
 
 .pv-nav-item:not([data-active]):hover {
-  background: rgba(255,255,255,.07);
+  background: var(--mantine-color-dark-7);
 }
 
 .pv-main {
+  width: 100%;
   max-width: 1700px;
   margin: 0 auto;
-  padding-top: 24px;
-  padding-bottom: 32px;
-}
-
-.pv-card {
-  background: linear-gradient(180deg, rgba(48,53,98,.95), rgba(34,39,78,.96));
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 16px;
+  padding-top: 12px;
+  padding-bottom: 20px;
 }
 
 .pv-mobile-header {
-  background: #11162c;
-  border-bottom: 1px solid rgba(255,255,255,.08);
+  background: var(--mantine-color-dark-9);
+  border-bottom: 1px solid var(--mantine-color-dark-6);
 }
 
 @media (max-width: 48em) {
-  .pv-main { padding-top: 16px; }
+  .pv-main { padding-top: 8px; }
 }

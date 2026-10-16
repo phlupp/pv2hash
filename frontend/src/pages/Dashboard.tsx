@@ -17,12 +17,17 @@ function formatSOC(value: number | null | undefined) {
     : '—';
 }
 
-function MetricCard({ title, value, detail }: { title: string; value: string; detail: string }) {
+/** Reusable native Mantine Card for concise metrics (no custom card CSS). */
+export function MetricCard({ title, value, detail }: { title: string; value: string; detail: string }) {
   return (
-    <Card className="pv-card" padding="lg">
-      <Text size="sm" c="dimmed">{title}</Text>
-      <Title order={2} mt={6}>{value}</Title>
-      <Text size="xs" c="dimmed" mt={6}>{detail}</Text>
+    <Card>
+      <Stack gap={3}>
+        <Text size="xs" fw={600} c="dimmed">{title}</Text>
+        <Text size="xl" fw={700} lh={1.2} style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {value}
+        </Text>
+        <Text size="xs" c="dimmed" lineClamp={1} title={detail}>{detail}</Text>
+      </Stack>
     </Card>
   );
 }
@@ -36,6 +41,7 @@ export function Dashboard() {
   });
   const [points, setPoints] = useState<Point[]>([]);
   const grid = data?.snapshot?.grid_power_w;
+
   useEffect(() => {
     if (!dataUpdatedAt || typeof grid !== 'number' || !Number.isFinite(grid)) return;
     setPoints((prev) => [...prev.slice(-39), { ts: dataUpdatedAt, value: grid }]);
@@ -44,43 +50,62 @@ export function Dashboard() {
   const miners = data?.miners ?? [];
   const minerPower = miners.reduce((sum, m) => sum + (typeof m.power_w === 'number' ? m.power_w : 0), 0);
   const hashrateThs = miners.reduce((sum, m) => sum + (typeof m.current_hashrate_ghs === 'number' ? m.current_hashrate_ghs : 0), 0) / 1000;
+
   return (
-    <Stack gap="lg">
-      <div>
-        <Group justify="space-between" align="center">
-          <Title order={1}>Dashboard</Title>
-          <Badge variant="light" color="violet">Neue Oberfläche · Vorschau</Badge>
-        </Group>
-        <Text c="dimmed" size="sm" mt={6}>
-          Erste React-Komponenten mit lesender Anbindung an die vorhandene PV2Hash-API.
-        </Text>
-      </div>
-      {error && <Alert color="red" icon={<IconAlertCircle size={18} />} title="Backend nicht erreichbar">{String(error.message)}</Alert>}
-      <SimpleGrid cols={{ base: 1, xs: 2, lg: 4 }} spacing="md">
-        <MetricCard title="Netzanschluss" value={isPending ? 'Lade …' : formatPower(grid)} detail="Positiv = Bezug, negativ = Einspeisung" />
-        <MetricCard title="Batterie-SOC" value={isPending ? 'Lade …' : formatSOC(data?.snapshot?.battery_soc_pct)} detail="Sofern Batteriesensor verfügbar" />
-        <MetricCard title="Miner-Leistung" value={isPending ? 'Lade …' : formatPower(minerPower)} detail={`${miners.length} konfigurierte Miner`} />
-        <MetricCard title="Hashrate" value={isPending ? 'Lade …' : `${hashrateThs.toLocaleString('de-DE', { maximumFractionDigits: 2 })} TH/s`} detail="Summe der gemeldeten Miner-Werte" />
+    <Stack gap="sm">
+      <Group justify="space-between" align="center" gap="xs">
+        <div>
+          <Title order={2} size="h3">Dashboard</Title>
+          <Text c="dimmed" size="xs">Live-Status der Energie- und Miner-Steuerung</Text>
+        </div>
+        <Badge variant="light" color="gray" size="sm">GUI 2.0 · Vorschau</Badge>
+      </Group>
+
+      {error && (
+        <Alert color="red" icon={<IconAlertCircle size={18} />} title="Backend nicht erreichbar">
+          {String(error.message)}
+        </Alert>
+      )}
+
+      <SimpleGrid cols={{ base: 2, md: 4 }} spacing="xs">
+        <MetricCard title="Netzanschluss" value={isPending ? 'Lade …' : formatPower(grid)} detail="Bezug (+) / Einspeisung (−)" />
+        <MetricCard title="Batterie-SOC" value={isPending ? 'Lade …' : formatSOC(data?.snapshot?.battery_soc_pct)} detail="Ladezustand" />
+        <MetricCard title="Miner-Leistung" value={isPending ? 'Lade …' : formatPower(minerPower)} detail={`${miners.length} Miner konfiguriert`} />
+        <MetricCard title="Hashrate" value={isPending ? 'Lade …' : `${hashrateThs.toLocaleString('de-DE', { maximumFractionDigits: 2 })} TH/s`} detail="Gemeldete Gesamtleistung" />
       </SimpleGrid>
-      <Card className="pv-card" padding="lg">
-        <Group justify="space-between" mb="xs">
-          <Group gap="xs"><IconChartLine size={19}/><Title order={3}>Netzleistung · Live-Trend</Title></Group>
-          <Badge color="gray" variant="outline">Diagramm-Prototyp</Badge>
+
+      <Card>
+        <Group justify="space-between" gap="sm" wrap="nowrap">
+          <Text fw={600} size="sm">Regler-Status</Text>
+          <Text c="dimmed" size="xs" ta="right" lineClamp={2}>
+            {data?.last_decision || 'Noch keine Reglerentscheidung verfügbar.'}
+          </Text>
         </Group>
-        <Text c="dimmed" size="sm" mb="md">
-          Erste ECharts-Komponente. Werte werden nur während der geöffneten Dashboard-Seite gesammelt; die echte DataLogger-Historie folgt bei der Migration.
+      </Card>
+
+      <Card>
+        <Group justify="space-between" align="center" mb={2} gap="xs">
+          <Group gap={7}>
+            <IconChartLine size={17} />
+            <Text fw={600} size="sm">Netzleistung · Live-Trend</Text>
+          </Group>
+          <Badge color="gray" variant="outline" size="xs">Prototyp</Badge>
+        </Group>
+        <Text c="dimmed" size="xs" mb="xs">
+          Temporärer 15-Sekunden-Trend · DataLogger-Historie folgt.
         </Text>
         {points.length < 2 ? (
-          <Text c="dimmed" ta="center" py={50}>Trend erscheint nach zwei erfolgreichen Aktualisierungen (15-Sekunden-Intervall).</Text>
+          <Text c="dimmed" size="sm" ta="center" py={40}>
+            Trend startet nach zwei Aktualisierungen.
+          </Text>
         ) : (
           <TimeSeriesChart points={points} />
         )}
       </Card>
-      <Card className="pv-card" padding="lg">
-        <Title order={3}>Regelung</Title>
-        <Text c="dimmed" size="sm" mt="sm">{data?.last_decision || 'Noch keine Reglerentscheidung verfügbar.'}</Text>
-        <Text c="dimmed" size="xs" mt="md">Keine Steuerbefehle: Das neue Frontend ist in dieser Phase ausschließlich lesend.</Text>
-      </Card>
+
+      <Text c="dimmed" size="xs">
+        Entwicklungsansicht: nur lesend, keine Steuerbefehle.
+      </Text>
     </Stack>
   );
 }

@@ -66,5 +66,5 @@ export function TimeSeriesChart({ points }: { points: Point[] }) {
     chart.setOption(options, { notMerge: true });
   }, [points]);
 
-  return <div ref={container} role="img" aria-label="Live-Trend der Netzleistung" style={{ width: '100%', height: 260 }} />;
+  return <div ref={container} role="img" aria-label="Live-Trend der Netzleistung" style={{ width: '100%', height: 218 }} />;
 }

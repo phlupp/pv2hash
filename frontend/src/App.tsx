@@ -62,7 +62,7 @@ export function App() {
     <AppShell
       header={{ height: { base: 60, sm: 0 } }}
       navbar={{ width: navbarWidth, breakpoint: 'sm', collapsed: { mobile: !mobileOpened } }}
-      padding={{ base: 'sm', md: 'lg' }}
+      padding={{ base: 'xs', md: 'md' }}
       className="pv-shell"
     >
       <AppShell.Header hiddenFrom="sm" className="pv-mobile-header">
