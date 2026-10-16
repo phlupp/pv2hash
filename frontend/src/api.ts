@@ -1,4 +1,5 @@
 export interface StatusResponse {
+  config?: { battery?: { enabled?: boolean } };
   snapshot?: {
     grid_power_w?: number | null;
     pv_power_w?: number | null;
@@ -6,6 +7,9 @@ export interface StatusResponse {
     battery_soc_pct?: number | null;
     battery_charge_power_w?: number | null;
     battery_discharge_power_w?: number | null;
+    battery_is_charging?: boolean;
+    battery_is_discharging?: boolean;
+    battery_is_active?: boolean;
     source?: string | null;
     quality?: string | null;
     updated_at?: string | null;
@@ -19,6 +23,43 @@ export interface StatusResponse {
     runtime_state?: string;
   }>;
   last_decision?: string | null;
+}
+
+export interface DashboardMiner {
+  id: string;
+  name: string;
+  priority: number;
+  host: string;
+  profile: string;
+  power_text: string;
+  hashrate_text: string;
+  monitor_enabled: boolean;
+  control_enabled: boolean;
+  reachable: boolean;
+  is_running: boolean;
+}
+
+export interface DashboardLiveResponse {
+  status: 'ok';
+  cards: {
+    grid?: { value: string; class: string; hint: string };
+    source?: { label: string; meta: string; quality: string };
+    miners?: { power: string; meta: string };
+    battery?: { value: string; class: string; state: string };
+    host?: { cpu: string; ram: string };
+    controller: {
+      policy_mode?: string;
+      distribution_mode?: string;
+      summary: string;
+      last_switch: string;
+      last_event_meta: string;
+      ring_state: 'waiting' | 'ready' | 'disabled' | string;
+      ring_progress: number;
+      ring_inner: string;
+      ring_hint: string;
+    };
+  };
+  miners: DashboardMiner[];
 }
 
 export interface VersionResponse {
@@ -39,4 +80,5 @@ async function apiGet<T>(url: string): Promise<T> {
 }
 
 export const getStatus = () => apiGet<StatusResponse>('/api/status');
+export const getDashboardStatus = () => apiGet<DashboardLiveResponse>('/api/dashboard/status');
 export const getVersion = () => apiGet<VersionResponse>('/api/ui/versionstatus');

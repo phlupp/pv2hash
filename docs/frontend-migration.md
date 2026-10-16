@@ -75,3 +75,33 @@ Freigegeben am 2026-10-16 als Basis für die weitere GUI-Migration:
 - **Farben sind keine feste Produktentscheidung:** das aktuelle dunkle Schema mit violettem Akzent bleibt zunächst erhalten; spätere Farben/Dark-Light-Varianten können über zentrale Theme-Tokens umgestellt werden.
 - Eine Farbumstellung soll **nicht** manuell in einzelnen Seiten stattfinden. Feste Farbwerte in CSS, ECharts, Icons und Statusdarstellungen müssen dafür sukzessive in zentrale semantische Tokens überführt werden. Statusfarben behalten unabhängig vom gewählten Akzent eine eindeutige Bedeutung.
 - Keine Änderungen an der produktiven Steuerung oder dem API-Verhalten durch diese Designfestlegung.
+
+
+## Dashboard: funktionsbezogene Module (Phase 0.2)
+
+Die GUI 2.0 hat **kein festes Dashboard-Template** mit immer denselben Bereichen.
+Das Dashboard setzt registrierte Module in definierter Reihenfolge zusammen.
+
+- Jede Funktion bringt bei Bedarf eine eigene Datei `frontend/src/dashboard/sections/<Feature>.tsx` mit, die `dashboardSection` mit `id`, `order`, `Component` und optional `enabled(context)` exportiert.
+- `frontend/src/dashboard/registry.ts` entdeckt solche Dateien beim Vite-Build automatisch über `import.meta.glob`. Die Hauptseite `pages/Dashboard.tsx` muss für einen weiteren Dashboard-Bereich nicht geändert werden.
+- `enabled(context)` entscheidet anhand **realer** API-Konfiguration und Verfügbarkeit, ob das Modul angezeigt wird. Für die zukünftige Prognose wird erst mit einem echten aktivierten Forecast-Backend ein Vorschau-Modul ausgeliefert. Keine Mock-Prognosen im Live-Dashboard.
+- Die Module erhalten nur einen gemeinsamen lesenden Kontext (`/api/dashboard/status` und `/api/status`) und bauen ihre Darstellung aus Mantine-Standardkomponenten auf.
+- Aktuelle Module: Energie, Regelung, Mining. Energie zeigt Netz und PV-Leistung sowie Batterie nur bei aktivierter/verfügbarer Batterie.
+- PV-Erzeugung ohne entsprechenden PV-Wert wird ausdrücklich als **nicht verfügbar** gekennzeichnet, nicht aus der Netzeinspeisung geschätzt.
+- Die zentrale Hauptseite zeigt **keine** technischen Steuerungs-Modi wie Coarse/Equal/Cascade. Regelparameter verbleiben in den Einstellungen, ohne die Controller-Logik zu verändern.
+- Die Miner-Tabelle zeigt nur Status, Name, Profil, Leistung und Hashrate. Aktionen, Prioritäten und IP-Adressen gehören auf die Minerseite.
+- CPU/RAM gehören auf die Systemseite. Der frühere spontane Live-Trend wird nicht als Pflichtteil des Dashboards übernommen; die Zeitreihenanalyse gehört zum DataLogger.
+- Die Ringdarstellung wurde durch eine kompakte Fortschrittsleiste mit Wartezeit und letzter Regleraktion ersetzt.
+- Die neue Dashboard-Seite ist bis zur Migration der Bedienseiten ausschließlich **read-only**; es werden keine bestehenden Backend-Aktionen neu eingebaut.
+
+## Unabhängige GUI-Versionierung
+
+PV2Hash GUI ist ab der neuen GUI-Generation eigenständig nach SemVer versioniert;
+erste Entwicklungskennung ist **`2.0.0-dev.1`**.
+Maßgebliche Versionsquelle ist `frontend/package.json` (mit Lockfile);
+die Versionskennung wird beim Build in die Frontend-Anzeige übernommen.
+
+Die **GUI-Version** und die **Backend-/PV2Hash-Core-Version** bleiben getrennte
+Angaben, da Änderungen der Oberfläche nicht immer ein Core-Release benötigen.
+Zukünftige Release-Builds müssen festhalten, welche API-Versionen sie unterstützen;
+SemVer allein garantiert nicht die Kompatibilität zum Backend.

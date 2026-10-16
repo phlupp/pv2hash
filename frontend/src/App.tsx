@@ -12,6 +12,7 @@ import {
   IconWand, IconZoomCheck
 } from '@tabler/icons-react';
 import { getStatus, getVersion } from './api';
+import { version as guiVersion } from '../package.json';
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 const Placeholder = lazy(() => import('./pages/Placeholder').then((module) => ({ default: module.Placeholder })));
 
@@ -124,14 +125,14 @@ export function App() {
         </AppShell.Section>
         <AppShell.Section p={navCollapsed ? 'xs' : 'sm'}>
           <Divider color="rgba(255,255,255,.08)" mb="sm" />
-          {!navCollapsed && <Text size="xs" c="dimmed" mb={7}>Entwicklungsansicht · Nur Lesen</Text>}
+          {!navCollapsed && <Text size="xs" c="dimmed" mb={7}>GUI {guiVersion} · Vorschau</Text>}
           <Group justify={navCollapsed ? 'center' : 'space-between'} gap="xs" wrap="nowrap">
             <Tooltip label={statusError ? 'Backend nicht erreichbar' : 'Backend verbunden'}>
               <Badge color={statusError ? 'red' : 'teal'} variant="light" size="sm" circle={navCollapsed}>
                 {navCollapsed ? '●' : statusError ? 'Offline' : 'Verbunden'}
               </Badge>
             </Tooltip>
-            {!navCollapsed && <Text size="xs" c="dimmed">{version?.version_full || version?.version || '—'}</Text>}
+            {!navCollapsed && <Text size="xs" c="dimmed">Core {version?.version_full || version?.version || '—'}</Text>}
           </Group>
         </AppShell.Section>
       </AppShell.Navbar>
