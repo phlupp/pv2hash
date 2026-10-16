@@ -188,3 +188,74 @@ sudo systemctl restart pv2hash-dev.service
 Die vor dem Wechsel angelegte Sicherung ist separat aufzubewahren und darf
 nicht unbedacht über inzwischen gewachsene Live-Daten zurückgespielt werden.
 Der produktive Hashpi wurde durch diese Arbeiten nicht verändert.
+
+
+## DataLogger in GUI 2.0 (Phase 0.4)
+
+Stand: GUI `2.0.0-dev.6` auf testvm01, Core `0.9.4`.
+Die alte DataLogger-Seite bleibt bis zur endgültigen GUI-Migration unverändert.
+
+### Komponenten und Architektur
+
+- `frontend/src/pages/DataLogger.tsx`: unabhängige React-Seite, UI-Zustand
+  für Zeitraum, Live/Historie, Minerfilter, Reglerereignis und Debug-Ausklappen.
+- `frontend/src/datalogger/api.ts`: **lesende** API-Abfragen für Status,
+  Serien und optionale Debug-Ereignisse über bestehende FastAPI-Endpunkte.
+- `frontend/src/datalogger/time.ts`: zentrale Zeitfenster-Navigation
+  (`1h`, `3h`, `6h`, `12h`, `24h`, `7d`), Formatierungsfunktionen.
+- `frontend/src/datalogger/charts/DataLoggerChart.tsx`: wiederverwendbare
+  ECharts-Komponente mit Zeitachse, Zoom, interaktiver Legende und
+  tatsächlichen Profilwechsel-Markern; ausgeliefert nur mit der
+  DataLogger-Route (kein ECharts-Ladezwang auf dem Dashboard).
+- `frontend/src/datalogger/charts/palette.ts`: zentrale semantische Farben
+  für Netz, Miner, Batterie, SOC, Hashrate, Temperatur und Regler-Events.
+- `frontend/src/datalogger/components/ControllerTimeline.tsx`: echte
+  angewendete Regler-Events oberhalb der Charts mit auswählbarer
+  Detaildarstellung. Ereignisse werden über dieselbe ID in Charts markiert.
+- `frontend/src/datalogger/cluster.ts`: rein visuelle Gruppierung dichter
+  Events in Zeit-Bins. Im Kontext einer Gruppe können die einzelnen echten
+  Events ausgewählt werden; API-Rohdaten werden dadurch nicht verändert.
+
+### Darstellung und Verhalten
+
+- Zeitfenster als Mantine SegmentedControl; Zurück/Weiter verschieben das
+  Intervall, Live springt zur Gegenwart und aktiviert den 30-Sekunden-Refresh.
+  Historische Fenster werden nicht zyklisch aktualisiert.
+- Mehrfachfilter für Miner über Mantine MultiSelect; bei leerer Auswahl
+  werden alle Miner berücksichtigt. Das Backend filtert Leistung,
+  Hashrate, Temperaturen sowie Regler-Events.
+- Drei ECharts-Karten: Energiefluss (Netz/Miner/Batterie), Batterie (W
+  und SOC auf getrennten Achsen) und Mining (W, GH/s, Temperatur).
+  Die Batterie-Karte erscheint dynamisch bei konfigurierter Batterie
+  oder vorhandenen Batterie-Samples im Zeitfenster.
+- Debug-Karte standardmäßig geschlossen, API-Abfrage nur bei geöffnetem
+  Bereich. Darin Anzeige der kurzlebigen Controller-Debug-Ereignisse.
+- Samplezahl, Zeitintervall und Aufbewahrung als kompakte Informationen;
+  technische SQLite-Details gehören weiterhin auf die Systemseite.
+- Ausschließlich tatsächlich gespeicherte `controller_events` mit
+  `event_type=applied` werden in Zeitleiste und Diagrammen dargestellt.
+- Alle Ressourcen lokal gebündelt, keine CDN-Abhängigkeit.
+  Bestehende Legacy-GUI und PV2Hash-Regelung bleiben unverändert.
+
+### Offene technische Grenze in Core 0.9.4
+
+Die bestehende Core-API `/api/datalogger/series` holt für ein Zeitfenster
+**maximal die 500 ältesten angewendeten Reglerereignisse**
+(`ORDER BY ts ASC LIMIT 500`). Für lange Zeitfenster können deshalb
+neuere Reglerentscheidungen fehlen; `marker_count` ist dann nur die
+Anzahl der gelieferten Events, nicht die tatsächliche Gesamtzahl.
+GUI 2.0 kennzeichnet diese Begrenzung bei 500 Markern sichtbar.
+Diese Core-API sollte vor der endgültigen Migration auf vollständige,
+effiziente und zeitlich korrekt auswählbare Event-Abfragen erweitert werden.
+Für die erste Vorschau wurde der freigegebene Core 0.9.4 **nicht gepatcht**.
+
+### Teststand
+
+- `npm run build` erfolgreich (TypeScript/Vite).
+- `npm test`: sechs Tests erfolgreich (Zeitfenster, Event-Gruppierung,
+  fehlerhafte Zeitstempel sowie bestehende Miner-WebGUI-Links).
+- Browser-Vorschau Desktop/Mobil: keine JavaScript-Fehler, keine horizontale
+  Seitenüberbreite, Live/Zurück/7d, Event-Gruppen und aufgeklappter Debug
+  mit echten Core-0.9.4-Daten geprüft.
+- Offene visuelle Abnahme: Mobile Safari und die Detailgestaltung der
+  Chartachsen auf dem produktiven Vergleichsgerät. Bei Bedarf Feinschliff.

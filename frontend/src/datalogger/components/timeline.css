@@ -1,0 +1,47 @@
+.pv-event-timeline {
+  position: relative;
+  height: 90px;
+  width: 100%;
+  min-width: 680px;
+}
+.pv-event-line {
+  position: absolute;
+  height: 2px;
+  left: 14px;
+  right: 14px;
+  top: 39px;
+  background: var(--mantine-color-dark-5);
+}
+.pv-event-point {
+  position: absolute;
+  top: 24px;
+  width: 30px;
+  height: 30px;
+  transform: translateX(-50%);
+  border: 1px solid var(--mantine-color-dark-4);
+  border-radius: 50%;
+  background: var(--mantine-color-dark-7);
+  color: var(--mantine-color-dark-0);
+  font-weight: 700;
+  font-size: 17px;
+  cursor: pointer;
+  z-index: 1;
+}
+.pv-event-up { color: var(--mantine-color-teal-3); }
+.pv-event-down { color: var(--mantine-color-orange-3); }
+.pv-event-point:hover, .pv-event-point:focus-visible, .pv-event-active {
+  background: var(--mantine-color-violet-7);
+  border-color: var(--mantine-color-violet-3);
+  color: white;
+  z-index: 2;
+}
+.pv-event-start, .pv-event-end {
+  position: absolute;
+  bottom: 2px;
+  font-size: 11px;
+  color: var(--mantine-color-dimmed);
+}
+.pv-event-start { left: 8px; }
+.pv-event-end { right: 8px; }
+
+.pv-event-count { font-size: 10px; font-weight: 800; line-height: 1; }
