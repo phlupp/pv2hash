@@ -322,3 +322,32 @@ Stand: GUI **2.0.0-dev.7** auf testvm01, Core **0.9.4**.
   und Batterie-Modbus-Profilwechsel müssen vor Produktionsfreigabe
   noch mit geeigneten Testdaten vollständig Ende-zu-Ende geprüft werden.
 - Die Legacy-GUI und sämtliche Core-/Treiberdateien bleiben unverändert.
+
+
+### Messungen: Layout-Feinschliff (GUI 2.0.0-dev.8)
+
+- **Breitenlogik:** Der Source-Treiber liefert Feldtyp, Feldgruppe und
+  `layout.width` (z. B. `quarter`); der gemeinsame Mantine-Renderer setzt
+  diese Hinweise responsiv um. Gruppen aus **exakt fünf gleichwertigen
+  Viertelbreiten-Feldern** werden als gemeinsame Gruppe auf breiten
+  Bildschirmen in **fünf Spalten** angeordnet. Gemischte Breiten
+  behalten ihre vom Treiber vorgegebene Anordnung.
+  Das gilt auch für künftige Treiber, nicht nur für Modbus.
+- 1280/1600 px: fünf Registerparameter pro Zeile; Tablet 800 px: 2/2/1;
+  iPhone 320/390 px: ein Eingabefeld pro Zeile, ohne Seitenüberbreite.
+- **Messdetails:** Die Anzahl nebeneinanderliegender Messwerte passt sich
+  an die gelieferten Detailfelder an; bis zu sechs auf breiten Screens.
+- **Kontrast:** Inputs und Selects erhalten über das zentrale Mantine-Theme
+  einen dunkleren Hintergrund (`dark.8`) und besser sichtbare Randfarbe
+  (`dark.5`). Keine seitenabhängigen Farb-Hacks.
+- **Leeres Select:** Wenn der Treiber keine Optionen liefert, erscheint
+  dessen `help`-Hinweis direkt als Platzhalter im Auswahlfeld.
+  Beispielsweise `Bitte Geräte-Suche starten.` in der leeren
+  SMA-Seriennummernauswahl; keine doppelte Hilfetext-Zeile.
+- **Seitenkopf:** Badge `API LIVE` benennt die Erreichbarkeit der
+  Messungen-API (nicht den Status jeder Quelle), während jede Quelle
+  ihren eigenen QualityBadge behält. `Aktualisieren` ruft den Status
+  sofort erneut ab; die 5-Sekunden-Automatik bleibt und es findet
+  weder Speicherung noch Treiber-Neustart statt.
+- Vorschau-SMA wurde nur **nicht persistent** genutzt und anschließend
+  verworfen; Konfiguration und Batterie-Verbindung blieben unangetastet.

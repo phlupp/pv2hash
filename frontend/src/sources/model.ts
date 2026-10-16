@@ -54,6 +54,16 @@ export function modelsFromPayload(payload: SourcePayload): SourceModel[] {
   return payload.gui_models ?? payload.sources ?? [];
 }
 
+/**
+ * Driver fields with five equal quarter-width inputs may be packed into one
+ * row on wide screens. Mixed and explicitly different widths are preserved.
+ */
+export function isFiveFieldUniformGroup(fields: SourceField[]): boolean {
+  return fields.length === 5 && fields.every(field =>
+    field.type !== 'fieldset' && field.layout?.width === 'quarter',
+  );
+}
+
 export function flattenFields(fields: SourceField[]): SourceField[] {
   return fields.flatMap(field => field.type === 'fieldset' ? flattenFields(field.fields ?? []) : [field]);
 }

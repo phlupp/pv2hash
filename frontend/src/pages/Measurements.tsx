@@ -169,10 +169,12 @@ export function Measurements() {
         </div>
         <Group gap="xs">
           <Badge variant="light" color={live.isError ? 'red' : 'teal'} size="xs">
-            {live.isError ? 'Offline' : live.isPending ? 'Verbinde …' : 'Live'}
+            {live.isError ? 'API OFFLINE' : live.isPending ? 'Verbinde …' : 'API LIVE'}
           </Badge>
           <Button leftSection={<IconRefresh size={15} />} variant="subtle" color="gray" size="compact-sm"
-            disabled={busy} onClick={() => void live.refetch()}>Aktualisieren</Button>
+            disabled={busy}
+            title="Messwerte und Verbindungsstatus jetzt erneut abfragen (automatisch alle 5 Sekunden)"
+            onClick={() => void live.refetch()}>Aktualisieren</Button>
         </Group>
       </Group>
 

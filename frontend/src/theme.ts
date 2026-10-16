@@ -1,4 +1,4 @@
-import { Card, createTheme } from '@mantine/core';
+import { Card, Input, createTheme } from '@mantine/core';
 
 /**
  * Shared design system: native Mantine components and tokens rather than
@@ -18,6 +18,16 @@ export const theme = createTheme({
     fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
   components: {
+    // More contrast between editable fields and surrounding dark cards.
+    // Applies to all Mantine text inputs/selects through the shared theme.
+    Input: Input.extend({
+      styles: {
+        input: {
+          backgroundColor: 'var(--mantine-color-dark-8)',
+          borderColor: 'var(--mantine-color-dark-5)',
+        },
+      },
+    }),
     Card: Card.extend({
       defaultProps: {
         withBorder: true,

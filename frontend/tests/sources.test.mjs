@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import {
-  flattenFields, formValuesFromModels, toFormData, validateSourceValues, modelsFromPayload,
+  flattenFields, formValuesFromModels, toFormData, validateSourceValues, modelsFromPayload, isFiveFieldUniformGroup,
 } from '../src/sources/model.ts';
 
 const header = { status: { state: 'live', text: 'Live' }, header_fields: [], detail_groups: [], config_fields: [], driver_field: null };
@@ -47,4 +47,13 @@ test('validation blocks missing required register, bad numeric values and inacti
   assert.match(validateSourceValues([model],{...base,battery_port:'abc'})[0],/Ungültiger Zahlenwert/);
   assert.match(validateSourceValues([model],{...base,battery_port:'90000'})[0],/Ungültiger Zahlenwert/);
   assert.equal(toFormData({...base,battery_enabled:false}).has('battery_enabled'), false);
+});
+
+test('uniform five-field layouts use a dense row; mixed widths keep driver hints', () => {
+  const fiveFields = ['address', 'register_type', 'value_type', 'endian', 'factor'].map(name => ({
+    name, type: 'text', layout: { width: 'quarter' },
+  }));
+  assert.equal(isFiveFieldUniformGroup(fiveFields), true);
+  assert.equal(isFiveFieldUniformGroup(fiveFields.slice(0, 4)), false);
+  assert.equal(isFiveFieldUniformGroup(fiveFields.map((f,i) => i === 4 ? {...f,layout:{width:'half'}} : f)), false);
 });

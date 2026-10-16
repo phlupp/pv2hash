@@ -509,3 +509,18 @@ bleiben ungespeicherte Formulardaten unverändert.
 
 Der komplette Implementierungs- und Teststand ist in
 `docs/frontend-migration.md` dokumentiert.
+
+
+### Responsives Packing gleichartiger Feldgruppen (GUI 2.0)
+
+Treiber legen per `layout.width` die gewünschten relativen Feldbreiten
+fest. Der universelle React-Renderer beachtet diese Vorgaben und darf
+gleichartige Fieldsets auf breiten Screens dichter packen:
+Eine Gruppe aus fünf `quarter`-Feldern erhält auf großen Displays eine
+fünfspaltige Zeile, auf Tablets zwei Spalten und auf schmalen Smartphones
+ein Feld pro Zeile. Mischgruppen behalten explizite Breiten.
+Die Funktion ist unabhängig vom Treibernamen.
+
+Input-Farben/-Rahmen sind zentral im Mantine-Theme hinterlegt.
+Bei leeren Select-Optionen dient der vom Treiber gelieferte
+`help`-Text als Platzhalter des Auswahlfeldes statt als gesonderte Zeile.

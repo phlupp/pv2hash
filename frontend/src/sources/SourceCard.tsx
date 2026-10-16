@@ -4,7 +4,7 @@ import {
 } from '@mantine/core';
 import { IconChevronDown, IconChevronRight, IconDeviceFloppy } from '@tabler/icons-react';
 import { QualityBadge } from '../dashboard/components/QualityBadge';
-import { formatSourceValue, type FormValues, type SourceField, type SourceModel } from './model';
+import { formatSourceValue, isFiveFieldUniformGroup, type FormValues, type SourceField, type SourceModel } from './model';
 
 const columnSpan: Record<string, number> = {
   full: 12, half: 6, third: 4, quarter: 3, auto: 3,
@@ -20,19 +20,21 @@ type FieldRendererProps = {
   values: FormValues;
   disabled: boolean;
   onFieldChange: (field: SourceField, source: SourceModel, value: string | boolean) => void;
+  fiveColumnGroup?: boolean;
 };
 
-function FieldRenderer({ field, source, values, disabled, onFieldChange }: FieldRendererProps) {
+function FieldRenderer({ field, source, values, disabled, onFieldChange, fiveColumnGroup = false }: FieldRendererProps) {
   if (field.type === 'fieldset') {
     return (
       <Grid.Col span={12}>
         <Stack gap="xs" mt="xs">
           <Divider label={field.label || field.title || 'Einstellungen'} labelPosition="left" />
-          <Grid gap="xs">
+          <Grid gap="xs" columns={isFiveFieldUniformGroup(field.fields ?? []) ? 20 : 12}>
             {(field.fields ?? []).map((child, i) => (
               <FieldRenderer
                 key={child.name || `fieldset-${i}`} field={child} source={source}
                 values={values} disabled={disabled} onFieldChange={onFieldChange}
+                fiveColumnGroup={isFiveFieldUniformGroup(field.fields ?? [])}
               />
             ))}
           </Grid>
@@ -58,7 +60,9 @@ function FieldRenderer({ field, source, values, disabled, onFieldChange }: Field
   const label = field.unit ? `${common.label} (${field.unit})` : common.label;
 
   return (
-    <Grid.Col span={{ base: 12, sm: fieldSpan(field) }}>
+    <Grid.Col span={fiveColumnGroup
+      ? { base: 20, sm: 10, md: 5, lg: 4 }
+      : { base: 12, sm: fieldSpan(field) }}>
       {field.type === 'checkbox' ? (
         <Box pt="xs">
           <Checkbox
@@ -73,8 +77,12 @@ function FieldRenderer({ field, source, values, disabled, onFieldChange }: Field
         <Select
           {...common}
           label={label}
+          description={field.options?.length ? field.help : undefined}
+          placeholder={!field.options?.length
+            ? field.help || 'Keine Einträge verfügbar'
+            : field.required ? 'Bitte auswählen …' : 'Auswählen …'}
           data={(field.options || []).map(option => ({ value: String(option.value), label: option.label }))}
-          value={String(value)}
+          value={String(value) || null}
           onChange={next => onFieldChange(field, source, next ?? '')}
           searchable={(field.options?.length ?? 0) > 5}
           allowDeselect={false}
@@ -166,7 +174,12 @@ export function SourceCard({
                 {live.detail_groups.map((group, idx) => (
                   <Stack key={idx} gap="xs">
                     {live.detail_groups.length > 1 && <Text size="xs" c="dimmed">{group.title}</Text>}
-                    <SimpleGrid cols={{ base: 2, sm: 3, lg: 5 }} spacing="xs">
+                    <SimpleGrid cols={{
+                      base: 2,
+                      sm: Math.min(group.fields.length, 3),
+                      md: Math.min(group.fields.length, 4),
+                      lg: Math.min(group.fields.length, 6),
+                    }} spacing="xs">
                       {group.fields.map((field, i) => (
                         <div key={`${field.label}-${i}`}>
                           <Text size="xs" c="dimmed">{field.label}</Text>
