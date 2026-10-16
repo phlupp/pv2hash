@@ -130,7 +130,14 @@ SemVer allein garantiert nicht die Kompatibilität zum Backend.
 ### Countdown und Miner-Tabelle (GUI 2.0.0-dev.4)
 
 - Der neutrale Countdown-Badge trennt die Restzeit-Ziffern (Tabellenziffern, größer) vom kleineren, kleingeschriebenen Einheitssymbol `s`; er bleibt ohne Alarmfarbe. Freigabe-/Bereit-Zustände werden als gewöhnlicher Badge-Text angezeigt.
-- Der Minername wird nur für echte Miner mit einer von der Backend-API gelieferten, sicheren HTTP(S)-WebGUI-URL zum externen Link (`target=_blank`, `rel=noopener noreferrer`); kein IP-Text als zusätzliche Spalte. Ein Simulator-Treiber erhält auch bei konfigurierter Test-IP **keinen** Link.
-- Die WebGUI-Link-Prüfung ist in `frontend/src/dashboard/minerLink.ts` gekapselt und durch `npm test` abgesichert (echte Geräte, Simulator und ungültige URL).
+- Der Minername wird nur für echte Miner mit einer von der Backend-API gelieferten, sicheren HTTP(S)-WebGUI-URL zum externen Link (`target=_blank`, `rel=noopener noreferrer`); kein IP-Text als zusätzliche Spalte. Auch Simulatoren erhalten ihren konfigurierten URL-Link, selbst wenn diese Adresse ins Leere zeigt oder `127.0.0.1` lautet.
+- Die WebGUI-Link-Prüfung ist in `frontend/src/dashboard/minerLink.ts` gekapselt und durch `npm test` abgesichert (echte Geräte, Simulator/Loopback und ungültige URL).
 - Tabellen-Spalte Profil auf etwa 50–54 px begrenzt und Mindest-Tabellenbreite auf 420 px gesenkt, ohne die Statusanzeige umzubauen. Bei sehr schmalen Displays bleibt die Tabelle intern horizontal scrollbar.
 - Anpassungen sind reine GUI-Änderungen. Bestehende API, Regler und Produktionsinstallation bleiben unverändert.
+
+
+### Dashboard-Tabellen: scrollbarfreier Lesebereich (GUI 2.0.0-dev.5)
+
+- Auf schmalen iPhone-Displays bleibt die Miner-Tabelle horizontal scrollbar; der Scrollbalken soll die letzte Datenzeile nicht überlagern.
+- Dafür die native Mantine-`ScrollArea` mit `scrollbars="x"` und `offsetScrollbars="x"` verwenden. Der horizontale Scrollbalken bekommt einen konstanten Platz unter der Tabelle, auch wenn er nur beim Wischen kurz sichtbar ist. Das verhindert Überlagerungen und Layoutsprünge ohne künstliche, semantisch leere `Table.Tfoot`-Zeile.
+- Der Minername öffnet die im Backend vorhandene WebGUI-URL unabhängig vom Treibertyp in einem neuen Tab (auch Simulator). Nur gültige HTTP(S)-URLs ohne eingebettete Zugangsdaten werden als Links angezeigt.

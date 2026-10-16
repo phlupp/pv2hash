@@ -7,7 +7,6 @@ import type { DashboardSectionDefinition, DashboardContext } from '../types';
 function MiningSection({ context }: { context: DashboardContext }) {
   const data = context.live;
   const telemetryMiners = context.telemetry?.miners ?? [];
-  const telemetryById = new Map(telemetryMiners.map(miner => [miner.id, miner]));
   const reported = telemetryMiners.filter(m => typeof m.current_hashrate_ghs === 'number' && Number.isFinite(m.current_hashrate_ghs));
   const totalThs = reported.reduce((sum, m) => sum + (m.current_hashrate_ghs ?? 0), 0) / 1000;
   const hashrateText = reported.length > 0 ? `${totalThs.toLocaleString('de-DE', { maximumFractionDigits: 2 })} TH/s` : '—';
@@ -19,7 +18,7 @@ function MiningSection({ context }: { context: DashboardContext }) {
         <Metric label="Gesamt-Hashrate" value={hashrateText} detail={reported.length ? `${reported.length} Miner mit Hashrate-Wert` : 'Keine Hashrate-Messwerte vorhanden'} />
       </SimpleGrid>
       <Card padding={0}>
-        <ScrollArea type="auto">
+        <ScrollArea type="auto" scrollbars="x" offsetScrollbars="x">
           <Table striped highlightOnHover horizontalSpacing={6} verticalSpacing={7} miw={420}>
             <Table.Thead>
               <Table.Tr>
@@ -32,8 +31,7 @@ function MiningSection({ context }: { context: DashboardContext }) {
             </Table.Thead>
             <Table.Tbody>
               {(data?.miners ?? []).map(miner => {
-                const device = telemetryById.get(miner.id);
-                const webGuiUrl = minerWebGuiUrl(miner.host_gui_url, device?.driver);
+                const webGuiUrl = minerWebGuiUrl(miner.host_gui_url);
                 return (
                 <Table.Tr key={miner.id}>
                   <Table.Td>
