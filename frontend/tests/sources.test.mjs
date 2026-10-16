@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import {
-  flattenFields, formValuesFromModels, toFormData, validateSourceValues, modelsFromPayload, isFiveFieldUniformGroup,
+  flattenFields, formValuesFromModels, toFormData, validateSourceValues, modelsFromPayload, isFiveFieldUniformGroup, isThreeFieldCompactGroup,
 } from '../src/sources/model.ts';
 
 const header = { status: { state: 'live', text: 'Live' }, header_fields: [], detail_groups: [], config_fields: [], driver_field: null };
@@ -56,4 +56,24 @@ test('uniform five-field layouts use a dense row; mixed widths keep driver hints
   assert.equal(isFiveFieldUniformGroup(fiveFields), true);
   assert.equal(isFiveFieldUniformGroup(fiveFields.slice(0, 4)), false);
   assert.equal(isFiveFieldUniformGroup(fiveFields.map((f,i) => i === 4 ? {...f,layout:{width:'half'}} : f)), false);
+});
+
+test('three identical driver inputs form one responsive row unless explicit widths override', () => {
+  const simulatorFields = [
+    { name: 'start_import', type: 'number' },
+    { name: 'end_export', type: 'number' },
+    { name: 'rate', type: 'number' },
+  ];
+  assert.equal(isThreeFieldCompactGroup(simulatorFields), true);
+  assert.equal(isThreeFieldCompactGroup(simulatorFields.slice(0, 2)), false);
+  assert.equal(isThreeFieldCompactGroup([...simulatorFields, {name:'extra', type:'number'}]), false);
+  assert.equal(isThreeFieldCompactGroup(simulatorFields.map((field, index) =>
+    index === 1 ? {...field, type: 'select'} : field,
+  )), false);
+  assert.equal(isThreeFieldCompactGroup(simulatorFields.map((field, index) =>
+    index === 1 ? {...field, layout: {width:'full'}} : field,
+  )), false);
+  assert.equal(isThreeFieldCompactGroup(simulatorFields.map((field, index) =>
+    index === 1 ? {...field, layout: {width:'auto'}} : field,
+  )), true);
 });

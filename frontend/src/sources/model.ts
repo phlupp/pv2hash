@@ -64,6 +64,20 @@ export function isFiveFieldUniformGroup(fields: SourceField[]): boolean {
   );
 }
 
+/**
+ * Compact unopinionated groups of three like-kind inputs.
+ * An explicit width from the driver always wins over this default.
+ */
+export function isThreeFieldCompactGroup(fields: SourceField[]): boolean {
+  return fields.length === 3
+    && ['text', 'number', 'select', 'password'].includes(fields[0].type)
+    && fields.every(field =>
+      !!field.name
+      && field.type === fields[0].type
+      && (!field.layout?.width || field.layout.width === 'auto'),
+    );
+}
+
 export function flattenFields(fields: SourceField[]): SourceField[] {
   return fields.flatMap(field => field.type === 'fieldset' ? flattenFields(field.fields ?? []) : [field]);
 }

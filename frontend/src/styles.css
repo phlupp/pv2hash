@@ -56,3 +56,13 @@ body {
 @media (max-width: 48em) {
   .pv-main { padding-top: 8px; }
 }
+
+
+/* Keep inputs level even when one long three-column field label wraps. */
+@media (min-width: 75em) {
+  .pv-source-compact-three .mantine-InputWrapper-label {
+    display: flex;
+    align-items: flex-end;
+    min-height: 46px;
+  }
+}

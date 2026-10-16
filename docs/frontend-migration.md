@@ -351,3 +351,20 @@ Stand: GUI **2.0.0-dev.7** auf testvm01, Core **0.9.4**.
   weder Speicherung noch Treiber-Neustart statt.
 - Vorschau-SMA wurde nur **nicht persistent** genutzt und anschließend
   verworfen; Konfiguration und Batterie-Verbindung blieben unangetastet.
+
+
+### Messungen: dreispaltige Standardgruppen (GUI 2.0.0-dev.9)
+
+- Auch **drei gleichartige, nicht explizit mit Breiten versehene** Treiber-Eingabefelder
+  erhalten auf Desktop-Geräten eine gemeinsame Zeile. Auf Tablet-Breiten
+  zwei plus eins und auf schmalen Smartphones je eine eigene Zeile.
+- Die Layoutregel arbeitet über `isThreeFieldCompactGroup` generisch für
+  drei gleichartige Text-, Zahlen-, Passwort- oder Select-Felder; sie
+  ist **keine** Simulator-Sonderregel.
+- Explizite `layout.width`-Angaben des Treibers haben Vorrang, und das
+  stets eigene Treiber-Auswahlfeld bleibt auf seiner bisherigen Zeile.
+- Beispiel: Simulator-Startwert, Einspeisungs-Endwert und
+  Änderungsgeschwindigkeit werden gemeinsam dreispaltig dargestellt.
+  Lange Beschriftungen erhalten im dreispaltigen Desktop-Modus einen
+  einheitlichen Labelbereich, damit alle drei Eingabefelder bündig stehen.
+- Konfiguration, Core, Batterie und die produktive GUI bleiben unverändert.

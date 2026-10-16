@@ -524,3 +524,10 @@ Die Funktion ist unabhängig vom Treibernamen.
 Input-Farben/-Rahmen sind zentral im Mantine-Theme hinterlegt.
 Bei leeren Select-Optionen dient der vom Treiber gelieferte
 `help`-Text als Platzhalter des Auswahlfeldes statt als gesonderte Zeile.
+
+
+Auch eine Gruppe aus **drei gleichartigen** Eingabefeldern ohne explizite
+Breitenangaben wird vom gemeinsamen Renderer auf Desktop-Geräten dreispaltig
+angeordnet (Tablet 2+1, Smartphone 1+1+1). Eine explizite Treibervorgabe
+`layout.width` bleibt vorrangig. Dies gilt beispielsweise für die drei
+Simulator-Einstellungen, ohne Treibernamen im Renderer zu hinterlegen.

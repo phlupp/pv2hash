@@ -4,7 +4,7 @@ import {
 } from '@mantine/core';
 import { IconChevronDown, IconChevronRight, IconDeviceFloppy } from '@tabler/icons-react';
 import { QualityBadge } from '../dashboard/components/QualityBadge';
-import { formatSourceValue, isFiveFieldUniformGroup, type FormValues, type SourceField, type SourceModel } from './model';
+import { formatSourceValue, isFiveFieldUniformGroup, isThreeFieldCompactGroup, type FormValues, type SourceField, type SourceModel } from './model';
 
 const columnSpan: Record<string, number> = {
   full: 12, half: 6, third: 4, quarter: 3, auto: 3,
@@ -21,9 +21,10 @@ type FieldRendererProps = {
   disabled: boolean;
   onFieldChange: (field: SourceField, source: SourceModel, value: string | boolean) => void;
   fiveColumnGroup?: boolean;
+  compactThreeGroup?: boolean;
 };
 
-function FieldRenderer({ field, source, values, disabled, onFieldChange, fiveColumnGroup = false }: FieldRendererProps) {
+function FieldRenderer({ field, source, values, disabled, onFieldChange, fiveColumnGroup = false, compactThreeGroup = false }: FieldRendererProps) {
   if (field.type === 'fieldset') {
     return (
       <Grid.Col span={12}>
@@ -60,9 +61,14 @@ function FieldRenderer({ field, source, values, disabled, onFieldChange, fiveCol
   const label = field.unit ? `${common.label} (${field.unit})` : common.label;
 
   return (
-    <Grid.Col span={fiveColumnGroup
-      ? { base: 20, sm: 10, md: 5, lg: 4 }
-      : { base: 12, sm: fieldSpan(field) }}>
+    <Grid.Col
+      className={compactThreeGroup ? 'pv-source-compact-three' : undefined}
+      span={fiveColumnGroup
+        ? { base: 20, sm: 10, md: 5, lg: 4 }
+        : compactThreeGroup
+          ? { base: 12, sm: 6, lg: 4 }
+          : { base: 12, sm: fieldSpan(field) }}
+    >
       {field.type === 'checkbox' ? (
         <Box pt="xs">
           <Checkbox
@@ -198,6 +204,10 @@ export function SourceCard({
                   key={field.name || `group-${i}`}
                   field={field} source={model} values={values}
                   disabled={busy} onFieldChange={onFieldChange}
+                  compactThreeGroup={
+                    (!model.driver_field || i > 0)
+                    && isThreeFieldCompactGroup(model.config_fields)
+                  }
                 />
               ))}
             </Grid>
