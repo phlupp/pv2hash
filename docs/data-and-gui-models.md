@@ -531,3 +531,21 @@ Breitenangaben wird vom gemeinsamen Renderer auf Desktop-Geräten dreispaltig
 angeordnet (Tablet 2+1, Smartphone 1+1+1). Eine explizite Treibervorgabe
 `layout.width` bleibt vorrangig. Dies gilt beispielsweise für die drei
 Simulator-Einstellungen, ohne Treibernamen im Renderer zu hinterlegen.
+
+
+## Miner-GUI in React (Phase 0.6)
+
+Neben dem bereits bestehenden Quellen-GUI-Modell können Miner in GUI 2.0
+über `GET /api/miners/gui` als **JSON-fähiges, passwortbereinigtes
+Metadatenmodell** dargestellt werden. Die Daten entstehen aus
+`_build_miners_view()` und den im Core registrierten
+DriverField-/DriverAction-Schemata: Identität, PV2Hash-Regelung,
+Treiberfelder, geräteseitige Werte und Actions.
+
+`frontend/src/miners/fields.tsx` bildet diese Felder unabhängig
+vom konkreten Treiber auf zentrale Mantine-Eingaben ab;
+`frontend/src/miners/MinerCard.tsx` kapselt die minerbezogene
+Darstellung, Live-Details und getrennte Speichervorgänge.
+Die alte HTML-Minerseite bleibt während der Migration erhalten.
+Verbindlicher Implementierungs- und Teststand:
+`docs/frontend-migration.md`.

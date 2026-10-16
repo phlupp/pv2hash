@@ -368,3 +368,77 @@ Stand: GUI **2.0.0-dev.7** auf testvm01, Core **0.9.4**.
   Lange Beschriftungen erhalten im dreispaltigen Desktop-Modus einen
   einheitlichen Labelbereich, damit alle drei Eingabefelder bündig stehen.
 - Konfiguration, Core, Batterie und die produktive GUI bleiben unverändert.
+
+## Miner in GUI 2.0 (Phase 0.6)
+
+Entwicklungsstand: GUI **2.0.0-dev.10** auf testvm01 mit Core **0.9.4**.
+Die produktive und die Legacy-Minerseite bleiben unverändert.
+
+### Konzeption und Oberfläche
+
+- Ein Miner pro Mantine-Karte über die volle Inhaltsbreite; Status-Badges
+  im kompakten Kopf, Konfiguration und Live-Details einklappbar.
+- Die vorhandenen DriverField- und DriverAction-Schemata bleiben
+  verbindlich. Ein universeller Feldrenderer zeigt Identität,
+  Regelung/Leistungsprofile, Treiberkonfiguration und (sofern unterstützt)
+  geräteseitige Einstellungen. Kein statisch nachgebautes
+  Simulator-/Braiins-/WhatsMiner-/AxeOS-Formular.
+- `frontend/src/miners/model.ts`: gemeinsame TypeScript-Modelle,
+  FormData-Konvertierung und Validierung, inklusive punktgetrennter
+  Feldnamen wie `profiles.p1.power_w`.
+- `frontend/src/miners/fields.tsx`: responsive Mantine-Standardfelder,
+  Treiber-Layoutbreiten, gesperrte read-only/unknown Felder.
+- `frontend/src/miners/MinerCard.tsx`: Minerstatus, separate
+  Konfigurations- und Geräteänderungen, Treiberaktionen mit Bestätigung,
+  strukturierte Details und Tabellen.
+- `frontend/src/pages/Miners.tsx`: Miner-Verzeichnis und
+  driverbasiertes Anlegeformular. Die Seite pollt den Status alle
+  fünf Sekunden und fordert strukturierte Live-Details nur für
+  aufgeklappte Miner an.
+- Vorhandene Passwörter verlassen über den neuen GUI-Endpunkt **niemals**
+  als Klartext den Backendprozess; in bestehenden Formularen bleibt
+  ein leeres Passwort-Feld als „unverändert“ bestehen. Beim Anlegen
+  muss ein erforderliches Passwort tatsächlich neu eingegeben werden.
+- Der WebGUI-Link basiert auf der **gespeicherten** Backend-Adresse,
+  nicht auf einem noch nicht gesicherten Formulareintrag.
+
+### Ergänzte lesende Core-APIs
+
+- **GET `/api/miners/gui`** in `pv2hash/app.py`: explizit ausgewähltes,
+  JSON-fähiges Miner-GUI-Modell aus bereits bestehenden Schemafunktionen;
+  kein Export des vollständigen Miner-Konfigurationsobjekts.
+  Liefert Miner-ID, Name, Treiber, URL, Summary, Feldgruppen, Aktionen,
+  Geräte-Einstellungs-Readbacks und strukturierte Details sowie
+  Treiberkatalog und Grundfelder fürs Anlegeformular.
+  Passwortfelder werden vor der JSON-Serialisierung maskiert.
+- **GET `/api/miners/status?open_ids=...`** ergänzt die bestehende
+  Live-Antwort für geöffnete Miner um `details` als JSON.
+  Das bisherige `details_html` bleibt für die Legacy-GUI erhalten.
+- Bestehende Core-Schreibendpunkte unverändert genutzt:
+  `POST /api/miners/add`,
+  `POST /api/miner/{id}/config`,
+  `POST /api/miner/{id}/device-settings`,
+  `POST /api/miner/{id}/action` und
+  `POST /api/miner/{id}/delete`.
+- Änderungen am Controller, an Miner-Treibern und am Datenbankschema:
+  **keine**.
+
+### Testvm01 / sichere Entwicklungsbereitstellung
+
+- Der Core auf testvm01 wurde nach Vergleich zum offiziellen Stand
+  ausschließlich für die beiden lesenden Miner-API-Erweiterungen
+  aktualisiert; der Dienst `pv2hash-dev.service` wurde dafür neu
+  gestartet. Die Änderungen bleiben im GUI-Draft-PR und werden
+  **nicht** direkt als offizielles Core-Release ausgegeben.
+- Die unveränderte Basisdatei des Test-Cores ist separat unter
+  `/home/chatgpt/pv2hash-core-before-miner-api.py` gesichert;
+  Code-Rückfall benötigt Neuladen des Entwicklungsdienstes.
+- Browser-Tests Desktop und Mobil; Simulator mit Profilen, Checkboxen,
+  Pool-Konfiguration, Thermal- und anderen strukturierten Details.
+  Kein horizontaler Seitenscroll bei 320/390 Pixeln, keine JS-Fehler.
+- `npm test`: 14 Tests bestanden, `npm run build`: erfolgreich.
+- **Noch keine schreibenden Geräteaktionen getestet.** Anlegen,
+  Speichern, Löschen und Anwenden von Geräteeinstellungen sind
+  implementiert, aber müssen vor Produktionsfreigabe mit einem
+  geeigneten Simulator-Test und kontrollierter Geräteumgebung
+  Ende-zu-Ende geprüft werden. Keine produktiven Miner verändert.

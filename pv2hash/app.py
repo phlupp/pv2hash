@@ -2133,6 +2133,8 @@ def _build_miners_live_payload(open_ids: set[str] | None = None) -> dict:
                 logger.exception("Failed to refresh miner details for live payload: %s", miner_id)
                 merged["details"] = {}
             item["details_html"] = _render_miner_details_html(merged)
+            # Structured details for GUI 2.0; legacy HTML consumers remain unchanged.
+            item["details"] = merged["details"]
 
         miners_payload.append(item)
 
@@ -3638,6 +3640,57 @@ def _build_ui_versionstatus_payload() -> dict[str, Any]:
 @app.get("/api/ui/versionstatus")
 async def api_ui_versionstatus():
     return JSONResponse(content=jsonable_encoder(_build_ui_versionstatus_payload()))
+
+
+def _public_miner_gui_fields(fields: list[dict]) -> list[dict]:
+    """Expose driver fields to the browser without disclosing stored passwords."""
+    result = deepcopy(fields)
+    for field in result:
+        if field.get("type") == "password":
+            field["value"] = ""
+            # Blank password is a valid no-change for existing miner config.
+    return result
+
+
+def _build_miners_gui_payload() -> dict[str, Any]:
+    """Read-only, driver-defined GUI schema shared with the legacy miner page.
+
+    Explicit allowlist: never serialize the full miner configuration or secrets.
+    Device readbacks and live detail sections retain the existing GUI contract.
+    """
+    views = _build_miners_view()
+    return {
+        "status": "ok",
+        "miners": [
+            {
+                "id": view.get("id"),
+                "name": view.get("name"),
+                "driver": view.get("driver"),
+                "driver_label": _resolve_miner_driver_label(view.get("driver")),
+                "web_gui_url": _build_miner_gui_url(view.get("host")),
+                "supports_gui_schema": view.get("supports_gui_schema", False),
+                "summary": _format_miner_summary_for_api(view.get("summary") or {}),
+                "control_enabled": bool((view.get("summary") or {}).get("control_enabled")),
+                "identity_fields": _public_miner_gui_fields(view.get("identity_fields") or []),
+                "control_fields": _public_miner_gui_fields(view.get("control_fields") or []),
+                "driver_fields": _public_miner_gui_fields(view.get("driver_fields") or []),
+                "device_settings_fields": _public_miner_gui_fields(view.get("device_settings_fields") or []),
+                "action_fields": view.get("action_fields") or [],
+                "details": view.get("details") or {},
+            }
+            for view in views
+        ],
+        "driver_catalog": [
+            {**driver, "basic_fields": _public_miner_gui_fields(driver.get("basic_fields") or [])}
+            for driver in _build_driver_catalog()
+        ],
+        "core_identity_basic_fields": _public_miner_gui_fields(_core_identity_basic_fields()),
+    }
+
+
+@app.get("/api/miners/gui")
+async def api_miners_gui():
+    return JSONResponse(content=jsonable_encoder(_build_miners_gui_payload()))
 
 
 @app.get("/api/miners/status")

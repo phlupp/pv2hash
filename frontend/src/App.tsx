@@ -16,6 +16,7 @@ import { version as guiVersion } from '../package.json';
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 const DataLogger = lazy(() => import('./pages/DataLogger').then(module => ({ default: module.DataLogger })));
 const Measurements = lazy(() => import('./pages/Measurements').then(module => ({ default: module.Measurements })));
+const Miners = lazy(() => import('./pages/Miners').then(module => ({ default: module.Miners })));
 const Placeholder = lazy(() => import('./pages/Placeholder').then((module) => ({ default: module.Placeholder })));
 
 const navGroups = [
@@ -145,7 +146,7 @@ export function App() {
           <Route path="/messungen" element={<Measurements />} />
           <Route path="/datalogger" element={<DataLogger />} />
           <Route path="/prognose" element={<Placeholder title="Prognose" description="Vorbereitung der Wetter- und PV-Ertragsprognosen." future />} />
-          <Route path="/miner" element={<Placeholder title="Miner" description="Geräte, Leistungsprofile und Minerstatus." />} />
+          <Route path="/miner" element={<Miners />} />
           <Route path="/sockets" element={<Placeholder title="Sockets" description="Steckdosen und schaltbare Geräte." />} />
           <Route path="/optimierung" element={<Placeholder title="Optimierung" description="Performance-Kennlinien und effiziente Minerprofile." future />} />
           <Route path="/einstellungen" element={<Placeholder title="Einstellungen" description="Zentrale Konfiguration der PV2Hash-Instanz." />} />
