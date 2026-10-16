@@ -125,3 +125,12 @@ SemVer allein garantiert nicht die Kompatibilität zum Backend.
 - Der Fortschrittsbalken erhält Mantine-`sm` statt `xs` (etwas höher), in ruhigem Akzent-Violett.
 - Warten auf das Mindest-Schaltintervall ist ein normaler Zustand, **keine Warnung**. Orange/Rot bleibt echten Warnungen und Fehlern vorbehalten.
 - Verfügbare Controller-API-Daten bleiben unangetastet. Die letzte Regleraktion und Ereignismetadaten bleiben sichtbar.
+
+
+### Countdown und Miner-Tabelle (GUI 2.0.0-dev.4)
+
+- Der neutrale Countdown-Badge trennt die Restzeit-Ziffern (Tabellenziffern, größer) vom kleineren, kleingeschriebenen Einheitssymbol `s`; er bleibt ohne Alarmfarbe. Freigabe-/Bereit-Zustände werden als gewöhnlicher Badge-Text angezeigt.
+- Der Minername wird nur für echte Miner mit einer von der Backend-API gelieferten, sicheren HTTP(S)-WebGUI-URL zum externen Link (`target=_blank`, `rel=noopener noreferrer`); kein IP-Text als zusätzliche Spalte. Ein Simulator-Treiber erhält auch bei konfigurierter Test-IP **keinen** Link.
+- Die WebGUI-Link-Prüfung ist in `frontend/src/dashboard/minerLink.ts` gekapselt und durch `npm test` abgesichert (echte Geräte, Simulator und ungültige URL).
+- Tabellen-Spalte Profil auf etwa 50–54 px begrenzt und Mindest-Tabellenbreite auf 420 px gesenkt, ohne die Statusanzeige umzubauen. Bei sehr schmalen Displays bleibt die Tabelle intern horizontal scrollbar.
+- Anpassungen sind reine GUI-Änderungen. Bestehende API, Regler und Produktionsinstallation bleiben unverändert.

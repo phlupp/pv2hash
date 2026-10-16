@@ -22,6 +22,7 @@ export interface StatusResponse {
   miners?: Array<{
     id: string;
     name?: string;
+    driver?: string;
     power_w?: number | null;
     current_hashrate_ghs?: number | null;
     reachable?: boolean;
@@ -35,6 +36,7 @@ export interface DashboardMiner {
   name: string;
   priority: number;
   host: string;
+  host_gui_url?: string | null;
   profile: string;
   power_text: string;
   hashrate_text: string;

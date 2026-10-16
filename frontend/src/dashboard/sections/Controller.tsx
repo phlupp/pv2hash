@@ -5,6 +5,7 @@ import type { DashboardContext } from '../types';
 
 function ControllerSection({ context }: { context: DashboardContext }) {
   const data = context.live?.cards.controller;
+  const seconds = /^(\d+)s$/i.exec(data?.ring_inner?.trim() ?? '');
   const progress = typeof data?.ring_progress === 'number'
     ? Math.max(0, Math.min(100, data.ring_progress * 100))
     : 100;
@@ -15,8 +16,19 @@ function ControllerSection({ context }: { context: DashboardContext }) {
         <Stack gap="xs">
           <Group justify="space-between" align="center" gap="xs">
             <Text fw={600} size="sm">{data?.summary || 'Reglerstatus wird geladen'}</Text>
-            <Badge size="xs" color="gray" variant="light">
-              {data?.ring_inner || '—'}
+            <Badge
+              size="sm"
+              color="gray"
+              variant="light"
+              style={{ textTransform: 'none', flexShrink: 0 }}
+              aria-label={seconds ? `Noch ${seconds[1]} Sekunden bis zur nächsten möglichen Umschaltung` : data?.ring_hint ?? 'Status des Schaltintervalls'}
+            >
+              {seconds ? (
+                <>
+                  <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{seconds[1]}</span>
+                  <span style={{ fontSize: 10, fontWeight: 500, marginLeft: 3, opacity: 0.7, textTransform: 'none' }}>s</span>
+                </>
+              ) : (data?.ring_inner || '—')}
             </Badge>
           </Group>
           <Text size="xs" c="dimmed">{data?.last_switch || 'Keine Regleraktion verfügbar'}</Text>
