@@ -141,3 +141,50 @@ SemVer allein garantiert nicht die Kompatibilität zum Backend.
 - Auf schmalen iPhone-Displays bleibt die Miner-Tabelle horizontal scrollbar; der Scrollbalken soll die letzte Datenzeile nicht überlagern.
 - Dafür die native Mantine-`ScrollArea` mit `scrollbars="x"` und `offsetScrollbars="x"` verwenden. Der horizontale Scrollbalken bekommt einen konstanten Platz unter der Tabelle, auch wenn er nur beim Wischen kurz sichtbar ist. Das verhindert Überlagerungen und Layoutsprünge ohne künstliche, semantisch leere `Table.Tfoot`-Zeile.
 - Der Minername öffnet die im Backend vorhandene WebGUI-URL unabhängig vom Treibertyp in einem neuen Tab (auch Simulator). Nur gültige HTTP(S)-URLs ohne eingebettete Zugangsdaten werden als Links angezeigt.
+
+
+## Core-Abgleich auf testvm01 (2026-10-16)
+
+Die GUI 2.0 bleibt unabhängig vom PV2Hash-Core versioniert. Für die
+Dashboard-Abnahme wurde der laufende Entwicklungs-Core von 0.8.2 auf das
+**offizielle Release 0.9.4** aktualisiert.
+
+- Dienst: `pv2hash-dev.service`, Port 8000; die GUI-Vite-Vorschau bleibt
+  unabhängig auf Port 5173 und verwendet den Backend-Proxy auf Port 8000.
+- Bisheriger Entwicklungsstand: `/srv/pv2hash-pools-stage`, Version 0.8.2.
+  Dieses Staging-Verzeichnis wurde bewusst **nicht überschrieben**.
+- Neuer Core: `/srv/pv2hash-gui2-core`, geklont aus Git-Tag `v0.9.4`,
+  Commit `4918a57cc7e01949ca7963253f789d57db00f9a7`.
+- Die neue Core-Kopie verwendet dieselbe bestehende Python-Virtualenv über
+  `.venv -> /srv/pv2hash/.venv` und dieselben Daten über
+  `data -> /srv/pv2hash/data`.
+- Der bestehende systemd-Drop-in `90-exporter-metrics.conf` bleibt erhalten.
+  Der neu angelegte `95-gui2-core.conf` setzt ausschließlich
+  `WorkingDirectory=/srv/pv2hash-gui2-core`.
+- Vorherige Sicherung: `/srv/pv2hash-update-backups/gui2-core-before-v0.9.4-20261016T235427/`.
+  Enthält Konfiguration, Instanzkennung, Dienst-/Drop-in-Dateien sowie
+  konsistente SQLite-Sicherungen von `history.sqlite` und `exporters.sqlite`.
+  Das Sicherungsverzeichnis ist nur für den Administrator zugänglich;
+  Inhalte und Zugangsdaten dürfen nicht in GitHub eingecheckt werden.
+- Validiert: Git-Tag-Commit, Python-Kompilierung, pip-Abhängigkeiten,
+  Konfigurationsmigration an isolierter Kopie, aktiver Dienst, API-Version
+  0.9.4, DataLogger-Historie/Integrität, aktive Batterie-Quelle inklusive
+  LIVE-Qualität, unveränderte Batterie-/Netz-/Miner-/Exporter-Einstellungen,
+  GUI-2.0-Anbindung und Browserkonsole.
+
+### Rückfallweg (nur falls erforderlich)
+
+Zuerst prüfen, ob das ältere Backend das inzwischen möglicherweise
+fortgeschriebene Datenbankschema noch lesen kann. Den Codepfad kann man durch
+Entfernen des neuen systemd-Drop-ins wieder auf den vorherigen Stage-Stand setzen:
+
+```bash
+sudo rm /etc/systemd/system/pv2hash-dev.service.d/95-gui2-core.conf
+sudo systemctl daemon-reload
+sudo systemctl restart pv2hash-dev.service
+```
+
+**Wichtig:** Der Code-Rollback ersetzt keine Datenbankmigration rückwärts.
+Die vor dem Wechsel angelegte Sicherung ist separat aufzubewahren und darf
+nicht unbedacht über inzwischen gewachsene Live-Daten zurückgespielt werden.
+Der produktive Hashpi wurde durch diese Arbeiten nicht verändert.
