@@ -105,3 +105,16 @@ Die **GUI-Version** und die **Backend-/PV2Hash-Core-Version** bleiben getrennte
 Angaben, da Änderungen der Oberfläche nicht immer ein Core-Release benötigen.
 Zukünftige Release-Builds müssen festhalten, welche API-Versionen sie unterstützen;
 SemVer allein garantiert nicht die Kompatibilität zum Backend.
+
+
+## Messqualität direkt an Energiekacheln (Phase 0.3)
+
+- **Quellen- und Qualitätsstatus gehören zur jeweiligen Messung**, nicht in die Energie-Bereichsüberschrift.
+- Jeder Energie-Kachelkopf darf einen kleinen Status-Badge erhalten. Quellname und technischer Rohstatus sind nur über den Tooltip abrufbar; die Kachel selbst zeigt den Messwert und seine Datenqualität.
+- Die wiederverwendbare Komponente `frontend/src/dashboard/components/QualityBadge.tsx` übersetzt z. B. `live` → LIVE, `simulated` → SIMULIERT, `stale` → VERALTET, `offline` → OFFLINE.
+- Netzleistung: `snapshot.quality` (Quelle aus dem bestehenden Dashboard-Endpunkt).
+- Batterie: **eigenständig** `snapshot.battery_quality`; die Batterie übernimmt nie den Netzstatus.
+- PV-Leistung: `snapshot.pv_power_w` kann bereits dargestellt werden, aber das aktuelle Modell liefert **noch keine eigene PV-Qualität oder PV-Quellenrolle**. Deshalb steht ohne PV-Wert KEIN WERT, mit Wert aber ohne Qualitätsinfo OHNE STATUS. Keinesfalls wird `snapshot.quality` als angebliche PV-Qualität wiederverwendet.
+- Der Badge kennzeichnet die Qualität/Verfügbarkeit des gemeldeten **Messwerts**, nicht automatisch eine gemessene Netzwerkverbindungsqualität.
+- Mobile Darstellung: Bei nur zwei Kacheln nebeneinander darf das vollständige Badge auf eine zweite Zeile umbrechen. Informationsgehalt geht vor unverständlicher Abkürzung; horizontales Scrollen ist nicht erlaubt.
+- Mit späterer separater PV-Source: zuerst Datenmodell/API um `pv_quality` und echte Quellenidentität ergänzen, dann den Badge anbinden. Keine Scheinwerte.

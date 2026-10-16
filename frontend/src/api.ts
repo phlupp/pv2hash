@@ -1,5 +1,9 @@
 export interface StatusResponse {
-  config?: { battery?: { enabled?: boolean } };
+  config?: {
+    source?: { name?: string };
+    battery?: { enabled?: boolean; name?: string };
+    pv?: { name?: string };
+  };
   snapshot?: {
     grid_power_w?: number | null;
     pv_power_w?: number | null;
@@ -10,6 +14,7 @@ export interface StatusResponse {
     battery_is_charging?: boolean;
     battery_is_discharging?: boolean;
     battery_is_active?: boolean;
+    battery_quality?: string | null;
     source?: string | null;
     quality?: string | null;
     updated_at?: string | null;
