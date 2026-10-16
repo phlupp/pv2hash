@@ -15,6 +15,7 @@ import { getStatus, getVersion } from './api';
 import { version as guiVersion } from '../package.json';
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 const DataLogger = lazy(() => import('./pages/DataLogger').then(module => ({ default: module.DataLogger })));
+const Measurements = lazy(() => import('./pages/Measurements').then(module => ({ default: module.Measurements })));
 const Placeholder = lazy(() => import('./pages/Placeholder').then((module) => ({ default: module.Placeholder })));
 
 const navGroups = [
@@ -141,7 +142,7 @@ export function App() {
         <Suspense fallback={<Center p="xl"><Loader color="violet" /></Center>}>
           <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/messungen" element={<Placeholder title="Messungen" description="Quellen, Netz und Batteriesysteme an einer Stelle." />} />
+          <Route path="/messungen" element={<Measurements />} />
           <Route path="/datalogger" element={<DataLogger />} />
           <Route path="/prognose" element={<Placeholder title="Prognose" description="Vorbereitung der Wetter- und PV-Ertragsprognosen." future />} />
           <Route path="/miner" element={<Placeholder title="Miner" description="Geräte, Leistungsprofile und Minerstatus." />} />

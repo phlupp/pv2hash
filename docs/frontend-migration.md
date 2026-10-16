@@ -13,8 +13,8 @@ Das bestehende Python-FastAPI-Backend sowie Controller, Datenmodelle und Treiber
 - TanStack Query für wiederverwendbare API-Abfragen.
 - Dashboard liest `GET /api/status` und `GET /api/ui/versionstatus` aus dem bestehenden Backend.
 - Eine erste ECharts-Zeitreihen-Komponente prototypisch angebunden.
-- Alle weiteren Seiten sind ehrlich als Platzhalter markiert.
-- **Keine schreibenden APIs. Keine Änderung am Regler. Kein Produktionsdeployment.**
+- Dashboard, DataLogger und Messungen laufen als React-Seiten; die übrigen noch nicht migrierten Seiten sind ehrlich als Platzhalter markiert.
+- Dashboard und DataLogger sind lesend; Messungen stellt die vorhandenen schreibenden Source-Endpunkte mit Validierung und Rückmeldungen bereit. Noch keine tatsächlichen Konfigurationen per neuer GUI gespeichert. Keine Änderung am Regler. Kein Produktionsdeployment.
 
 ## Development auf testvm01
 Isolierter Repository-Klon: `/home/chatgpt/pv2hash-ui-next`, Branch `feat/react-mantine-shell`.
@@ -259,3 +259,66 @@ Für die erste Vorschau wurde der freigegebene Core 0.9.4 **nicht gepatcht**.
   mit echten Core-0.9.4-Daten geprüft.
 - Offene visuelle Abnahme: Mobile Safari und die Detailgestaltung der
   Chartachsen auf dem produktiven Vergleichsgerät. Bei Bedarf Feinschliff.
+
+## Messungen als treibergenerierte GUI (Phase 0.5)
+
+Stand: GUI **2.0.0-dev.7** auf testvm01, Core **0.9.4**.
+
+### Verbindliches Layout
+
+- Jede Messquelle erscheint als eigene **Karte über die gesamte Inhaltsbreite**,
+  untereinander statt in zwei Desktop-Spalten, auch auf Mobilgeräten.
+- Eine Karte zeigt Quelle/Treiber, einen Messqualitäts-Badge sowie kompakte
+  Statuswerte. Die Konfiguration wird auf Wunsch ausgeklappt.
+- Treiber dürfen beliebig viele Statusfelder, Detailgruppen, Felder,
+  Fieldsets und Aktionen über das vorhandene gemeinsame GUI-Modell liefern.
+  Der React-Renderer in `frontend/src/sources/SourceCard.tsx` verarbeitet
+  das Schema generisch – **keine React-Sonderkomponenten für SMA, Simulator
+  oder Modbus**. Alle Eingabefelder und Abstände sind Mantine-Komponenten.
+- Für zukünftige Quellenrollen wie PV muss das Backend erst ein korrektes
+  eigenes Quellenmodell inklusive Rolle/Qualitätsstatus liefern. Sobald
+  ein Modell unter `gui_models` auftaucht, wird es in der React-Seite
+  automatisch als weiterer Messbereich angezeigt. Keine vorgetäuschte
+  PV-Messung bis dahin.
+
+### Integration und Verhaltensregeln
+
+- `GET /api/sources/status`: Live-Anzeige aller vom Core gelieferten
+  `gui_models` alle 5 Sekunden, ohne offene Formulare neu aufzubauen.
+- `POST /api/sources/gui/preview`: Wechsel des Treiberprofils;
+  GUI-Felder werden aus dem aktualisierten Modell neu aufgebaut.
+- `POST /api/sources/action`: treibereigene Aktionen
+  (`action_on_change` und Aktionsbuttons, z. B. SMA-Gerätesuche,
+  Batterie-Modbus-Profilauswahl). Die API liefert aktualisierte GUI-Modelle.
+- `POST /api/sources/config`: bewusste Speicherung der in der
+  gesamten Messungen-Seite bearbeiteten Felder. Vorher erfolgt
+  schema-basierte Pflichtfeld-/Zahlenvalidierung.
+- Backend-Formularnamen bleiben unverändert; boolesche Checkboxwerte
+  werden wie im alten HTML-Formular über `on` abgebildet.
+- Der Entwurf und die Live-Anzeige sind getrennte Zustände.
+  Live-Polling überschreibt **niemals** gerade bearbeitete Felder.
+  Eine ungespeicherte Treiberwechsel-Vorschau erhält den neutralen
+  Status-Badge **VORSCHAU**, nicht den echten Messqualitätsstatus.
+- Ungespeicherte Änderungen werden angezeigt und können verworfen
+  werden. Aktionen sind gegen Doppel-Ausführung abgesichert;
+  Bestätigungen/Fehlermeldungen erfolgen zentral über Notifications.
+- Das geteilte QualityBadge kennt unter anderem LIVE, SIMULIERT,
+  DEAKTIVIERT und OFFLINE. Quellname bleibt als Untertitel bzw. Tooltip
+  erreichbar.
+
+### Teststand und Einschränkungen
+
+- `npm run build` sowie `npm test` erfolgreich.
+- Prüfung auf 320, 390 und 1280 px: Karten untereinander,
+  ohne horizontale Seitenüberbreite. Netzwert und Batteriestatus LIVE.
+- Die Entwicklungsvorschau wechselte simulator → SMA und zeigte
+  alle SMA-Konfigurationsfelder und die Geräte-Suche via
+  `/api/sources/gui/preview`. Der unveränderte laufende Simulator
+  wurde im Core und in der Konfigurationsdatei verifiziert.
+- Fehlende SMA-Seriennummer blockiert einen Speicherversuch **vor** dem
+  API-Aufruf, anschließend mit Verwerfen wieder auf Simulator gesetzt.
+- Treiberaktionen wurden aus Sicherheitsgründen nicht gegen die
+  echte Batterie oder Geräte ausgeführt; der tatsächliche Speicherweg
+  und Batterie-Modbus-Profilwechsel müssen vor Produktionsfreigabe
+  noch mit geeigneten Testdaten vollständig Ende-zu-Ende geprüft werden.
+- Die Legacy-GUI und sämtliche Core-/Treiberdateien bleiben unverändert.

@@ -13,6 +13,7 @@ const qualityStates: Record<string, QualityDisplay> = {
   stale: { label: 'VERALTET', color: 'yellow' },
   degraded: { label: 'GESTÖRT', color: 'yellow' },
   no_data: { label: 'KEINE DATEN', color: 'gray' },
+  disabled: { label: 'DEAKTIVIERT', color: 'gray' },
   offline: { label: 'OFFLINE', color: 'red' },
   unavailable: { label: 'OFFLINE', color: 'red' },
   error: { label: 'FEHLER', color: 'red' },

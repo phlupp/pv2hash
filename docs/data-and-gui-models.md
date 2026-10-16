@@ -488,3 +488,24 @@ Profile loading rules:
 - Duplicate profile IDs are not hidden; entries with duplicate IDs include the ID in the label so the conflict is visible.
 - Invalid YAML/profile files are ignored, logged as a warning, and exposed to the GUI as a warning toast.
 - The profile list is loaded on demand for GUI rendering and profile actions, not during normal Modbus polling.
+
+
+## GUI 2.0 Renderer (React/Mantine)
+
+Das gemeinsame GUI-Modell wird in GUI 2.0 durch
+`frontend/src/sources/SourceCard.tsx` für jede von
+`GET /api/sources/status` gelieferte Source gerendert.
+Quelle und Batterie stehen als volle, untereinanderliegende Karten.
+Eine künftige PV-Source kann eine zusätzliche Karte beisteuern, sobald
+der Core ihre Rollen-/Driver-Schemas und ihren eigenen Qualitätsstatus liefert.
+
+Der generische Feldrenderer unterstützt Text, Zahlen, Passwort,
+Checkbox, Select, Hidden und verschachtelte Fieldsets sowie responsive
+`layout.width`-Angaben. Neue Feldtypen werden explizit als nicht
+unterstützt markiert, anstatt stillschweigend als Text behandelt.
+Die Formularvalidierung, API-Vorschau, Source-Aktionen und Speicherung
+sind zentrale Funktionen. Während Live-Statuswerte aktualisiert werden,
+bleiben ungespeicherte Formulardaten unverändert.
+
+Der komplette Implementierungs- und Teststand ist in
+`docs/frontend-migration.md` dokumentiert.
