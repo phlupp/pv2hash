@@ -63,3 +63,15 @@ an die unveränderte FastAPI-Testinstanz auf `127.0.0.1:8000` weitergeleitet.
 - Diagramme verwenden dieselben Mantine-Cards und eine wiederverwendbare ECharts-Komponente.
 - Mehr Informationsdichte bedeutet nicht kleinere Bedienelemente: Mobile Navigation und Touch-Ziele bleiben gut erreichbar.
 - Vor der späteren produktiven Freigabe die Komponentenvisuell in beiden Viewports abnehmen.
+
+## Verbindlicher GUI-2.0-Designstandard
+
+Freigegeben am 2026-10-16 als Basis für die weitere GUI-Migration:
+
+- **GUI 2.0** bezeichnet die neue Oberflächengeneration; das ist keine eigene Backend- oder Release-Versionsnummer.
+- Die seitliche Navigation bleibt auf Desktop-Geräten erhalten, auf Mobilgeräten als ausklappbares Menü. Navigationseinträge werden in Übersicht, Energie, Mining und System gruppiert.
+- **Kompakte Informationsdichte** statt großer dekorativer Flächen: native Mantine-Komponenten, kleine Radien, dezente Rahmen, wenige Schatten, lesbare Typografie und nutzbarer Platz für Messdaten.
+- Künftige Seiten (insbesondere DataLogger, Prognose, Optimierung) folgen den zentralen Mantine-Komponenten und dem gemeinsamen Layout; keine individuell nachgebauten Kachel-Designs.
+- **Farben sind keine feste Produktentscheidung:** das aktuelle dunkle Schema mit violettem Akzent bleibt zunächst erhalten; spätere Farben/Dark-Light-Varianten können über zentrale Theme-Tokens umgestellt werden.
+- Eine Farbumstellung soll **nicht** manuell in einzelnen Seiten stattfinden. Feste Farbwerte in CSS, ECharts, Icons und Statusdarstellungen müssen dafür sukzessive in zentrale semantische Tokens überführt werden. Statusfarben behalten unabhängig vom gewählten Akzent eine eindeutige Bedeutung.
+- Keine Änderungen an der produktiven Steuerung oder dem API-Verhalten durch diese Designfestlegung.
