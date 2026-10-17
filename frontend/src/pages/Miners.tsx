@@ -5,7 +5,7 @@ import {
 import { IconAlertCircle, IconPlus, IconRefresh } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { addMiner, loadMinerGui, loadMinerLive } from '../miners/api';
+import { addMiner, loadMinerGui, loadMinerLive, loadMinerSocketAssignments } from '../miners/api';
 import { MinerCard } from '../miners/MinerCard';
 import { MinerFields } from '../miners/fields';
 import { fieldsToValues, formForFields, validateFields, type MinerValues } from '../miners/model';
@@ -14,6 +14,8 @@ export function Miners() {
   const client=useQueryClient();
   const [expandedIds,setExpandedIds]=useState<string[]>([]);
   const gui=useQuery({queryKey:['miners','gui'],queryFn:loadMinerGui,staleTime:10_000});
+  const socketAssignments=useQuery({queryKey:['miners','socket-assignment'],queryFn:loadMinerSocketAssignments,
+    refetchInterval:5000,refetchIntervalInBackground:false});
   const live=useQuery({
     queryKey:['miners','status',expandedIds],queryFn:()=>loadMinerLive(expandedIds),
     refetchInterval:5_000,refetchIntervalInBackground:false,
@@ -46,6 +48,7 @@ export function Miners() {
     await Promise.all([
       client.invalidateQueries({queryKey:['miners','gui']}),
       client.invalidateQueries({queryKey:['miners','status']}),
+      client.invalidateQueries({queryKey:['miners','socket-assignment']}),
       client.invalidateQueries({queryKey:['dashboard']}),
     ]);
   }
@@ -81,8 +84,8 @@ export function Miners() {
           onClick={()=>void refresh()}>Aktualisieren</Button>
       </Group>
     </Group>
-    {(gui.error||live.error)&&<Alert color="red" title="Miner-Daten nicht erreichbar"
-      icon={<IconAlertCircle size={16}/>}>{gui.error?.message||live.error?.message}</Alert>}
+    {(gui.error||live.error||socketAssignments.error)&&<Alert color="red" title="Miner-Daten nicht erreichbar"
+      icon={<IconAlertCircle size={16}/>}>{gui.error?.message||live.error?.message||socketAssignments.error?.message}</Alert>}
 
     <Card>
       {!creating ? <Group justify="space-between">
@@ -114,6 +117,7 @@ export function Miners() {
       <Stack gap="sm">
         {(gui.data?.miners??[]).map(miner=><MinerCard
           key={miner.id} model={miner} live={liveById.get(miner.id)}
+          socketAssignment={socketAssignments.data?.miners[miner.id]}
           liveDetails={live.data?.miners.find(item=>item.id===miner.id)?.details}
           expanded={expandedIds.includes(miner.id)}
           onExpandedChange={next=>setExpandedIds(prev=>next

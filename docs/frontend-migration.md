@@ -1066,3 +1066,35 @@ unveränderlich**, nur zukünftige Punkte werden neu berechnet.
 Technische Beschreibung, Datenbank-Schema, Aktualisierung und Grenzen:
 `docs/forecast-prototype.md`. Keine Mining-Regelungsanbindung und
 keine Aktivierung ohne bewusstes Konfigurieren der Anlage.
+
+
+## UI-Bestandspflege nach r2026.10.17.2 – Instanzmarke und Miner-Sockets
+
+- Das obere Label unter dem PV2Hash-Logo zeigt wieder den aus `system.instance_name`
+  gespeicherten Instanznamen (mit Fallback „Mining-Energiemanager“). Der
+  Browser-Titel folgt live dem Schema `PV2Hash - <Instanzname>`, auch nach
+  Änderungen auf der Einstellungsseite. Gemeinsame Datenquelle ist das
+  bestehende `GET /api/settings/model` (React-Query-Cache wird wiederverwendet).
+- Die React-HTML-Seite bindet das vorhandene PNG-/ICO-Favicon sowie das
+  Apple-Touch-Icon ein. Zusätzlich beantwortet der Backend-Handler `GET
+  /favicon.ico` direkt. Die Vite-Entwicklungsumgebung proxyt ihre
+  `/ui-next/static/`-Links auf `/static/`; das öffentliche Build nutzt
+  weiterhin die bestehenden `/static/`-Routen.
+- Die Miner-GUI zeigt unter „Stromversorgung / Socket“ wieder die bereits
+  vorhandenen Backend-Daten aus `GET /api/miners/socket-assignment/model`.
+  Zuordnung, Nur-Messen/Schalten, Ein-/Ausschaltverzögerungen, aktuelle
+  Leistung, Tasmota-Energiezähler sowie Workflow-Countdowns stehen zur
+  Verfügung. Es gibt keine zweite Config- oder API-Implementierung.
+- **Datenverlustkorrektur:** Die vorhandene Backend-Wrapper-Funktion darf
+  eine gespeicherte Miner-Socket-Beziehung nicht entfernen, wenn ein alter
+  Client oder die GUI gewöhnliche Miner-Felder ohne `socket.socket_id`
+  sendet. Das explizite Entfernen wird weiterhin über `socket.socket_id=''`
+  unterstützt. Nur geänderte Socket-Zuordnungen werden in Miner-POSTs
+  mitgeschickt. Backend- und Frontend-Regressionstests prüfen dies.
+- Eine bereits in einer produktiven Konfiguration gelöschte Zuordnung
+  wird aus Sicherheitsgründen nicht stillschweigend wiederhergestellt;
+  das Zuordnen/Schalten muss bewusst gespeichert werden.
+- Getestet auf dem separaten Dev-Frontend-Port 5176; für eine
+  reproduzierbare Darstellungsprüfung mit Zählern wurde nur **im Browser**
+  ein klar gekennzeichnetes Test-Tasmota-Modell simuliert. Keine
+  Produktions- oder Dev-Miner-Konfiguration wurde dafür verändert.
