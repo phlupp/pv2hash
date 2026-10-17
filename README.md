@@ -14,7 +14,7 @@ PV2Hash läuft als Webanwendung auf Linux-Systemen wie Debian und ist modular au
 
 PV2Hash hat den Stand einer **ersten voll funktionsfähigen Version** erreicht.
 
-Der aktuelle veröffentlichte Stand wird über den öffentlichen PV2Hash-Distributionsendpunkt `https://get.pv2hash.xyz` bereitgestellt.
+Der jeweils aktuelle veröffentlichte Stand wird über die [GitHub Releases](https://github.com/phlupp/pv2hash/releases/latest) verteilt. Der frühere Distributionsendpunkt `get.pv2hash.xyz` ist außer Betrieb.
 
 Bereits umgesetzt sind unter anderem:
 
@@ -26,7 +26,7 @@ Bereits umgesetzt sind unter anderem:
 - native Braiins gRPC-Anbindung für einen echten Miner
 - Weboberfläche für Dashboard, Quellen, Miner, Einstellungen und System
 - Logging mit Datei-Log, Ringbuffer und Web-Konsole
-- Release-Builds mit Veröffentlichung auf `get.pv2hash.xyz` als Grundlage für Installer und Self-Update
+- Release-Builds mit GitHub-Veröffentlichung als Grundlage für Installer und Self-Update
 
 ---
 

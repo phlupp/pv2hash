@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import re
 import os
 import platform
 import shutil
@@ -24,6 +26,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from pv2hash.config.store import CONFIG_PATH, load_config, save_config
+from pv2hash.forecast.store import ForecastStore
+from pv2hash.forecast.service import (
+    settings_model as forecast_settings_model,
+    apply_settings as apply_forecast_settings,
+    update as update_forecast,
+    actual_day as forecast_actual_day,
+)
+from pv2hash.build_identity import read_build_identity
 from pv2hash.identity import load_instance_identity
 from pv2hash.datalogger import DataLogger, normalize_datalogger_config
 from pv2hash.exporters import ExportSource
@@ -65,24 +75,9 @@ app.mount("/static", StaticFiles(directory="pv2hash/static"), name="static")
 GUI_DIST_DIR = Path(__file__).resolve().parent / "gui"
 GUI_INDEX_FILE = GUI_DIST_DIR / "index.html"
 GUI_ASSETS_DIR = GUI_DIST_DIR / "assets"
-BUILD_INFO_FILE = Path(__file__).resolve().parent / "build_info.json"
-
-
 def _read_build_info() -> dict[str, Any]:
-    try:
-        payload = json.loads(BUILD_INFO_FILE.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError("invalid release metadata")
-        return {
-            "status": "ok",
-            "release_id": str(payload.get("release_id") or "") or None,
-            "core_version": str(payload.get("core_version") or APP_VERSION_FULL),
-            "gui_version": str(payload.get("gui_version") or "") or None,
-        }
-    except (OSError, ValueError, TypeError):
-        return {"status": "ok", "release_id": None,
-                "core_version": APP_VERSION_FULL, "gui_version": None}
-
+    """Runtime identity shared by API and InfluxDB exporter."""
+    return {"status": "ok", **read_build_identity()}
 
 @app.get("/api/system/build-info")
 async def api_system_build_info():
@@ -155,6 +150,19 @@ def _device_uuid(config: dict[str, Any]) -> str:
 
 def _build_runtime_snapshot_payload() -> dict[str, Any]:
     snapshot = state.snapshot
+    pv_source = services.pv_source
+    round_snapshot = pv_source.snapshot if pv_source is not None else None
+    pv_debug = round_snapshot.as_dict() if round_snapshot is not None else {}
+    # The measurement is independent of mining control. Only confirmed live
+    # samples are exported; zero is a real night-time PV reading, not missing.
+    pv_quality = round_snapshot.quality if round_snapshot else "disabled"
+    pv_power = round_snapshot.power_w if round_snapshot else None
+    pv_updated_at = round_snapshot.updated_at if round_snapshot else None
+    # Never recompute quality by wall-clock age here: between two rounds all
+    # consumers must see exactly the last *completed* coordinator snapshot.
+    # The coordinator bounds every member read by its own timeout.
+    if pv_quality not in ("live", "degraded"):
+        pv_power = None
     runtime_miners = {miner.id: miner for miner in state.miners}
     config_miners = state.config.get("miners", []) if state.config else []
 
@@ -227,9 +235,10 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
         },
         "pv": {
             "id": _device_uuid(state.config.get("pv", {})),
-            "enabled": services.pv_source is not None,
-            "power_w": services.pv_source.power_w if services.pv_source else None,
-            "quality": services.pv_source.quality if services.pv_source else "disabled",
+            "enabled": pv_source is not None,
+            "power_w": pv_power,
+            "quality": pv_quality,
+            "updated_at": pv_updated_at,
             "debug": pv_debug,
         },
         "battery": {
@@ -1952,9 +1961,15 @@ def _parse_modbus_value_form(form, prefix: str) -> dict:
     if endian not in MODBUS_ENDIAN_TYPES:
         endian = "big_endian"
 
+    address = _optional_int(form.get(f"{prefix}_address"))
+    raw_name = form.get(f"{prefix}_name")
+    name = str(raw_name if raw_name is not None else (str(address) if address is not None else "")).strip()
+    if address is not None and not name:
+        raise ValueError(f"Registername für Adresse {address} fehlt.")
     return {
+        "name": name,
         "register_type": register_type,
-        "address": _optional_int(form.get(f"{prefix}_address")),
+        "address": address,
         "value_type": value_type,
         "endian": endian,
         "factor": _safe_float(form.get(f"{prefix}_factor", 1.0), 1.0),
@@ -2203,6 +2218,11 @@ def _build_miners_live_payload(open_ids: set[str] | None = None) -> dict:
 
 
 def _build_sources_live_payload() -> dict:
+    pv_source = services.pv_source
+    pv_round = pv_source.snapshot if pv_source is not None else None
+    pv_power = pv_round.power_w if pv_round else None
+    pv_quality = pv_round.quality if pv_round else "disabled"
+    pv_updated_at = pv_round.updated_at if pv_round else None
     source_debug = services.get_source_debug_info()
     battery_debug = services.get_battery_source_debug_info()
     pv_debug = services.get_pv_source_debug_info()
@@ -2238,9 +2258,10 @@ def _build_sources_live_payload() -> dict:
         },
         "pv": {
             "id": _device_uuid(state.config.get("pv", {})),
-            "enabled": services.pv_source is not None,
-            "power_w": services.pv_source.power_w if services.pv_source else None,
-            "quality": services.pv_source.quality if services.pv_source else "disabled",
+            "enabled": pv_source is not None,
+            "power_w": pv_power,
+            "quality": pv_quality,
+            "updated_at": pv_updated_at,
             "debug": pv_debug,
         },
         "battery": {
@@ -2327,8 +2348,63 @@ def _apply_source_config_form(target_config: dict[str, Any], form: Any) -> dict[
     target_config["battery"]["settings"]["max_charge_current"] = _parse_modbus_value_form(form, "battery_max_charge_current")
     target_config["battery"]["settings"]["max_discharge_current"] = _parse_modbus_value_form(form, "battery_max_discharge_current")
 
-    # Older HTML clients do not submit pv_type; preserve their existing PV settings.
-    if "pv_type" in form:
+    # New group editor: an explicit ID list is authoritative for adding and
+    # deleting draft devices. Existing device identities are never reused.
+    if "pv_device_ids" in form:
+        from pv2hash.sources.pv_group import pv_device_configs
+        pv_cfg = target_config.setdefault("pv", {})
+        pv_cfg["type"] = "pv_group"
+        pv_cfg["enabled"] = form.get("pv_enabled") == "on"
+        pv_cfg["poll_interval_ms"] = _safe_int(
+            form.get("pv_poll_interval_ms", pv_cfg.get("poll_interval_ms", 5000)), 5000
+        )
+        members = {str(d.get("id")): d for d in pv_device_configs(pv_cfg)}
+        requested = [t.strip() for t in str(form.get("pv_device_ids", "")).split(",") if t.strip()]
+        if len(requested) != len(set(requested)):
+            raise ValueError("Doppelte PV-Geräte-ID.")
+        if len(requested) > 64:
+            raise ValueError("Maximal 64 PV-Wechselrichter pro Instanz.")
+        devices = []
+        for identifier in requested:
+            if not re.fullmatch(r"pv-[a-f0-9]{10}|[a-zA-Z0-9-]{1,48}", identifier):
+                raise ValueError("Ungültige PV-Geräte-ID.")
+            existing = deepcopy(members.get(identifier, {}))
+            prefix = f"pvdev_{identifier}_"
+            device = {
+                **existing, "id": identifier,
+                "name": str(form.get(prefix + "name", existing.get("name", "Wechselrichter"))).strip(),
+                "enabled": form.get(prefix + "enabled") == "on",
+                "driver": str(form.get(prefix + "driver", existing.get("driver", "pv_modbus"))).strip(),
+            }
+            if not device["name"]:
+                raise ValueError("Wechselrichtername darf nicht leer sein.")
+            if device["driver"] != "pv_modbus":
+                raise ValueError(f"Unbekannter PV-Treiber: {device['driver']}")
+            old_settings = existing.get("settings", {}) or {}
+            settings = deepcopy(old_settings)
+            settings.update({
+                "host": str(form.get(prefix+"host", old_settings.get("host", ""))).strip(),
+                "port": _safe_int(form.get(prefix+"port", old_settings.get("port", 502)), 502),
+                "unit_id": _safe_int(form.get(prefix+"unit_id", old_settings.get("unit_id", 1)), 1),
+                "poll_interval_ms": _safe_int(form.get(prefix+"poll_interval_ms", old_settings.get("poll_interval_ms", 5000)), 5000),
+                "request_timeout_seconds": _safe_float(form.get(prefix+"request_timeout_seconds", old_settings.get("request_timeout_seconds", 1.0)), 1.0),
+            })
+            if prefix + "power_address" in form:
+                settings["power"] = _parse_modbus_value_form(form, prefix+"power")
+            if prefix + "power_mode" in form:
+                settings["power_mode"] = str(form[prefix + "power_mode"]).strip()
+            if prefix + "calculation" in form:
+                import json as _json
+                try:
+                    settings["calculation"] = _json.loads(str(form[prefix + "calculation"]))
+                except (_json.JSONDecodeError, TypeError) as exc:
+                    raise ValueError("Berechnete PV-Leistung: ungültige Formeldaten.") from exc
+            device["settings"] = settings
+            devices.append(device)
+        pv_cfg["devices"] = devices
+
+    # Existing 0.9.5 clients may still submit a legacy single PV form.
+    if "pv_type" in form and "pv_device_ids" not in form:
         pv_type = str(form.get("pv_type", "none") or "none").strip()
         if pv_type not in {"none", "pv_modbus"}:
             raise ValueError("Unbekanntes PV-Messprofil.")
@@ -2347,6 +2423,25 @@ def _apply_source_config_form(target_config: dict[str, Any], form: Any) -> dict[
         # Do not erase configured registers when a user selects "none".
         if pv_type == "pv_modbus":
             settings["power"] = _parse_modbus_value_form(form, "pv_power")
+            if "pv_power_mode" in form:
+                settings["power_mode"] = str(form["pv_power_mode"]).strip()
+            if "pv_calculation" in form:
+                import json as _json
+                try:
+                    settings["calculation"] = _json.loads(str(form["pv_calculation"]))
+                except (_json.JSONDecodeError, TypeError) as exc:
+                    raise ValueError("Berechnete PV-Leistung: ungültige Formeldaten.") from exc
+            old_devices = pv_cfg.get("devices", [])
+            current = deepcopy(old_devices[0]) if old_devices else {}
+            current.update({
+                "id": current.get("id") or str(pv_cfg.get("uuid") or "legacy-pv"),
+                "name": current.get("name") or pv_cfg["name"],
+                "driver": "pv_modbus",
+                "enabled": True,
+                "settings": deepcopy(settings),
+            })
+            pv_cfg["devices"] = [current]
+        pv_cfg["type"] = "pv_group"
     return target_config
 
 
@@ -2382,6 +2477,7 @@ def _build_dashboard_live_payload() -> dict:
     snapshot = state.snapshot
     source_debug = services.get_source_debug_info()
     pv_adapter = services.pv_source
+    pv_round = pv_adapter.snapshot if pv_adapter else None
     host_status = _get_host_status()
     controller_status = _build_controller_status()
     dashboard_miners = _build_dashboard_miner_rows()
@@ -2443,11 +2539,14 @@ def _build_dashboard_live_payload() -> dict:
                 "hint": "negativ = Einspeisung",
             },
             "pv": {
-                "power_w": pv_adapter.power_w if pv_adapter else None,
-                "quality": pv_adapter.quality if pv_adapter else "disabled",
+                "power_w": pv_round.power_w if pv_round else None,
+                "quality": pv_round.quality if pv_round else "disabled",
                 "enabled": pv_adapter is not None,
+                "live_count": pv_round.live_count if pv_round else 0,
+                "enabled_count": pv_round.enabled_count if pv_round else 0,
                 "source": state.config.get("pv", {}).get("name", "PV-Erzeugung"),
-                "updated_at": pv_adapter.updated_at.isoformat() if pv_adapter and pv_adapter.updated_at else None,
+                "driver_label": getattr(pv_adapter, "driver_label", None) if pv_adapter else None,
+                "updated_at": pv_round.updated_at.isoformat() if pv_round and pv_round.updated_at else None,
             },
             "source": {
                 "label": source_label,
@@ -2779,6 +2878,34 @@ async def pv_measurement_loop() -> None:
         await asyncio.sleep(max(1, adapter.poll_interval_ms / 1000))
 
 
+forecast_store = ForecastStore()
+
+
+async def forecast_background_loop() -> None:
+    """Disabled by default. Poll only when a forecast is configured and enabled."""
+    while True:
+        await asyncio.sleep(60)
+        config = state.config
+        fc = config.get("forecast") or {}
+        if not fc.get("enabled"):
+            continue
+        try:
+            minutes = int((fc.get("settings") or {}).get("refresh_minutes", 60))
+            last = forecast_store.metadata().get("last_success")
+            recent = last and (
+                datetime.now(UTC) - datetime.fromisoformat(last.replace("Z", "+00:00"))
+            ).total_seconds() < max(15, minutes) * 60
+            if recent:
+                continue
+            await update_forecast(config, forecast_store)
+        except (ValueError, TypeError, RuntimeError, OSError) as exc:
+            forecast_store.record_failure(str(exc))
+            logger.warning("Prognoseaktualisierung fehlgeschlagen (Details auf der Prognoseseite).")
+        except Exception:
+            forecast_store.record_failure("Unerwarteter Fehler bei der Prognoseaktualisierung.")
+            logger.exception("Unerwarteter Prognosefehler")
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
     logger.info("Application startup complete")
@@ -2787,6 +2914,7 @@ async def startup_event() -> None:
     asyncio.create_task(update_checker.run_background_loop())
     asyncio.create_task(data_logger.run())
     asyncio.create_task(export_manager.run())
+    asyncio.create_task(forecast_background_loop())
 
 
 def reload_runtime() -> None:
@@ -3015,6 +3143,35 @@ async def api_sources_action(request: Request):
     source_id = str(form.get("source_id", "")).strip()
     action_id = str(form.get("action_id", "")).strip()
     preview_config = _apply_source_config_form(deepcopy(state.config), form)
+
+    if (source_id == "pv" and action_id == "pv_add_device") or (
+        source_id.startswith("pv-device:") and action_id == "pv_remove_device"
+    ):
+        from uuid import uuid4
+        pv_cfg = preview_config.setdefault("pv", {})
+        pv_cfg["type"] = "pv_group"
+        members = list(pv_cfg.get("devices") or [])
+        if action_id == "pv_add_device":
+            if len(members) >= 64:
+                return JSONResponse(content={"status": "error", "message": "Maximal 64 PV-Geräte."}, status_code=400)
+            members.append({
+                "id": "pv-" + uuid4().hex[:10],
+                "name": f"Wechselrichter {len(members)+1}",
+                "driver": "pv_modbus", "enabled": False,
+                "settings": {"host": "", "port": 502, "unit_id": 1,
+                             "poll_interval_ms": 5000, "request_timeout_seconds": 1.0,
+                             "power": {"register_type":"holding", "address": None,
+                                       "value_type":"uint16", "endian":"big_endian", "factor":1.0}},
+            })
+        else:
+            member_id = source_id.split(":", 1)[1]
+            members = [d for d in members if str(d.get("id")) != member_id]
+        pv_cfg["devices"] = members
+        return JSONResponse(content=jsonable_encoder({
+            "status": "ok",
+            "message": "PV-Gerät hinzugefügt." if action_id == "pv_add_device" else "PV-Gerät entfernt (ungespeichert).",
+            "sources": services.get_source_gui_models(config=preview_config),
+        }))
 
     if source_id == "battery" and action_id == "battery_modbus_apply_profile":
         battery_type = str(preview_config.get("battery", {}).get("type", "")).strip()
@@ -3678,6 +3835,50 @@ async def api_exporter_types():
 @app.get("/api/exporters/status")
 async def api_exporters_status():
     return JSONResponse(content=jsonable_encoder({"status": "ok", "exporters": export_manager.status()}))
+
+
+@app.get("/api/forecast/settings")
+async def api_forecast_settings():
+    return JSONResponse(content=jsonable_encoder({
+        "status": "ok", "config": forecast_settings_model(state.config),
+        "history": forecast_store.metadata(),
+    }))
+
+
+@app.post("/api/forecast/settings")
+async def api_save_forecast_settings(request: Request):
+    try:
+        next_config = apply_forecast_settings(state.config, await request.json())
+        save_config(next_config)
+        # Forecast settings do not restart the mining controller, network
+        # sources, miners, or sockets. The existing services stay intact.
+        state.config = load_config()
+        return JSONResponse(content=jsonable_encoder({
+            "status": "ok", "config": forecast_settings_model(state.config),
+        }))
+    except (ValueError, TypeError, KeyError) as exc:
+        return JSONResponse({"status":"error", "message":str(exc)}, status_code=400)
+
+
+@app.post("/api/forecast/refresh")
+async def api_forecast_refresh():
+    try:
+        result = await update_forecast(state.config, forecast_store)
+        return JSONResponse({"status":"ok", **result})
+    except (ValueError, TypeError, RuntimeError, OSError) as exc:
+        forecast_store.record_failure(str(exc))
+        return JSONResponse({"status":"error", "message":str(exc)}, status_code=400)
+
+
+@app.get("/api/forecast/day")
+async def api_forecast_day(date: str | None = None):
+    try:
+        result = forecast_store.day(date)
+    except (ValueError, OverflowError) as exc:
+        return JSONResponse({"status":"error","message":str(exc)},status_code=400)
+    result["actual"] = forecast_actual_day(result["start"], result["end"])
+    result["status"] = "ok"
+    return JSONResponse(content=jsonable_encoder(result))
 
 
 @app.get("/api/datalogger/status")

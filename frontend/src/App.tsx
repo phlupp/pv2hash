@@ -15,6 +15,7 @@ import { getStatus, getVersion } from './api';
 import { version as guiVersion } from '../package.json';
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 const DataLogger = lazy(() => import('./pages/DataLogger').then(module => ({ default: module.DataLogger })));
+const ForecastPage = lazy(() => import('./pages/ForecastPage').then(module => ({ default: module.ForecastPage })));
 const Measurements = lazy(() => import('./pages/Measurements').then(module => ({ default: module.Measurements })));
 const Miners = lazy(() => import('./pages/Miners').then(module => ({ default: module.Miners })));
 const Sockets = lazy(() => import('./pages/Sockets').then(module => ({ default: module.Sockets })));
@@ -29,7 +30,7 @@ const navGroups = [
   { label: 'Energie', items: [
     { path: '/messungen', label: 'Messungen', Icon: IconActivity, description: 'Quellen und Batteriesensoren' },
     { path: '/datalogger', label: 'Data Logger', Icon: IconChartBar, description: 'Historische Messwerte und Regler-Events' },
-    { path: '/prognose', label: 'Prognose', Icon: IconCloud, description: 'Wetter- und PV-Prognosen', future: true },
+    { path: '/prognose', label: 'Prognose', Icon: IconCloud, description: 'Wetter- und PV-Prognosen' },
   ] },
   { label: 'Mining', items: [
     { path: '/miner', label: 'Miner', Icon: IconCpu, description: 'Miner verwalten' },
@@ -79,7 +80,14 @@ export function App() {
             <Image src="/static/apple-touch-icon.png" w={32} h={32} alt="" />
             <Text fw={800}>PV2Hash</Text>
           </Group>
-          <Burger opened={mobileOpened} onClick={toggleMobile} aria-label="Navigation öffnen oder schließen" size="sm" />
+          <Box className="pv-mobile-nav-toggle">
+            <Burger opened={mobileOpened} onClick={toggleMobile}
+              aria-label={updateAvailable
+                ? 'Navigation öffnen oder schließen – Update verfügbar'
+                : 'Navigation öffnen oder schließen'} size="sm" />
+            {updateAvailable && <span className="pv-update-dot pv-mobile-update-indicator"
+              aria-hidden="true" />}
+          </Box>
         </Group>
       </AppShell.Header>
       <AppShell.Navbar className="pv-navbar" p="xs">
@@ -134,22 +142,35 @@ export function App() {
         </AppShell.Section>
         <AppShell.Section p={navCollapsed ? 'xs' : 'sm'}>
           <Divider color="rgba(255,255,255,.08)" mb="sm" />
-          {!navCollapsed && <Text size="xs" c="dimmed" mb={1}>GUI {guiVersion} · Vorschau</Text>}
-          {!navCollapsed&&updateAvailable&&<Text component={Link} to="/system" size="xs"
-            c="orange" fw={650} mb={6} style={{textDecoration:'none'}}>
-            <span className="pv-update-dot" style={{display:'inline-block',marginRight:7}}/>
-            Update verfügbar
-          </Text>}
-          {navCollapsed&&updateAvailable&&<Tooltip label="Update verfügbar – Systemseite öffnen">
-            <Box ta="center" mb="xs"><span className="pv-update-dot" /></Box>
-          </Tooltip>}
-          <Group justify={navCollapsed ? 'center' : 'space-between'} gap="xs" wrap="nowrap">
+          {!navCollapsed && <Stack gap={5}>
+            <Text size="xs" c="dimmed" fw={650}>Versionen</Text>
+            <Group gap="sm" justify="space-between" wrap="nowrap">
+              <Text size="xs" c="dimmed">GUI <Text span c="inherit" fw={650}>{guiVersion}</Text></Text>
+              <Text size="xs" c="dimmed">Core <Text span c="inherit" fw={650}>{version?.version_full || version?.version || '—'}</Text></Text>
+            </Group>
+            {updateAvailable && (
+              <Text component={Link} to="/system" size="xs" c="orange" fw={650}
+                className="pv-menu-update-link"
+                onClick={closeMobile} aria-label="Update verfügbar – Systemseite öffnen">
+                <span className="pv-update-dot" aria-hidden="true" />
+                Update verfügbar
+              </Text>
+            )}
+          </Stack>}
+          {navCollapsed && updateAvailable && (
+            <Tooltip label="Update verfügbar – Systemseite öffnen">
+              <Box component={Link} to="/system" className="pv-menu-update-collapsed"
+                aria-label="Update verfügbar – Systemseite öffnen">
+                <span className="pv-update-dot" aria-hidden="true" />
+              </Box>
+            </Tooltip>
+          )}
+          <Group mt={navCollapsed ? 0 : 8} justify={navCollapsed ? 'center' : 'flex-start'} gap="xs">
             <Tooltip label={statusError ? 'Backend nicht erreichbar' : 'Backend verbunden'}>
               <Badge color={statusError ? 'red' : 'teal'} variant="light" size="sm" circle={navCollapsed}>
                 {navCollapsed ? '●' : statusError ? 'Offline' : 'Verbunden'}
               </Badge>
             </Tooltip>
-            {!navCollapsed && <Text size="xs" c="dimmed">Core {version?.version_full || version?.version || '—'}</Text>}
           </Group>
         </AppShell.Section>
       </AppShell.Navbar>
@@ -159,7 +180,7 @@ export function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/messungen" element={<Measurements />} />
           <Route path="/datalogger" element={<DataLogger />} />
-          <Route path="/prognose" element={<Placeholder title="Prognose" description="Vorbereitung der Wetter- und PV-Ertragsprognosen." future />} />
+          <Route path="/prognose" element={<ForecastPage />} />
           <Route path="/miner" element={<Miners />} />
           <Route path="/sockets" element={<Sockets />} />
           <Route path="/optimierung" element={<Placeholder title="Optimierung" description="Performance-Kennlinien und effiziente Minerprofile." future />} />

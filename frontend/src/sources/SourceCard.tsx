@@ -4,7 +4,8 @@ import {
 } from '@mantine/core';
 import { IconChevronDown, IconChevronRight, IconDeviceFloppy } from '@tabler/icons-react';
 import { QualityBadge } from '../dashboard/components/QualityBadge';
-import { formatSourceValue, isFiveFieldUniformGroup, isThreeFieldCompactGroup, type FormValues, type SourceField, type SourceModel } from './model';
+import { ModbusCalculationEditor } from './ModbusCalculationEditor';
+import { formatSourceValue, isFiveFieldUniformGroup, isSixFieldModbusGroup, isThreeFieldCompactGroup, type FormValues, type SourceField, type SourceModel } from './model';
 
 const columnSpan: Record<string, number> = {
   full: 12, half: 6, third: 4, quarter: 3, auto: 3,
@@ -21,21 +22,25 @@ type FieldRendererProps = {
   disabled: boolean;
   onFieldChange: (field: SourceField, source: SourceModel, value: string | boolean) => void;
   fiveColumnGroup?: boolean;
+  sixColumnGroup?: boolean;
   compactThreeGroup?: boolean;
 };
 
-function FieldRenderer({ field, source, values, disabled, onFieldChange, fiveColumnGroup = false, compactThreeGroup = false }: FieldRendererProps) {
+function FieldRenderer({ field, source, values, disabled, onFieldChange, fiveColumnGroup = false, sixColumnGroup = false, compactThreeGroup = false }: FieldRendererProps) {
   if (field.type === 'fieldset') {
+    const nestedFields = field.fields ?? [];
+    const modbusSix = isSixFieldModbusGroup(nestedFields);
+    const uniformFive = isFiveFieldUniformGroup(nestedFields);
     return (
       <Grid.Col span={12}>
         <Stack gap="xs" mt="xs">
           <Divider label={field.label || field.title || 'Einstellungen'} labelPosition="left" />
-          <Grid gap="xs" columns={isFiveFieldUniformGroup(field.fields ?? []) ? 20 : 12}>
+          <Grid gap="xs" columns={modbusSix ? 24 : uniformFive ? 20 : 12}>
             {(field.fields ?? []).map((child, i) => (
               <FieldRenderer
                 key={child.name || `fieldset-${i}`} field={child} source={source}
                 values={values} disabled={disabled} onFieldChange={onFieldChange}
-                fiveColumnGroup={isFiveFieldUniformGroup(field.fields ?? [])}
+                fiveColumnGroup={uniformFive} sixColumnGroup={modbusSix}
               />
             ))}
           </Grid>
@@ -45,6 +50,11 @@ function FieldRenderer({ field, source, values, disabled, onFieldChange, fiveCol
     );
   }
   if (!field.name || field.type === 'hidden') return null;
+  if (field.type === 'modbus_calculation') {
+    return <Grid.Col span={12}><ModbusCalculationEditor label={field.label} help={field.help}
+      value={String(values[field.name] ?? '')} disabled={disabled || !!field.disabled}
+      onChange={value => onFieldChange(field, source, value)}/></Grid.Col>;
+  }
   if (!['checkbox','select','text','number','password'].includes(field.type)) {
     return <Grid.Col span={12}><Text size="xs" c="orange">Nicht unterstützter Feldtyp: {field.type} ({field.label || field.name})</Text></Grid.Col>;
   }
@@ -62,9 +72,11 @@ function FieldRenderer({ field, source, values, disabled, onFieldChange, fiveCol
 
   return (
     <Grid.Col
-      className={compactThreeGroup ? 'pv-source-compact-three' : undefined}
-      span={fiveColumnGroup
-        ? { base: 20, sm: 10, md: 5, lg: 4 }
+      className={sixColumnGroup ? 'pv-source-modbus-six' : compactThreeGroup ? 'pv-source-compact-three' : undefined}
+      span={sixColumnGroup
+        ? { base: 24, sm: 12, md: 8, lg: 4 }
+        : fiveColumnGroup
+          ? { base: 20, sm: 10, md: 5, lg: 4 }
         : compactThreeGroup
           ? { base: 12, sm: 6, lg: 4 }
           : { base: 12, sm: fieldSpan(field) }}

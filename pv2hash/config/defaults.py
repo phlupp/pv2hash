@@ -16,6 +16,11 @@ DEFAULT_CONFIG = {
     },
     "location": {"address": "", "lat": None, "lon": None},
     "exporters": [],
+    "forecast": {
+        "enabled": False,
+        "driver": "open_meteo",
+        "settings": {"mode": "free", "api_key": "", "refresh_minutes": 60},
+    },
     "datalogger": {
         "enabled": True,
         "interval_seconds": 10,
@@ -76,8 +81,10 @@ DEFAULT_CONFIG = {
     },
     "pv": {
         "name": "PV-Erzeugung",
-        "type": "none",
+        "type": "pv_group",
         "enabled": False,
+        "devices": [],
+        "poll_interval_ms": 5000,
         "settings": {
             "host": "",
             "port": 502,

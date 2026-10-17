@@ -269,6 +269,7 @@ def _normalize_register_values(raw: Any) -> dict[str, Any]:
     if address not in (None, ""):
         try:
             normalized["address"] = int(address)
+            normalized["name"] = str(raw.get("name") or normalized["address"])
         except Exception:
             pass
 
@@ -326,6 +327,11 @@ def apply_battery_modbus_profile_values(settings: dict[str, Any], profile: Batte
             merged.update(normalized)
             settings[key] = merged
 
+    # Built-in and user profiles without register names inherit their address.
+    for key in REGISTER_VALUE_KEYS:
+        entry = settings.get(key)
+        if isinstance(entry, dict) and entry.get("address") not in (None, ""):
+            entry["name"] = str(entry.get("name") or entry["address"])
     settings["modbus_profile"] = profile.key
     return settings
 

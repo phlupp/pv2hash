@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import {
-  flattenFields, formValuesFromModels, toFormData, validateSourceValues, modelsFromPayload, isFiveFieldUniformGroup, isThreeFieldCompactGroup,
+  flattenFields, formValuesFromModels, toFormData, validateSourceValues, modelsFromPayload, isFiveFieldUniformGroup, isSixFieldModbusGroup, isThreeFieldCompactGroup,
 } from '../src/sources/model.ts';
 
 const header = { status: { state: 'live', text: 'Live' }, header_fields: [], detail_groups: [], config_fields: [], driver_field: null };
@@ -76,4 +76,15 @@ test('three identical driver inputs form one responsive row unless explicit widt
   assert.equal(isThreeFieldCompactGroup(simulatorFields.map((field, index) =>
     index === 1 ? {...field, layout: {width:'auto'}} : field,
   )), true);
+});
+
+
+test('six named Modbus register fields form one responsive desktop row without affecting arbitrary form groups', () => {
+  const fields = ['name', 'address', 'register_type', 'value_type', 'endian', 'factor']
+    .map(suffix => ({name: `battery_soc_${suffix}`, type: suffix === 'register_type' ? 'select' : 'text', layout: {width: 'quarter'}}));
+  assert.equal(isSixFieldModbusGroup(fields), true);
+  assert.equal(isSixFieldModbusGroup(fields.slice(0, 5)), false);
+  assert.equal(isSixFieldModbusGroup(fields.map((f,i) => i===3 ? {...f, name:'unrelated'} : f)), false);
+  assert.equal(isSixFieldModbusGroup(fields.map((f,i) => i===3 ? {...f,layout:{width:'half'}} : f)), false);
+  assert.equal(isSixFieldModbusGroup(fields.map(f => ({...f, name: f.name.replace('battery_soc_', 'pv_power_')}))), true);
 });
