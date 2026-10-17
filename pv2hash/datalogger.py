@@ -309,6 +309,9 @@ class DataLogger:
                 )
                 """
             )
+            # Additive upgrade for existing productive history.sqlite databases.
+            self._ensure_column(con, "history_samples", "pv_power_w", "REAL")
+            self._ensure_column(con, "history_samples", "pv_quality", "TEXT")
             self._ensure_column(con, "history_miner_samples", "temp_c", "REAL")
             self._ensure_column(con, "history_miner_samples", "temp_asic_min_c", "REAL")
             self._ensure_column(con, "history_miner_samples", "temp_asic_max_c", "REAL")
@@ -424,7 +427,7 @@ class DataLogger:
             )
             con.execute(
                 "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
-                ("datalogger_schema_version", "5"),
+                ("datalogger_schema_version", "6"),
             )
 
     @staticmethod
@@ -529,6 +532,7 @@ class DataLogger:
         host = snapshot.get("host") or {}
         source = snapshot.get("source") or {}
         battery = snapshot.get("battery") or {}
+        pv = snapshot.get("pv") or {}
         controller = snapshot.get("controller") or {}
         totals = snapshot.get("totals") or {}
         instance_id = str(instance.get("id") or "")
@@ -538,13 +542,14 @@ class DataLogger:
                 """
                 INSERT OR REPLACE INTO history_samples (
                     ts, instance_id, grid_power_w, source_quality, battery_quality,
+                    pv_power_w, pv_quality,
                     battery_soc_pct, battery_charge_power_w, battery_discharge_power_w,
                     battery_is_charging, battery_is_discharging,
                     miner_power_w_total, miner_hashrate_ghs_total,
                     control_enabled_miner_count, monitor_enabled_miner_count, reachable_miner_count,
                     controller_summary, controller_last_decision,
                     host_cpu_percent, host_memory_percent, host_disk_percent, host_uptime_seconds
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ts,
@@ -552,6 +557,8 @@ class DataLogger:
                     _float_or_none(source.get("grid_power_w")),
                     source.get("quality"),
                     battery.get("quality"),
+                    _float_or_none(pv.get("power_w")) if pv.get("quality") in ("live", "degraded") else None,
+                    str(pv.get("quality") or "no_data"),
                     _float_or_none(battery.get("soc_pct")),
                     _float_or_none(battery.get("charge_power_w")),
                     _float_or_none(battery.get("discharge_power_w")),
@@ -944,6 +951,8 @@ class DataLogger:
         columns = (
             "ts",
             "grid_power_w",
+            "pv_power_w",
+            "pv_quality",
             "source_quality",
             "battery_quality",
             "battery_soc_pct",
@@ -1171,6 +1180,7 @@ class DataLogger:
             points.append({
                 "ts": last.get("ts"),
                 "grid_power_w": _avg([_float_or_none(row.get("grid_power_w")) for row in bucket_rows]),
+                "pv_power_w": _avg([_float_or_none(row.get("pv_power_w")) for row in bucket_rows]),
                 "battery_soc_pct": _avg([_float_or_none(row.get("battery_soc_pct")) for row in bucket_rows]),
                 "battery_charge_power_w": _avg([_float_or_none(row.get("battery_charge_power_w")) for row in bucket_rows]),
                 "battery_discharge_power_w": _avg([_float_or_none(row.get("battery_discharge_power_w")) for row in bucket_rows]),
@@ -1182,6 +1192,7 @@ class DataLogger:
                 "host_cpu_percent": _avg([_float_or_none(row.get("host_cpu_percent")) for row in bucket_rows]),
                 "host_memory_percent": _avg([_float_or_none(row.get("host_memory_percent")) for row in bucket_rows]),
                 "host_disk_percent": _avg([_float_or_none(row.get("host_disk_percent")) for row in bucket_rows]),
+                "pv_quality": _last_text([row.get("pv_quality") for row in bucket_rows]),
                 "source_quality": _last_text([row.get("source_quality") for row in bucket_rows]),
                 "battery_quality": _last_text([row.get("battery_quality") for row in bucket_rows]),
                 "control_enabled_miner_count": int(last.get("control_enabled_miner_count") or 0),
@@ -1196,6 +1207,8 @@ class DataLogger:
         return {
             "ts": row.get("ts"),
             "grid_power_w": _float_or_none(row.get("grid_power_w")),
+            "pv_power_w": _float_or_none(row.get("pv_power_w")),
+            "pv_quality": row.get("pv_quality"),
             "battery_soc_pct": _float_or_none(row.get("battery_soc_pct")),
             "battery_charge_power_w": _float_or_none(row.get("battery_charge_power_w")),
             "battery_discharge_power_w": _float_or_none(row.get("battery_discharge_power_w")),

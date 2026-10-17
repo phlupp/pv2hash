@@ -76,8 +76,10 @@ DEFAULT_CONFIG = {
     },
     "pv": {
         "name": "PV-Erzeugung",
-        "type": "none",
+        "type": "pv_group",
         "enabled": False,
+        "devices": [],
+        "poll_interval_ms": 5000,
         "settings": {
             "host": "",
             "port": 502,

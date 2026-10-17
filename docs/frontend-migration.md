@@ -1003,3 +1003,51 @@ bestand der neue Prüfcode mit dem lokal gebauten echten
 
 Der fehlgeschlagene Workflow-Lauf #110 darf nicht lediglich via Re-run
 wiederholt werden: Nach dem Merge einen **neuen** Run auf `main` starten.
+
+## Produktives Feedback nach v0.9.5 – nächste Entwicklungsstufe
+
+GUI 2.0 wurde produktiv freigegeben. Das Label „Vorschau“ im Menü und
+der doppelte Versionshinweis im Dashboard sind deshalb entfernt,
+ebenso der überholte Entwicklungstitel im Browser.
+Die Menü- und System-Seite bleiben für Versionsdetails zuständig.
+Der PV-Leistungsuntertext ist auf „Aktuelle PV-Leistung“ verkürzt;
+das Tooltip nutzt das neue read-only API-Feld `cards.pv.driver_label`
+für den tatsächlichen Treibernamen.
+
+Der InfluxDB-Exporter soll im nächsten Paket-Release (erst nach
+Migration aller drei Hashpis) `pv2hash_version` als unveränderliche
+Paket-Release-ID exportieren, plus `pv2hash_core_version` und
+`pv2hash_gui_version` als String-Felder. API und Exporter teilen
+dafür die einzige eingebettete Paketidentität aus
+`pv2hash/build_info.json`. Keine weiteren Tags/Series.
+Konkrete Kompatibilitäts- und Testdetails: `docs/post095-feedback.md`.
+
+Die React-Entwicklung trägt vor der nächsten Veröffentlichung
+den Vorab-Stand `2.0.1-dev.1`; der Core bleibt zunächst bei
+`0.9.5`. Keine Freigabe für ein neues Paket-Release.
+
+### Mobile Update-Anzeige & PV-Erzeugungshistorie (GUI 2.0.1-dev.2)
+
+Das mobile Menü zeigt bei Updates einen orangefarbenen, pulsierenden
+Indikator **direkt am Burger**, ohne dass das Menü geöffnet werden muss.
+Im Desktop-Menü sind GUI/Core, Updatehinweis und Backend-Status als
+kompakter Versionsbereich strukturiert. Technische Details dazu und
+zu den neuen PV-DataLogger-/Exporter-Feldern stehen in
+`docs/post095-feedback.md`.
+
+Die bestehende DataLogger-Datenbank wird additiv auf Schema v6 migriert
+(`pv_power_w`, `pv_quality`), ohne Verluste historischer Daten.
+Auch die DatenLogger-Zeitreihe und der InfluxDB2-Exporter erhalten
+diese Felder. Nullwert und Offline-Zustand werden korrekt
+unterschieden, die PV-Messung bleibt strikt außerhalb des Controllers.
+
+### PV-Summierung: Abfragerunde atomar publizieren (GUI 2.0.1-dev.3)
+
+Die PV-Funktion verwaltet nun Geräte unter `pv.devices[]` und
+publiziert ausschließlich nach einer **vollständigen** Abfragerunde
+das aggregierte Mess-Snapshot. `degraded` enthält die sichtbare
+Teilsumme sowie die Anzahl der LIVE- und aktivierten Geräte.
+DataLogger/Exporter erhalten ausschließlich Gesamtleistung und
+Gesamtqualität; ihre Schemafelder aus v6 bleiben unverändert.
+Einzelheiten, Timeout-Logik, GUI und Rollback-Migration:
+`docs/pv-generation.md`.

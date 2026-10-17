@@ -84,3 +84,32 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .pv-update-dot { animation: none; }
 }
+
+
+/* Make update availability visible even while the mobile navigation is closed. */
+.pv-mobile-nav-toggle {
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+}
+.pv-mobile-update-indicator {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  pointer-events: none;
+  z-index: 1;
+}
+.pv-menu-update-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  text-decoration: none;
+  padding: 3px 0;
+}
+.pv-menu-update-link:hover { text-decoration: underline; }
+.pv-menu-update-collapsed {
+  display: flex;
+  justify-content: center;
+  padding: 6px;
+}

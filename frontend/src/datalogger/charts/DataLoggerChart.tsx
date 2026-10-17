@@ -16,6 +16,7 @@ type LineDef = { name: string; key: keyof DataLoggerPoint; color: string; axis: 
 const LINES: Record<ChartKind, LineDef[]> = {
   energy: [
     { name: 'Netz (+ Bezug / − Einspeisung)', key: 'grid_power_w', color: col.grid, axis: 'y' },
+    { name: 'PV-Erzeugung W', key: 'pv_power_w', color: col.pv, axis: 'y' },
     { name: 'Miner W', key: 'miner_power_w_total', color: col.miningPower, axis: 'y' },
     { name: 'Batterie lädt W', key: 'battery_charge_power_w', color: col.batteryCharge, axis: 'y' },
     { name: 'Batterie entlädt W', key: 'battery_discharge_power_w', color: col.batteryDischarge, axis: 'y' },
@@ -152,7 +153,7 @@ export function DataLoggerChart({
   }, [kind, data, selectedEventId]);
 
   const descriptions: Record<ChartKind, string> = {
-    energy: 'Historischer Energiefluss mit Netz-, Miner- und Batterie-Leistung und Reglerereignissen',
+    energy: 'Historischer Energiefluss mit Netz-, PV-Erzeugung, Miner- und Batterie-Leistung und Reglerereignissen',
     battery: 'Batterie-Ladeleistung, Entladeleistung und SOC mit Ereignismarkern',
     mining: 'Historische Minerleistung, Hashrate und Temperatur mit Ereignismarkern',
   };
