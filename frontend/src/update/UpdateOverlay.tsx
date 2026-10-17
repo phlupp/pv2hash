@@ -10,6 +10,7 @@ export type UpdateRunner={
   progress_percent?:number|null;phase_step?:number;phase_total?:number;
   phase_name?:string;phase_text?:string;
   last_error?:string;target_version_full?:string;target_tag?:string;
+  started_at?:string|null;finished_at?:string|null;
 };
 type LogChunk={status:string;available:boolean;lines:string[];offset:number;file_id:string;reset:boolean;truncated:boolean};
 
@@ -29,10 +30,10 @@ function severity(line:string):string {
 }
 
 export function UpdateOverlay({
-  opened,onClose,runner,connecting=false,preview=false,
+  opened,onClose,runner,connecting=false,preview=false,autoDashboard=false,
 }:{
   opened:boolean;onClose:()=>void;runner?:UpdateRunner;
-  connecting?:boolean;preview?:boolean;
+  connecting?:boolean;preview?:boolean;autoDashboard?:boolean;
 }){
   const [visible,setVisible]=useState(true);
   const [autoScroll,setAutoScroll]=useState(true);
@@ -120,6 +121,9 @@ export function UpdateOverlay({
         </Group>
       </>}
       {status==='error'&&<Alert color="red">{runner?.last_error||'Weitere Einzelheiten stehen im Protokoll.'}</Alert>}
+      {!preview&&status==='success'&&autoDashboard&&<Alert color="teal">
+        Neue Version bestätigt. Das Dashboard wird gleich automatisch neu geladen.
+      </Alert>}
       {connecting&&running&&<Alert color="gray">Der PV2Hash-Dienst startet möglicherweise neu. Die Anzeige wartet auf die Wiederverbindung.</Alert>}
       <Group justify="space-between" gap="xs">
         <Button size="compact-sm" variant="subtle" color="gray"
