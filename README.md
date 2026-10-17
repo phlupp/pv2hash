@@ -1,3 +1,5 @@
+[![Release](https://github.com/phlupp/pv2hash/actions/workflows/release.yml/badge.svg)](https://github.com/phlupp/pv2hash/actions/workflows/release.yml)
+
 # PV2Hash
 
 PV2Hash ist ein lokales Steuerungs- und Monitoring-System zur Nutzung von Überschussleistung am Netzanschlusspunkt für Bitcoin-Mining mit ASIC-Minern.
