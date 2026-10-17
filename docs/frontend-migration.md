@@ -473,3 +473,83 @@ Die produktive und die Legacy-Minerseite bleiben unverändert.
   um eine Fehlerbehandlung für HTTP 500 mit Textantwort ergänzt.
 - Änderung ausschließlich auf testvm01 und im GUI-2.0-Draft-PR;
   weder Miner-Konfiguration noch produktiver Hashpi verändert.
+
+
+## Sockets in GUI 2.0 (Phase 0.7)
+
+Stand: **GUI 2.0.0-dev.12**, Core-Basis 0.9.4 mit lesender
+Socket-GUI-API-Erweiterung auf `testvm01`.
+
+### Layout und Bedienung
+
+- Full-width-Mantine-Socket-Karten, einzeln ein-/ausklappbar.
+  Kopf: Socket-Name, Ein-/Aus-Zustand, *eigene* Messqualität,
+  Treiber, Leistung und Priorität; vorhandene Miner-Zuordnung
+  wird als kompakter Badge angezeigt.
+- Aufgeklappt: Identität, Treiber, Host, Priorität, Verbindungs- und
+  Automatikoptionen, treiberspezifische Einstellungen, Live-Details,
+  sowie manuelles Ein-/Ausschalten, Neustart (Tasmota) und Löschen.
+- Speichern ist bewusst von Geräteaktionen getrennt; ungespeicherte
+  Änderungen können verworfen werden. Ausschalten, Neustart und
+  Löschen benötigen eine Bestätigung. Doppelaktionen während eines
+  API-Aufrufs sind deaktiviert.
+- Socket-Erstellung im eingeklappten Mantine-Bereich;
+  Tasmota-HTTP-Gerätesuche mit Netzwerk-Interface oder explizitem
+  CIDR-Override, Trefferliste, Duplikaterkennung und direkter
+  Übernahme von Host, Gerätename und Port. Kein automatisches Scannen.
+- Status-Polling über `GET /api/sockets/status` alle fünf Sekunden,
+  ohne Formulare zu überschreiben. Keine Seite-Refreshs.
+- Zentrale Mantine-Farben/Inputs, QualityBadge und responsives Grid;
+  Layout auf 320, 390, 820, 1280 px überprüft (keine horizontale
+  Seitenüberbreite).
+
+### Backend-Schema und Endpunkte
+
+- Neu: **`GET /api/sockets/gui`** als lesendes, JSON-fähiges
+  Konfigurationsmodell. Liefert vorhandene Socket-Konfigurationen,
+  den Treiberkatalog, feldweise Defaults und Layout-Hinweise sowie
+  zulässige Interfaces für die manuelle Tasmota-Suche.
+- `pv2hash/socket_gui.py`: zentrales Socket-Feldschema für
+  `simulator` und `tasmota_http`. Socket-Adapter unterstützen
+  noch **keine eigenen DriverField-Schemas** wie Miner-Treiber.
+  Bis zur eventuellen Vereinheitlichung liegt das Feldschema zentral
+  und explizit hier; keine Tasmota-/Simulator-Sonderseiten in React.
+  Das bestehende Legacy-HTML wird unverändert weiter angeboten.
+- Der API-Response erlaubt nur explizit definierte
+  Konfigurationsfelder. **Passwörter werden nicht übertragen**;
+  die GUI zeigt lediglich `password_configured`, und ein leeres
+  Passwortfeld sendet für bestehende Tasmota-Sockets `__KEEP__`.
+  Miner-Zuordnungsinformationen werden auf Rollen-/Ziel-ID und
+  Anzeigename begrenzt.
+- Bestehende Schreibendpunkte unverändert:
+  `POST /api/sockets/add`, `POST /api/socket/{id}/config`,
+  `POST /api/socket/{id}/switch`,
+  `POST /api/socket/{id}/delete` und
+  `POST /api/sockets/discover/tasmota`.
+- Kleine Core-Korrektur: Ein bewusst deaktiviertes
+  Tasmota-`use_energy`-Checkboxfeld bleibt nach dem Speichern
+  deaktiviert (ein fehlender Checkbox-Eintrag bedeutet `False`).
+  Ein leerer Benutzername kann ebenfalls bewusst entfernt werden.
+
+### Tests und Betrieb
+
+- Backend: 3 Python-Unit-Tests zu Feldschema, Passwortmaskierung
+  und begrenzten Assignment-Metadaten.
+- Frontend: 19 Node-Tests erfolgreich, einschließlich
+  Socket-FormData, Tasmota-Validierung, gespeicherter Passwörter
+  und API-Fehlerbehandlung. TypeScript/Vite-Build erfolgreich.
+- Praktischer End-to-End-Test auf `testvm01`: Simulator-Socket
+  über React angelegt, ein- und ausgeschaltet, Konfiguration geändert
+  und gespeicherte Leistung in den Live-Details bestätigt.
+  Zweiter temporärer Simulator erfolgreich angelegt und gelöscht.
+  Ein Socket `Socket GUI2 Test` bleibt zur visuellen Abnahme
+  erhalten. Bestehende Batterie/Miner wurden nicht verändert.
+- Tasmota-Eingabemaske und Such-Interface im Browser geprüft;
+  **kein echter Netzwerkscan und keine Tasmota-Geräteaktionen
+  durchgeführt**. Diese stehen vor Produktionsfreigabe noch aus.
+- Backend auf `testvm01` unter `/srv/pv2hash-gui2-core`
+  aktualisiert; bestehender Core 0.9.4 und Legacy-Seiten bleiben
+  weiterhin erreichbar. Rückfall über gesicherte
+  `/home/chatgpt/pv2hash-core-before-sockets-ui.py`
+  plus Entfernen des Testmoduls `socket_gui.py` und
+  Dienst-Neustart. Keine Änderungen am produktiven Hashpi.

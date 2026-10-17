@@ -50,6 +50,7 @@ from pv2hash.update_check import UpdateChecker
 from pv2hash.version import APP_VERSION, APP_VERSION_FULL
 from pv2hash.netutils import get_local_ipv4_networks
 from pv2hash.sockets.tasmota_http import discover_tasmota_http
+from pv2hash.socket_gui import driver_catalog as socket_driver_catalog, socket_gui_item
 
 initial_config = load_config()
 setup_logging(initial_config.get("system", {}).get("log_level", "INFO"))
@@ -3297,6 +3298,27 @@ async def api_sockets_status():
     return JSONResponse({"status": "ok", "sockets": _build_socket_snapshot_items()})
 
 
+@app.get("/api/sockets/gui")
+async def api_sockets_gui():
+    """Structured, password-safe configuration models for the React socket UI."""
+    views = _build_sockets_view()
+    miner_names = {
+        str(item.get("id") or ""): str(item.get("name") or "")
+        for item in state.config.get("miners", []) or []
+    }
+    items = [socket_gui_item(view) for view in views]
+    for item in items:
+        assigned_id = item["assignment"].get("target_id")
+        if assigned_id:
+            item["assignment"]["target_name"] = miner_names.get(assigned_id, "")
+    return JSONResponse(content=jsonable_encoder({
+        "status": "ok",
+        "drivers": socket_driver_catalog(),
+        "sockets": items,
+        "discovery_interfaces": _socket_discovery_interfaces(),
+    }))
+
+
 @app.get("/api/sockets/list")
 async def api_sockets_list(request: Request):
     return templates.TemplateResponse(
@@ -3337,10 +3359,11 @@ def _socket_settings_from_form(form: Any, driver: str, current: dict[str, Any] |
         return {
             "port": as_int("port", 80),
             "relay": as_int("relay", 1),
-            "username": str(form.get("username") or settings.get("username", "") or "").strip(),
+            "username": str(form.get("username") if form.get("username") is not None else (settings.get("username", "") or "")).strip(),
             "password": password,
             "timeout_s": as_float("timeout_s", 2.0),
-            "use_energy": form.get("use_energy") == "on" or bool(settings.get("use_energy", True)) and form.get("use_energy") is None,
+            # An absent HTML checkbox means disabled; do not silently retain 'True'.
+            "use_energy": form.get("use_energy") == "on",
         }
 
     def as_float(name: str, default: float) -> float:

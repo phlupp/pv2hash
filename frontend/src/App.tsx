@@ -17,6 +17,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ def
 const DataLogger = lazy(() => import('./pages/DataLogger').then(module => ({ default: module.DataLogger })));
 const Measurements = lazy(() => import('./pages/Measurements').then(module => ({ default: module.Measurements })));
 const Miners = lazy(() => import('./pages/Miners').then(module => ({ default: module.Miners })));
+const Sockets = lazy(() => import('./pages/Sockets').then(module => ({ default: module.Sockets })));
 const Placeholder = lazy(() => import('./pages/Placeholder').then((module) => ({ default: module.Placeholder })));
 
 const navGroups = [
@@ -147,7 +148,7 @@ export function App() {
           <Route path="/datalogger" element={<DataLogger />} />
           <Route path="/prognose" element={<Placeholder title="Prognose" description="Vorbereitung der Wetter- und PV-Ertragsprognosen." future />} />
           <Route path="/miner" element={<Miners />} />
-          <Route path="/sockets" element={<Placeholder title="Sockets" description="Steckdosen und schaltbare Geräte." />} />
+          <Route path="/sockets" element={<Sockets />} />
           <Route path="/optimierung" element={<Placeholder title="Optimierung" description="Performance-Kennlinien und effiziente Minerprofile." future />} />
           <Route path="/einstellungen" element={<Placeholder title="Einstellungen" description="Zentrale Konfiguration der PV2Hash-Instanz." />} />
           <Route path="/system" element={<Placeholder title="System" description="Systemstatus, Aktualisierung, Logs und Diagnose." />} />
