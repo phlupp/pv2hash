@@ -952,3 +952,12 @@ genau wie bei der optionalen Batterie. Das Energie-Grid verwendet
 nur so viele Spalten, wie tatsächlich Kacheln vorhanden sind.
 Geprüft mit 27 Frontend-Tests, TypeScript-/Vite-Build und
 Browseransichten bei 320 und 1280 px (ohne Überlauf).
+
+
+### Release-Freigabeprüfung (vor v0.9.5)
+
+Die GitHub-Release-Action führt jetzt **vor jedem Release-Build**
+ebenfalls die gesamte Python-Unittest-Suite unter Python 3.13
+aus (zusätzlich zu Frontend-Tests und gebauten Assets).
+Das verhindert die Veröffentlichung bei fehlgeschlagenen
+Core-/Modbus-/Update-Migrationsprüfungen.
