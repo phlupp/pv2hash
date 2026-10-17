@@ -549,3 +549,11 @@ Darstellung, Live-Details und getrennte Speichervorgänge.
 Die alte HTML-Minerseite bleibt während der Migration erhalten.
 Verbindlicher Implementierungs- und Teststand:
 `docs/frontend-migration.md`.
+
+
+**JSON-Serialisierung der Miner-Live-Details:** Einzelne DriverDetailItem-
+Tabellen tragen verschachtelte DriverDetailColumn-Dataclasses. Deshalb
+muss die Live-Antwort vor `JSONResponse` über
+`jsonable_encoder` laufen. Ohne die Konvertierung kommt es
+beim Aufklappen betroffener Miner zu HTTP 500. Siehe
+`docs/frontend-migration.md` (GUI 2.0.0-dev.11).

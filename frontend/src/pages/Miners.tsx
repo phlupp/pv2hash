@@ -75,7 +75,7 @@ export function Miners() {
       </div>
       <Group gap="xs">
         <Badge color={live.isError?'red':'gray'} variant="light" size="xs">
-          {live.isError?'API OFFLINE':live.isPending?'Verbinde …':'LIVE'}
+          {live.isError ? 'API-FEHLER' : live.isPending ? 'Verbinde …' : 'LIVE'}
         </Badge>
         <Button size="compact-sm" color="gray" variant="subtle" leftSection={<IconRefresh size={15}/>}
           onClick={()=>void refresh()}>Aktualisieren</Button>

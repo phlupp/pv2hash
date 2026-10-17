@@ -1,9 +1,19 @@
 import type { MinersGuiPayload, MinersLivePayload } from './model';
 
-async function unpack<T>(promise: Promise<Response>): Promise<T> {
+export async function unpack<T>(promise: Promise<Response>): Promise<T> {
   const r = await promise;
-  const data = await r.json() as T & { status?: string; message?: string };
-  if (!r.ok || data.status === 'error') throw new Error(data.message || `HTTP ${r.status}`);
+  if (!r.headers.get('content-type')?.includes('application/json')) {
+    throw new Error(`Miner-API: HTTP ${r.status} – keine gültige JSON-Antwort`);
+  }
+  let data: T & { status?: string; message?: string };
+  try {
+    data = await r.json() as T & { status?: string; message?: string };
+  } catch {
+    throw new Error(`Miner-API: HTTP ${r.status} – fehlerhafte JSON-Antwort`);
+  }
+  if (!r.ok || data.status === 'error') {
+    throw new Error(data.message || `Miner-API: HTTP ${r.status}`);
+  }
   return data;
 }
 const get = (url: string) => fetch(url, { headers: {Accept:'application/json'}, cache: 'no-store' });

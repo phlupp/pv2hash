@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { fieldsToValues, formForFields, validateFields } from '../src/miners/model.ts';
+import { unpack } from '../src/miners/api.ts';
 
 test('miner metadata fields serialize dotted profile names and on/off checkboxes', () => {
   const fields = [
@@ -40,4 +41,13 @@ test('new miner driver fields validate required host and numeric bounds', () => 
   assert.match(validateFields(fields,{...base,host:''},false)??'',/Host/);
   assert.match(validateFields(fields,{...base,'settings.port':'90000'},false)??'',/Ungültiger Zahlenwert/);
   assert.match(validateFields(fields,{...base,'settings.port':'abc'},false)??'',/Ungültiger Zahlenwert/);
+});
+
+test('non-JSON server error reports HTTP status instead of a misleading JSON syntax error', async () => {
+  const error = new Response('Internal Server Error', {status: 500, headers:{'content-type':'text/plain'}});
+  await assert.rejects(unpack(Promise.resolve(error)), /HTTP 500.*JSON-Antwort/);
+  const success = new Response(JSON.stringify({status:'ok',miners:[]}),{
+    status:200,headers:{'content-type':'application/json'},
+  });
+  assert.deepEqual(await unpack(Promise.resolve(success)),{status:'ok',miners:[]});
 });

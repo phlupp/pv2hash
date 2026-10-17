@@ -3696,7 +3696,10 @@ async def api_miners_gui():
 @app.get("/api/miners/status")
 async def api_miners_status(open_ids: str = ""):
     selected_open_ids = {item.strip() for item in str(open_ids or "").split(",") if item.strip()}
-    return JSONResponse(_build_miners_live_payload(selected_open_ids))
+    # Driver details can contain nested DriverDetailColumn/DriverDetailItem
+    # dataclasses. Encode the structured payload just as for /api/miners/gui.
+    # Preserve the existing details_html for the legacy GUI.
+    return JSONResponse(content=jsonable_encoder(_build_miners_live_payload(selected_open_ids)))
 
 
 @app.get("/api/system/host-status")

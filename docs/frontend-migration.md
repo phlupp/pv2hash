@@ -442,3 +442,34 @@ Die produktive und die Legacy-Minerseite bleiben unverändert.
   implementiert, aber müssen vor Produktionsfreigabe mit einem
   geeigneten Simulator-Test und kontrollierter Geräteumgebung
   Ende-zu-Ende geprüft werden. Keine produktiven Miner verändert.
+
+
+### Miner: JSON-Serialisierung nach dem Anlegen (GUI 2.0.0-dev.11)
+
+- **Ursache (testvm01, 2026-10-17):** Der neu erfasste axeOS-Miner
+  lieferte verschachtelte Treiber-Details mit
+  `DriverDetailColumn`-Dataclasses (insbesondere bei Pool-/ASIC-Tabellen).
+  `GET /api/miners/status?open_ids=...` baute zwar die korrekten
+  Details, gab sie aber direkt an Starlettes `JSONResponse` weiter.
+  Dies führte zu `TypeError: Object of type DriverDetailColumn is not JSON
+  serializable`, HTTP 500 und dem missverständlichen Browser-Fehler
+  `Unexpected token 'I', 'Internal Server Error' is not valid JSON`.
+  Das erfolgreiche Anlegen des Miners selbst war nicht betroffen.
+- **Core-Fix:** Alle Elemente der Live-Antwort werden vor
+  `JSONResponse` über das bereits verwendete
+  `fastapi.encoders.jsonable_encoder` verarbeitet. Damit werden
+  verschachtelte Dataclasses, Tabellen-Spalten und andere unterstützte
+  Python-Objekte konsistent serialisiert. Das alte `details_html`
+  bleibt unverändert verfügbar.
+- **GUI-Fix:** Die gemeinsame Miner-API-Verarbeitung prüft den
+  Content-Type und liefert verständliche HTTP-/JSON-Fehlertexte
+  statt roher Syntaxfehler. Der Badge meldet bei API-Fehlern
+  `API-FEHLER` statt eine unzutreffende Behauptung, das komplette
+  Backend sei offline.
+- **Regression:** Die tatsächlich angelegten beiden Test-Miner
+  (Simulator und axeOS) liefern zusammen mit geöffneten Details HTTP 200,
+  gültiges JSON und sämtliche verschachtelten axeOS-Tabellen. Auch die
+  alte HTML-Detailstruktur bleibt enthalten. Frontend-Tests wurden
+  um eine Fehlerbehandlung für HTTP 500 mit Textantwort ergänzt.
+- Änderung ausschließlich auf testvm01 und im GUI-2.0-Draft-PR;
+  weder Miner-Konfiguration noch produktiver Hashpi verändert.
