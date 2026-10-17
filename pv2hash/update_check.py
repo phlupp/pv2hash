@@ -217,40 +217,40 @@ class UpdateChecker:
                     response.raise_for_status()
                     feed = response.json()
 
-                if not isinstance(feed, dict):
-                    raise ValueError("Update-Feed hat kein gültiges JSON-Objekt geliefert")
-                if self._base_url() == DEFAULT_UPDATE_BASE_URL:
-                    if feed.get("draft") or feed.get("prerelease"):
-                        raise ValueError("GitHub hat kein stabiles Release geliefert")
-                    assets = {a.get("name"): a for a in feed.get("assets", []) if isinstance(a, dict)}
-                    archive = next((a for name, a in assets.items()
-                                    if name.startswith("pv2hash-") and name.endswith(".tar.gz")), None)
-                    if not archive or "manifest.json" not in assets or "SHA256SUMS" not in assets:
-                        raise ValueError("GitHub-Release enthält nicht alle PV2Hash-Paketdateien")
-                    release_tag = str(feed.get("tag_name") or "")
-                    release_identity = parse_release_id(release_tag)
-                    extra = {}
-                    if release_identity.kind == "package":
-                        manifest_resp = await client.get(assets["manifest.json"]["browser_download_url"])
-                        manifest_resp.raise_for_status()
-                        manifest = manifest_resp.json()
-                        if not isinstance(manifest, dict) or manifest.get("tag") != release_identity.tag:
-                            raise ValueError("Manifest passt nicht zur Paket-Release-ID")
-                        extra = {
-                            "core_version": str(manifest.get("core_version") or ""),
-                            "gui_version": str(manifest.get("gui_version") or ""),
-                        }
-                        if not extra["core_version"] or not extra["gui_version"]:
-                            raise ValueError("Paket-Manifest enthält nicht beide Komponenten-Versionen")
-                    feed = {"latest": {
-                        **extra,
-                        "tag": feed.get("tag_name"),
-                        "title": feed.get("name"),
-                        "released_at": feed.get("published_at"),
-                        "notes": feed.get("body"),
-                        "asset": {"name": archive["name"], "size_bytes": archive.get("size")},
-                        "manifest_url": assets["manifest.json"]["browser_download_url"],
-                    }}
+                    if not isinstance(feed, dict):
+                        raise ValueError("Update-Feed hat kein gültiges JSON-Objekt geliefert")
+                    if self._base_url() == DEFAULT_UPDATE_BASE_URL:
+                        if feed.get("draft") or feed.get("prerelease"):
+                            raise ValueError("GitHub hat kein stabiles Release geliefert")
+                        assets = {a.get("name"): a for a in feed.get("assets", []) if isinstance(a, dict)}
+                        archive = next((a for name, a in assets.items()
+                                        if name.startswith("pv2hash-") and name.endswith(".tar.gz")), None)
+                        if not archive or "manifest.json" not in assets or "SHA256SUMS" not in assets:
+                            raise ValueError("GitHub-Release enthält nicht alle PV2Hash-Paketdateien")
+                        release_tag = str(feed.get("tag_name") or "")
+                        release_identity = parse_release_id(release_tag)
+                        extra = {}
+                        if release_identity.kind == "package":
+                            manifest_resp = await client.get(assets["manifest.json"]["browser_download_url"])
+                            manifest_resp.raise_for_status()
+                            manifest = manifest_resp.json()
+                            if not isinstance(manifest, dict) or manifest.get("tag") != release_identity.tag:
+                                raise ValueError("Manifest passt nicht zur Paket-Release-ID")
+                            extra = {
+                                "core_version": str(manifest.get("core_version") or ""),
+                                "gui_version": str(manifest.get("gui_version") or ""),
+                            }
+                            if not extra["core_version"] or not extra["gui_version"]:
+                                raise ValueError("Paket-Manifest enthält nicht beide Komponenten-Versionen")
+                        feed = {"latest": {
+                            **extra,
+                            "tag": feed.get("tag_name"),
+                            "title": feed.get("name"),
+                            "released_at": feed.get("published_at"),
+                            "notes": feed.get("body"),
+                            "asset": {"name": archive["name"], "size_bytes": archive.get("size")},
+                            "manifest_url": assets["manifest.json"]["browser_download_url"],
+                        }}
 
                 if feed.get("updates_enabled") is False:
                     message = str(feed.get("message") or "Updates sind serverseitig deaktiviert.")
