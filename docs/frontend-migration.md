@@ -1114,3 +1114,29 @@ keine Aktivierung ohne bewusstes Konfigurieren der Anlage.
 - Bei Fehlern während des Wetterabrufs bleibt die erfolgreiche Speicherung
   bestehen. Die Oberfläche meldet den Abruffehler gesondert und lässt
   eine manuelle Wiederholung zu. Die Mining-Regelung bleibt unberührt.
+
+### Automatische Rückkehr zum Dashboard nach GUI-Update
+
+- Der auf der Systemseite gestartete Self-Updater bleibt während der Installation
+  im Overlay sichtbar, inklusive Log und reconnectender Statusabfrage.
+- Nach `status=success` wird **nur dann** eine automatische Navigation
+  vorbereitet, wenn die GUI vorher eine laufende Installation mit passender
+  `started_at`- und `target_tag`-Kennung beobachtet hat. Das Öffnen eines alten
+  erfolgreichen Installationsprotokolls bewirkt keinen Seitenwechsel.
+- Vor der Navigation wird das erneut gestartete Backend separat über
+  `GET /api/system/build-info` geprüft. Paket-Release-ID und Core-Version
+  müssen mit der gestarteten Installation übereinstimmen. Während das
+  Backend nicht erreichbar ist, wird die Prüfung wiederholt. Bei Fehlern
+  oder nicht passender Version bleibt das Overlay zur Diagnose geöffnet.
+- Erst nach erfolgreicher Versionsprüfung erscheint im Overlay der Hinweis,
+  dass die neue GUI geöffnet wird. Nach drei Sekunden navigiert der Browser
+  **mit vollem Seitenaufruf** über `window.location.replace('/ui-next/')` auf
+  das **Dashboard**. Das ersetzt die veraltete React- und CSS-Instanz und
+  verhindert einen Rücksprung in die alte Systemseite über „Zurück“.
+- Automatische Reloads erfolgen ausschließlich im Browser und verändern weder
+  Installer, Update-/Rollback-Logik noch den Mining-Controller.
+- Frontend-Regressionstests decken erfolgreiche Updates, Altprotokolle,
+  fehlgeschlagene Updates, falsche Paket-/Core-Versionen und den Dashboard-Pfad
+  ab. Im Testbrowser wurde ein vollständiger Updateablauf **ohne Backend-POST**
+  simuliert: nach Erfolg echte Neuladung auf `/ui-next/`, kein Reload bei
+  historischem Erfolg; es gab keine echte Installation oder Konfigurationsänderung.

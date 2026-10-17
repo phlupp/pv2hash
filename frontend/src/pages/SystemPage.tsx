@@ -10,6 +10,11 @@ import {configJson} from '../configuration/api';
 import {UpdateOverlay,type UpdateRunner} from '../update/UpdateOverlay';
 import {ReleaseNotes} from '../update/ReleaseNotes';
 import {version as guiVersion} from '../../package.json';
+import {
+  DASHBOARD_AFTER_UPDATE,DASHBOARD_RELOAD_DELAY_MS,
+  installedUpdateMatches,observedUpdateStart,successfulUpdateMatches,
+  type InstalledBuild,type UpdateAttempt,
+} from '../update/dashboardRedirect';
 
 type SystemRow={label:string;value:string|number|null};
 type SystemAction={id:string;label:string;style?:string};
@@ -163,11 +168,55 @@ export function SystemPage(){
   const [file,setFile]=useState<File|null>(null);
   const [updateOverlay,setUpdateOverlay]=useState(false);
   const [previewOverlay,setPreviewOverlay]=useState(false);
+  const [activeUpdate,setActiveUpdate]=useState<UpdateAttempt|null>(null);
+  const [dashboardReady,setDashboardReady]=useState(false);
   const updater=useQuery({queryKey:['system','runner'],queryFn:()=>get<Runner>('/api/system/self-update-status'),
     refetchInterval:updateOverlay?1500:5000,refetchIntervalInBackground:updateOverlay,
   });
   const runner=updater.data;
-  useEffect(()=>{if(runner?.running)setUpdateOverlay(true);},[runner?.running]);
+  useEffect(()=>{
+    // A running update may have been started in another tab or via console.
+    // An old success state/log must never arm a new automatic redirect.
+    const observed=observedUpdateStart(runner);
+    if(observed){
+      setActiveUpdate(current=>current?.started_at===observed.started_at &&
+        current.target_tag===observed.target_tag?current:observed);
+      setUpdateOverlay(true);
+    }
+  },[runner?.status,runner?.started_at,runner?.target_tag,runner?.target_version_full]);
+
+  useEffect(()=>{
+    if(!successfulUpdateMatches(activeUpdate,runner))return;
+    let disposed=false;
+    let ready=false;
+    let checking=false;
+    let navigationTimer:ReturnType<typeof setTimeout>|null=null;
+    const checkInstalledBuild=async()=>{
+      if(disposed||ready||checking)return;
+      checking=true;
+      try{
+        // The self-update status is written by the installer; independently
+        // verify the restarted service is actually running the target build.
+        const build=await get<InstalledBuild>('/api/system/build-info');
+        if(disposed||!installedUpdateMatches(activeUpdate,runner,build))return;
+        ready=true;
+        setDashboardReady(true);
+        clearInterval(pollTimer);
+        navigationTimer=setTimeout(()=>{
+          if(!disposed)window.location.replace(DASHBOARD_AFTER_UPDATE);
+        },DASHBOARD_RELOAD_DELAY_MS);
+      }catch{
+        // The backend can still be restarting. Retry while the modal is open.
+      }finally{checking=false;}
+    };
+    const pollTimer=setInterval(()=>void checkInstalledBuild(),1500);
+    void checkInstalledBuild();
+    return()=>{
+      disposed=true;
+      clearInterval(pollTimer);
+      if(navigationTimer!==null)clearTimeout(navigationTimer);
+    };
+  },[activeUpdate,runner?.status,runner?.started_at,runner?.target_tag,runner?.target_version_full]);
   const cards=system.data?.cards||[];
   const updateCard=cards.find(c=>c.type==='update');
   async function refresh(){
@@ -181,7 +230,9 @@ export function SystemPage(){
       if(name==='logging')await post<ApiResult>('/api/system/logging',{log_level:level||'INFO'});
       if(name==='reload')await post<ApiResult>('/api/system/reload');
       if(name==='update'){
-        const response=await post<ApiResult>('/api/system/self-update');
+        const response=await post<Runner>('/api/system/self-update');
+        setDashboardReady(false);
+        setActiveUpdate(observedUpdateStart(response));
         setUpdateOverlay(true);
         notifications.show({color:'teal',message:response.message||'Update gestartet.'});
       }else notifications.show({color:'teal',message:name==='check'?'Updateprüfung abgeschlossen.':name==='reload'?'Runtime neu geladen.':'Log-Level aktualisiert.'});
@@ -261,7 +312,7 @@ export function SystemPage(){
       </Stack>
     </Modal>
     <UpdateOverlay opened={updateOverlay} onClose={()=>setUpdateOverlay(false)}
-      runner={runner} connecting={updater.isError}/>
+      runner={runner} connecting={updater.isError} autoDashboard={dashboardReady}/>
     <UpdateOverlay opened={previewOverlay} onClose={()=>setPreviewOverlay(false)} preview/>
   </Stack>;
 }
