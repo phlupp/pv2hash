@@ -7,6 +7,7 @@ import { IconChevronDown, IconChevronLeft, IconChevronRight, IconRefresh } from 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ForecastChart, type ForecastDay } from '../forecast/ForecastChart';
 import { dayShift, daySelectionAfterMove, forecastDayRefreshInterval } from '../forecast/dayNavigation';
+import { forecastAfterSave, syncedForecastDraft } from '../forecast/saveSync';
 
 type Generator = { id: string; name: string; enabled: boolean; kwp: number; tilt: number; azimuth: number; loss_percent: number };
 type Inverter = { id: string; name: string; generators: Generator[] };
@@ -66,8 +67,10 @@ export function ForecastPage() {
     refetchIntervalInBackground: false,
   });
   useEffect(() => {
-    if (config.data && !dirty && !draft) setDraft(config.data.config);
-  }, [config.data, dirty, draft]);
+    // Once the editor was initialized, the old !draft check prevented further
+    // server updates from appearing until a manual browser reload.
+    setDraft(current => syncedForecastDraft(config.data?.config, current, dirty));
+  }, [config.data, dirty]);
 
   function change(callback: (current: Config) => Config) {
     if (!draft) return;
@@ -84,20 +87,46 @@ export function ForecastPage() {
     });
   }
   async function save() {
-    if (!draft) return;
+    if (!draft || !dirty || busy) return;
     setBusy(true); setNotice(null);
     try {
-      await api('/api/forecast/settings', jsonPost({
+      const response = await api<{status: string; config: Config}>('/api/forecast/settings', jsonPost({
         enabled: draft.enabled, driver: draft.driver,
         settings: Object.fromEntries(Object.entries(draft.settings)
           .filter(([key]) => key !== 'api_key_configured')),
         inverters: draft.inverters,
       }));
+      // The POST supplies the authoritative normalized settings. Use them now,
+      // even if the extra forecast retrieval takes time or fails.
+      setDraft(response.config);
+      client.setQueryData<ConfigResponse>(['forecast-config'], previous => ({
+        status: 'ok', config: response.config, history: previous?.history ?? {},
+      }));
       setDirty(false);
-      setDraft(null);
-      await client.invalidateQueries({ queryKey: ['forecast-config'] });
-      setNotice('Prognoseeinstellungen gespeichert. Mining-Regelung unverändert.');
-    } catch (error) { setNotice(String(error)); }
+
+      // First activation should show forecast data right away. A refresh error
+      // does not roll back an already saved configuration or enable miner control.
+      const forecastResult = await forecastAfterSave(response.config.enabled, () =>
+        api<{future_points: number; inverters: number}>(
+          '/api/forecast/refresh', {method: 'POST'},
+        ),
+      );
+      await Promise.all([
+        client.invalidateQueries({queryKey: ['forecast-config']}),
+        client.invalidateQueries({queryKey: ['forecast-day']}),
+      ]);
+      if (forecastResult.error) {
+        const message = forecastResult.error instanceof Error
+          ? forecastResult.error.message : String(forecastResult.error);
+        setNotice('Einstellungen gespeichert, aber der Prognoseabruf ist fehlgeschlagen: ' + message);
+      } else if (forecastResult.result) {
+        setNotice('Einstellungen gespeichert. Prognose aktualisiert: ' +
+          forecastResult.result.future_points + ' zukünftige Zeitpunkte aus ' +
+          forecastResult.result.inverters + ' Wechselrichtern.');
+      } else {
+        setNotice('Prognoseeinstellungen gespeichert. Prognose deaktiviert. Mining-Regelung unverändert.');
+      }
+    } catch (error) { setNotice('Speichern fehlgeschlagen: ' + String(error)); }
     finally { setBusy(false); }
   }
   async function refresh() {
@@ -209,7 +238,8 @@ export function ForecastPage() {
               loading={busy} disabled={!config.data?.config.enabled || dirty}
               onClick={() => void refresh()}>Prognose aktualisieren</Button>
           </Group>
-          {notice && <Alert color={notice.startsWith('Error') ? 'red' : 'blue'}>{notice}</Alert>}
+          {notice && <Alert color={notice.startsWith('Speichern fehlgeschlagen:') || notice.startsWith('Error')
+            ? 'red' : notice.startsWith('Einstellungen gespeichert, aber') ? 'orange' : 'blue'}>{notice}</Alert>}
           <Collapse expanded={opened}>
             {draft ? <Stack gap="md">
               <Text size="xs" c="dimmed">Die Prognose ist rein informativ und verändert keine Minerregelung.</Text>
@@ -307,7 +337,7 @@ export function ForecastPage() {
                 <Button color="gray" variant="subtle" disabled={!dirty || busy} onClick={() => {
                   setDraft(config.data?.config || null); setDirty(false); setNotice(null);
                 }}>Verwerfen</Button>
-                <Button disabled={!dirty} loading={busy} onClick={() => void save()}>
+                <Button disabled={!dirty || busy} loading={busy} onClick={() => void save()}>
                   Einstellungen speichern
                 </Button>
               </Group>

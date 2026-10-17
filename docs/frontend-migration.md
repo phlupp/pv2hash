@@ -1098,3 +1098,19 @@ keine Aktivierung ohne bewusstes Konfigurieren der Anlage.
   reproduzierbare Darstellungsprüfung mit Zählern wurde nur **im Browser**
   ein klar gekennzeichnetes Test-Tasmota-Modell simuliert. Keine
   Produktions- oder Dev-Miner-Konfiguration wurde dafür verändert.
+
+
+### Prognose-Speicherablauf (r2026.10.17.3)
+
+- Die Prognose-Einstellungen werden nach erfolgreichem POST sofort aus der
+  serverseitig normalisierten Antwort in Entwurf und React-Query-Cache
+  übernommen. Neue Konfigurations-Snapshots überschreiben **nur** einen
+  unmodifizierten Entwurf; unspeicherte Eingaben bleiben geschützt.
+- Ist die gespeicherte Prognose aktiv, folgt unmittelbar **genau ein**
+  `POST /api/forecast/refresh` und eine erneute Abfrage von Einstellungen
+  und Tageskurve. Auch beim ersten Aktivieren entsteht so sofort eine
+  sichtbare Prognose ohne Browser-Reload. Bei deaktivierter Prognose
+  entfällt der Wetterabruf; die Ansicht wird trotzdem aktualisiert.
+- Bei Fehlern während des Wetterabrufs bleibt die erfolgreiche Speicherung
+  bestehen. Die Oberfläche meldet den Abruffehler gesondert und lässt
+  eine manuelle Wiederholung zu. Die Mining-Regelung bleibt unberührt.
