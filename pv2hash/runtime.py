@@ -16,6 +16,10 @@ class UpdateCheckState:
     local_version_full: str | None = None
     checked_at: datetime | None = None
     release_tag: str | None = None
+    release_id: str | None = None
+    installed_release_id: str | None = None
+    release_core_version: str | None = None
+    release_gui_version: str | None = None
     release_name: str | None = None
     release_url: str | None = None
     release_version: str | None = None

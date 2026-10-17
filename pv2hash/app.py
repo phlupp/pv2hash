@@ -19,7 +19,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Form, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -47,6 +47,7 @@ from pv2hash.miners.whatsminer_api3 import WhatsminerApi3Miner
 from pv2hash.self_update import SelfUpdateManager
 from pv2hash.services import RuntimeServices
 from pv2hash.update_check import UpdateChecker
+from pv2hash.update_log import log_chunk, update_log_path, redact_line
 from pv2hash.version import APP_VERSION, APP_VERSION_FULL
 from pv2hash.netutils import get_local_ipv4_networks
 from pv2hash.sockets.tasmota_http import discover_tasmota_http
@@ -3802,7 +3803,44 @@ async def api_system_update_check():
 async def api_system_self_update_status():
     update_status = update_checker.snapshot()
     payload = _update_runner_snapshot(update_status)
+    payload["progress_percent"] = _update_progress_value(payload)
     return JSONResponse(content=jsonable_encoder(payload))
+
+
+@app.get("/api/system/update-log")
+async def api_system_update_log(offset: int = 0, file_id: str = ""):
+    """Read a bounded segment of the fixed installation log (no arbitrary paths)."""
+    if offset < 0 or offset > 10**12 or len(file_id) > 128:
+        return JSONResponse({"status":"error","message":"Ungültiger Log-Cursor."},status_code=400)
+    path = update_log_path(self_update_manager.state_file.parent.resolve())
+    try:
+        data = log_chunk(path, offset, file_id)
+    except OSError:
+        return JSONResponse({"status":"error","message":"Installationsprotokoll nicht lesbar."},status_code=503)
+    return JSONResponse(content=data,headers={"Cache-Control":"no-store"})
+
+
+@app.get("/api/system/update-log/download")
+async def api_system_update_log_download():
+    """Export a redacted bounded log copy, never the raw privileged logfile."""
+    path = update_log_path(self_update_manager.state_file.parent.resolve())
+    try:
+        if not path.is_file() or path.is_symlink():
+            raise OSError("Missing installer log")
+        with path.open("rb") as stream:
+            size = path.stat().st_size
+            stream.seek(max(0,size-(2 * 1024 * 1024)))
+            if stream.tell():
+                stream.readline()
+            lines = stream.read(2 * 1024 * 1024).decode("utf-8",errors="replace").splitlines()
+    except OSError:
+        return JSONResponse({"status":"error","message":"Installationsprotokoll nicht verfügbar."},status_code=404)
+    content = "\n".join(redact_line(line) for line in lines)+"\n"
+    return Response(content, media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition":'attachment; filename="pv2hash-update.log"',
+                             "Cache-Control":"no-store"})
+
+
 
 
 @app.post("/api/system/self-update")

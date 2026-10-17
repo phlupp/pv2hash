@@ -55,6 +55,7 @@ export function App() {
   const { isError: statusError } = useQuery({ queryKey: ['status'], queryFn: getStatus, refetchInterval: 15000 });
   const isMobile = useMediaQuery('(max-width: 48em)');
   const navCollapsed = collapsed && !isMobile;
+  const updateAvailable=version?.update_available===true;
   const navbarWidth = navCollapsed ? 76 : 252;
 
   function toggleCollapsed() {
@@ -116,7 +117,9 @@ export function App() {
                       label={navCollapsed ? undefined : label}
                       title={navCollapsed ? label : undefined}
                       leftSection={<Icon size={20} stroke={1.8} />}
-                      rightSection={!navCollapsed && future ? <IconZoomCheck size={15} opacity={0.55} /> : undefined}
+                      rightSection={!navCollapsed && path==='/system' && updateAvailable
+                        ? <span className="pv-update-dot" title="Update verfügbar" />
+                        : !navCollapsed && future ? <IconZoomCheck size={15} opacity={0.55} /> : undefined}
                       active={location.pathname === path}
                       variant="light"
                       className="pv-nav-item"
@@ -131,7 +134,15 @@ export function App() {
         </AppShell.Section>
         <AppShell.Section p={navCollapsed ? 'xs' : 'sm'}>
           <Divider color="rgba(255,255,255,.08)" mb="sm" />
-          {!navCollapsed && <Text size="xs" c="dimmed" mb={7}>GUI {guiVersion} · Vorschau</Text>}
+          {!navCollapsed && <Text size="xs" c="dimmed" mb={1}>GUI {guiVersion} · Vorschau</Text>}
+          {!navCollapsed&&updateAvailable&&<Text component={Link} to="/system" size="xs"
+            c="orange" fw={650} mb={6} style={{textDecoration:'none'}}>
+            <span className="pv-update-dot" style={{display:'inline-block',marginRight:7}}/>
+            Update verfügbar
+          </Text>}
+          {navCollapsed&&updateAvailable&&<Tooltip label="Update verfügbar – Systemseite öffnen">
+            <Box ta="center" mb="xs"><span className="pv-update-dot" /></Box>
+          </Tooltip>}
           <Group justify={navCollapsed ? 'center' : 'space-between'} gap="xs" wrap="nowrap">
             <Tooltip label={statusError ? 'Backend nicht erreichbar' : 'Backend verbunden'}>
               <Badge color={statusError ? 'red' : 'teal'} variant="light" size="sm" circle={navCollapsed}>

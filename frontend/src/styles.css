@@ -66,3 +66,21 @@ body {
     min-height: 46px;
   }
 }
+
+
+/* Update availability: only the dot pulses; the label never animates. */
+.pv-update-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mantine-color-orange-5);
+  box-shadow: 0 0 0 0 rgba(255,169,77,0.25);
+  animation: pv-update-pulse 2.7s ease-in-out infinite;
+}
+@keyframes pv-update-pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(255,169,77,0.18); }
+  50% { box-shadow: 0 0 0 4px rgba(255,169,77,0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pv-update-dot { animation: none; }
+}

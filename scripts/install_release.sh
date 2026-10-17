@@ -184,7 +184,7 @@ fetch_release_metadata() {
             FEED_URL="${base_url}/releases/latest"
         else
             TAG="$(normalize_tag "${TAG}")"
-            [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || "${TAG}" =~ ^r20[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*$ ]] || {
                 echo "Ungültiger GitHub-Release-Tag: ${TAG}" >&2
                 exit 1
             }
@@ -199,7 +199,7 @@ from pathlib import Path
 
 release = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 tag = str(release.get("tag_name") or "")
-if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
+if not (re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag) or re.fullmatch(r"r20[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*", tag)):
     raise SystemExit("Ungültiger GitHub-Release-Tag")
 if release.get("draft") or release.get("prerelease"):
     raise SystemExit("Nur veröffentlichte stabile GitHub-Releases sind erlaubt")
@@ -249,7 +249,7 @@ if not isinstance(latest, dict):
 tag_name = str(latest.get("version_full") or latest.get("tag") or latest.get("version") or "").strip()
 if not tag_name:
     raise SystemExit("Update-Feed enthält keinen Release-Tag")
-if not tag_name.startswith("v"):
+if not tag_name.startswith(("v","r")):
     tag_name = "v" + tag_name
 
 asset = latest.get("asset") or {}
@@ -267,7 +267,7 @@ if not manifest_url:
 if not sha256_url:
     raise SystemExit("Update-Feed enthält keine checksums_url")
 
-version_slug = tag_name[1:] if tag_name.startswith("v") else tag_name
+version_slug = tag_name[1:] if tag_name.startswith(("v","r")) else tag_name
 
 print(tag_name)
 print(version_slug)
@@ -299,10 +299,10 @@ base_url = sys.argv[4].rstrip("/")
 tag_name = str(manifest.get("tag") or "").strip()
 if not tag_name:
     raise SystemExit("Manifest enthält keinen tag")
-if not tag_name.startswith("v"):
+if not tag_name.startswith(("v","r")):
     tag_name = "v" + tag_name
 
-version_slug = str(manifest.get("version_slug") or (tag_name[1:] if tag_name.startswith("v") else tag_name)).strip()
+version_slug = str(manifest.get("version_slug") or (tag_name[1:] if tag_name.startswith(("v","r")) else tag_name)).strip()
 archive_name = str(manifest.get("asset_name") or "").strip()
 if not archive_name:
     raise SystemExit("Manifest enthält keinen asset_name")
@@ -344,11 +344,12 @@ from pathlib import Path
 
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 
-print(manifest.get("version") or "")
+print(manifest.get("core_version") or manifest.get("version") or "")
 print(manifest.get("tag") or "")
 print(manifest.get("version_slug") or "")
 print(manifest.get("asset_name") or "")
 print(manifest.get("asset_sha256") or "")
+print(manifest.get("gui_version") or "")
 PY
 )
 
@@ -357,6 +358,8 @@ PY
     local manifest_version_slug="${MANIFEST_INFO[2]}"
     local manifest_asset_name="${MANIFEST_INFO[3]}"
     local manifest_asset_sha256="${MANIFEST_INFO[4]}"
+    GUI_VERSION="${MANIFEST_INFO[5]:-}"
+    RELEASE_ID="${TAG_NAME}"
 
     if [[ "${manifest_tag}" != "${TAG_NAME}" ]]; then
         echo "Fehler: manifest tag (${manifest_tag}) passt nicht zu Release-Tag (${TAG_NAME})"
@@ -415,7 +418,7 @@ install_python_dependencies() {
 write_install_info() {
     # Upgrade installations keep their old download source until this release is installed.
     # After a successful installation, future update downloads use GitHub.
-    if [[ "${FULL_VERSION}" =~ ^0\.8\.[0-9]+$ || "${FULL_VERSION}" =~ ^[1-9][0-9]*\.[0-9]+\.[0-9]+$ ]]; then
+    if [[ "${PV2HASH_UPDATE_BASE_URL}" == "https://get.pv2hash.xyz" ]]; then
         PV2HASH_UPDATE_BASE_URL="https://api.github.com/repos/phlupp/pv2hash"
     fi
     cat > "${INSTALL_INFO_FILE}" <<EOF_INFO
@@ -423,6 +426,9 @@ PV2HASH_INSTALL_MODE=release
 PV2HASH_UPDATE_BASE_URL=${PV2HASH_UPDATE_BASE_URL}
 PV2HASH_UPDATE_CHANNEL=${PV2HASH_UPDATE_CHANNEL}
 PV2HASH_TAG=${TAG_NAME}
+PV2HASH_RELEASE_ID=${RELEASE_ID}
+PV2HASH_CORE_VERSION=${FULL_VERSION}
+PV2HASH_GUI_VERSION=${GUI_VERSION}
 PV2HASH_VERSION=${FULL_VERSION}
 PV2HASH_VERSION_SLUG=${VERSION_SLUG}
 PV2HASH_ARCHIVE_NAME=${ARCHIVE_NAME}

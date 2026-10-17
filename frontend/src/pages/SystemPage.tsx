@@ -1,22 +1,22 @@
 import {useEffect,useRef,useState} from 'react';
 import {
-  Alert,Badge,Button,Card,Code,Collapse,Divider,FileInput,Group,Modal,Progress,
+  Alert,Badge,Button,Card,Code,Collapse,Divider,FileInput,Group,Modal,
   Select,SimpleGrid,Stack,Text,TextInput,Title,
 } from '@mantine/core';
 import {IconAlertCircle,IconDownload,IconRefresh,IconUpload,IconSearch} from '@tabler/icons-react';
 import {notifications} from '@mantine/notifications';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {configJson} from '../configuration/api';
+import {UpdateOverlay,type UpdateRunner} from '../update/UpdateOverlay';
+import {version as guiVersion} from '../../package.json';
 
 type SystemRow={label:string;value:string|number|null};
 type SystemAction={id:string;label:string;style?:string};
-type Runner={
-  status?:string;message?:string;running?:boolean;can_start?:boolean;
-  progress_percent?:number|null;last_error?:string;
-  target_version_full?:string;started_at?:string;finished_at?:string;
-};
+type Runner=UpdateRunner;
 type ReleaseStatus={
   status:string;local_version_full?:string;release_version_full?:string;checked_at?:string;
+  release_id?:string;installed_release_id?:string;
+  release_core_version?:string;release_gui_version?:string;
   release_published_at?:string;error?:string;
 };
 type UpdateModel={
@@ -51,7 +51,7 @@ function Rows({rows}:{rows?:SystemRow[]}){
   </SimpleGrid>;
 }
 
-function UpdateCard({card,busy,onRefresh,onStart}:{card:SystemCardModel;busy:boolean;onRefresh:()=>void;onStart:()=>void}){
+function UpdateCard({card,busy,onRefresh,onStart,onLog}:{card:SystemCardModel;busy:boolean;onRefresh:()=>void;onStart:()=>void;onLog:()=>void}){
   const u=card.model?.update_status;
   const runner=card.model?.runner_status;
   const details=card.model?.release_details;
@@ -70,7 +70,11 @@ function UpdateCard({card,busy,onRefresh,onStart}:{card:SystemCardModel;busy:boo
       </Group>
       <Rows rows={[
         {label:'Installierte Core-Version',value:u?.local_version_full||'—'},
-        {label:'Aktuelles Release',value:u?.release_version_full||'—'},
+        {label:'Installierte GUI',value:guiVersion},
+        {label:'Installiertes Paket',value:u?.installed_release_id||'Legacy-Installation'},
+        {label:'Verfügbare Release-ID',value:u?.release_id||u?.release_version_full||'—'},
+        {label:'Verfügbarer Core',value:u?.release_core_version||u?.release_version_full||'—'},
+        {label:'Verfügbare GUI',value:u?.release_gui_version||'Noch keine Paket-Metadaten'},
         {label:'Geprüft am',value:formatTime(u?.checked_at)},
         {label:'Veröffentlicht am',value:formatTime(u?.release_published_at)},
       ]}/>
@@ -91,6 +95,9 @@ function UpdateCard({card,busy,onRefresh,onStart}:{card:SystemCardModel;busy:boo
         <Code block style={{overflowWrap:'anywhere',whiteSpace:'pre-wrap'}}>curl -fsSL https://github.com/phlupp/pv2hash/releases/latest/download/install.sh | sudo bash</Code>
       </div>
       <Group justify="flex-end">
+        <Button size="sm" color="gray" variant="subtle" onClick={onLog}>
+          Installationsprotokoll
+        </Button>
         <Button size="sm" color="orange" variant="light"
           disabled={busy||!runner?.can_start||u?.status!=='update_available'||runner?.running}
           onClick={onStart}>{runner?.running?'Update läuft …':'Update starten'}</Button>
@@ -154,6 +161,7 @@ export function SystemPage(){
   const [pending,setPending]=useState<'update'|'import'|'reload'|null>(null);
   const [file,setFile]=useState<File|null>(null);
   const [updateOverlay,setUpdateOverlay]=useState(false);
+  const [previewOverlay,setPreviewOverlay]=useState(false);
   const updater=useQuery({queryKey:['system','runner'],queryFn:()=>get<Runner>('/api/system/self-update-status'),
     refetchInterval:updateOverlay?1500:5000,refetchIntervalInBackground:updateOverlay,
   });
@@ -200,7 +208,15 @@ export function SystemPage(){
       </Group>
     </Group>
     {system.error&&<Alert color="red" icon={<IconAlertCircle size={17}/>}>{system.error.message}</Alert>}
-    {cards.map(card=>card.type==='backup'?<Card key={card.id}>
+    {cards.filter(c=>c.type==='update').map(card=><Stack gap="xs" key={card.id}>
+      <UpdateCard card={card} busy={busy} onRefresh={()=>void action('check')}
+        onStart={()=>setPending('update')} onLog={()=>setUpdateOverlay(true)}/>
+      {import.meta.env.DEV&&<Group justify="flex-end">
+        <Button variant="subtle" size="compact-sm" color="gray"
+          onClick={()=>setPreviewOverlay(true)}>Update-Manager als Simulation ansehen</Button>
+      </Group>}
+    </Stack>)}
+    {cards.filter(c=>c.type!=='update').map(card=>card.type==='backup'?<Card key={card.id}>
       <Stack gap="sm">
         <Text fw={650}>{card.title}</Text><Text c="dimmed" size="xs">{card.description}</Text>
         <Group gap="xs">
@@ -215,9 +231,7 @@ export function SystemPage(){
         <Group justify="flex-end"><Button color="orange" variant="light" size="sm" leftSection={<IconUpload size={15}/>}
           disabled={busy||!file} onClick={()=>setPending('import')}>Konfiguration importieren</Button></Group>
       </Stack>
-    </Card>:card.type==='update'?<UpdateCard key={card.id} card={card} busy={busy}
-      onRefresh={()=>void action('check')} onStart={()=>setPending('update')}/>
-    :card.type==='logs'?<LiveLogs key={card.id} card={card} busy={busy}
+    </Card>:card.type==='logs'?<LiveLogs key={card.id} card={card} busy={busy}
       onLogLevel={async level=>{await action('logging',level);}}/>
     :<Card key={card.id}>
       <Stack gap="sm"><Text fw={650}>{card.title}</Text>
@@ -245,21 +259,8 @@ export function SystemPage(){
         </Group>
       </Stack>
     </Modal>
-    <Modal opened={updateOverlay} onClose={()=>{if(!runner?.running)setUpdateOverlay(false);}}
-      withCloseButton={!runner?.running} closeOnClickOutside={!runner?.running} closeOnEscape={!runner?.running}
-      centered title="PV2Hash Update" size="lg">
-      <Stack gap="md">
-        <Group justify="space-between"><Text fw={600} size="sm">
-          {runner?.running?'Update läuft':runner?.status||'Update wird vorbereitet'}
-        </Text><Badge color={runner?.last_error?'red':'gray'}>{runner?.target_version_full||'—'}</Badge></Group>
-        <Text c="dimmed" size="xs">Installationsschritte (keine Zeitschätzung)</Text>
-        <Progress value={Math.max(0,Math.min(100,runner?.progress_percent??0))} size="lg"/>
-        <Text size="sm">{runner?.message||'Warte auf Update-Status …'}</Text>
-        {!!runner?.last_error&&<Alert color="red">{runner.last_error}</Alert>}
-        {!runner?.running&&<Group justify="flex-end">
-          <Button variant="light" color="gray" onClick={()=>setUpdateOverlay(false)}>Schließen</Button>
-        </Group>}
-      </Stack>
-    </Modal>
+    <UpdateOverlay opened={updateOverlay} onClose={()=>setUpdateOverlay(false)}
+      runner={runner} connecting={updater.isError}/>
+    <UpdateOverlay opened={previewOverlay} onClose={()=>setPreviewOverlay(false)} preview/>
   </Stack>;
 }

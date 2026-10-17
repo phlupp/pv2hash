@@ -639,3 +639,114 @@ mit den bereits in Phase 0.6/0.7 entwickelten Core-Erweiterungen.
 - Bestehende HTML-Seiten `/settings`, `/system` und alle bisher
   betriebenen Endpunkte bleiben unverändert.
   Produktiver Hashpi unangetastet.
+
+
+## Update-Manager / Release-IDs (GUI 2.0.0-dev.14)
+
+**Status: Entwicklungs-Meilenstein, noch kein Release.**
+Core bleibt auf testvm01 0.9.4; Produktions-Hashpis nicht angefasst.
+Im GUI-Draft-PR wird der neue Updater vorbereitet.
+
+### Einmaliger Migrationsweg
+
+- Es gibt **drei aktive PV2Hash-Installationen**. Alle drei werden
+  kontrolliert zunächst auf Core **0.9.5** (Brückenrelease) gebracht,
+  bevor GitHub Latest auf das neue ID-Format wechselt.
+- Das Brückenrelease muss über das **bisherige**
+  GitHub-Release-Schema `v0.9.5` samt kompatiblem Archiv,
+  Manifest und Prüfsummen installierbar bleiben.
+- Es enthält aber bereits den neuen Release-ID-Checker,
+  den erneuerten Installer/Helper und die GUI 2.0.
+- Erst nach verifizierter 0.9.5-Installation auf allen drei Geräten
+  folgt das erste Paket mit ID `rYYYY.MM.DD.N`. Kein
+  permanenter zweiter Feed, keine ewig festgehaltene Legacy-Latest.
+- Zur Unterscheidung: **Core SemVer** (Regler/API),
+  **GUI SemVer** (React-Vorderseite),
+  **Paket-Release-ID** (Auslieferung/Update).
+  Eine zusätzliche Gesamt-SemVer gibt es nicht.
+
+### Backend
+
+- `pv2hash/release_identity.py`: Parser und Vergleichslogik für
+  traditionelle `vX.Y.Z`-Tags und neue Paket-IDs
+  `rYYYY.MM.DD.N`. Die Paket-ID wird unabhängig von der Core
+  SemVer verglichen. Bestehende Installationen ohne Release-ID
+  können auf `v0.9.5` über Core SemVer aktualisieren.
+- `PV2HASH_RELEASE_ID` in `/etc/pv2hash/install.env`
+  bildet künftig die **installierte Paketidentität**. Der
+  Release-Installer speichert zusätzlich `PV2HASH_CORE_VERSION`
+  und `PV2HASH_GUI_VERSION`, wenn diese im Manifest vorliegen.
+- `pv2hash/update_check.py` versteht beide Tag-Arten. Bei
+  neuen GitHub-Paketen werden die benötigten
+  `core_version`/`gui_version` aus dem zugehörigen
+  `manifest.json` geladen und überprüft. Die API bietet
+  `release_id`, `installed_release_id`,
+  `release_core_version` und `release_gui_version`.
+- `pv2hash/self_update.py` akzeptiert neue Paket-Tags und
+  prüft bei der Neustart-Recovery die **installierte Release-ID**.
+  Gleich gebliebene Core SemVer alleine darf ein GUI-only-Update
+  nicht fälschlich als erfolgreich markieren.
+- Der bereits vorhandene 7-Phasen-Installer bleibt Grundlage.
+  `GET /api/system/self-update-status` liefert jetzt zusätzlich
+  `progress_percent`, berechnet aus **abgeschlossenen Schritten**,
+  nicht geschätzter Installationszeit.
+- `GET /api/system/update-log`: inkrementelle, begrenzte
+  Konsolenzeilen aus der **festen** Datei `self_update.log`,
+  mit Cursor, Dateiwechsel-Erkennung, Log-Rotation und
+  Redaction üblicher Passwort-/Token-Muster. Der Browser kann
+  keine beliebigen Dateipfade vorgeben.
+- `GET /api/system/update-log/download`: auf maximal
+  2 MiB begrenzter, vor Ausgabe maskierter Download
+  des Installationsprotokolls; **kein** Rohdatei-Download.
+- Die Installer-API bleibt weiter von einem geöffneten
+  Browserfenster unabhängig.
+
+### Frontend
+
+- Menühinweis: ruhiger Text `Update verfügbar` und subtil
+  pulsierender orangefarbener Punkt (respektiert Reduced Motion).
+- Update-Karte an **erster Stelle** auf der Systemseite:
+  Core-/GUI-Version, Paket-ID, Update-Prüfung, Release-Details.
+- Overlay in `frontend/src/update/UpdateOverlay.tsx`:
+  sieben reale Installationsphasen, aktueller Schritt, Fortschritt,
+  aufklappbare ioBroker-artige Browserkonsole mit Textfilter,
+  Auto-Scroll, Kopieren und Protokoll-Download.
+- Zeigt beim zwischenzeitlichen Dienstausfall
+  `Verbindung wird wiederhergestellt` statt sofort einen
+  Installationsfehler. Nach Browser-Reload wird der Overlay-
+  Zustand bei laufendem Update wieder aus dem Backend abgeleitet.
+- Installationsprotokoll jederzeit erneut über die Systemkarte
+  aufrufbar, auch nach Fehlschlag oder Seiten-Reload.
+- **Reine Vorschau** ausschließlich im Vite-Entwicklungsmodus:
+  `Update-Manager als Simulation ansehen`. Die sieben Schritte
+  lassen sich manuell durchklicken und zeigen künstliche,
+  ausdrücklich als SIMULATION markierte Logzeilen. Keine
+  Installation wird durch diesen Knopf gestartet.
+- Aktualisierungen starten weiterhin ausschließlich mit
+  expliziter Bestätigung.
+
+### Tests & offene Schritte zur 0.9.5
+
+- Sechs neue Python-Unit-Tests (Release-IDs, Reihenfolge,
+  ungültige Datumswerte, installierte ID, Neustart-Recovery,
+  Log-Cursor/Rotation und Secret-Maskierung).
+  Dazu zwei weitere Tests für vollständige simulierte GitHub-Checks
+  (Legacy-0.9.5 und Paket-ID samt Manifest und Core-/GUI-Versionen).
+  Die bestehenden acht Installer-/Fortschrittstests bestehen.
+- Browser-Tests: Simulation mit echtem Overlay von Schritt 3
+  auf Schritt 4, Fortschrittsanzeige, nachgeführte Konsole;
+  Mobilbreite 390 px ohne horizontalen Überlauf;
+  keine JS-Fehler.
+- Test-Core auf testvm01 um lesende API-Funktionen erweitert,
+  API antwortet HTTP 200, ohne echte Installer-Aktivität.
+  Bestehende Dateien vorher mit
+  `/home/chatgpt/pv2hash-dev14-before-*.py` gesichert.
+- **Noch ausstehend und vor Release verpflichtend:**
+  Erstellung eines **0.9.5-Pakets mit tatsächlich integrierter
+  gebaute React-GUI**, Umsetzung der neuen paketbasierten
+  Release-Pipeline inklusive GitHub-Manifests und Tag-Schema;
+  vollständige Fake-GitHub-/Fake-Installer-End-to-End-Tests
+  samt Dienstneustart und Fehler-Rollback;
+  abschließende Review und Freigabe.
+  Weder `v0.9.5` noch ein neues Paket-ID-Release wurde
+  veröffentlicht.
