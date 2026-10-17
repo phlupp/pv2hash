@@ -914,3 +914,29 @@ Der E2E-Pakettest bestätigt identische Notes in Quelldatei,
 Release-Asset und Archiv sowie gültige SHA256SUMS. Ein Paket
 ohne passende Notes wird vor dem Build abgelehnt.
 Regression: **67 Backend-Tests, 25 Frontend-Tests**, Vite-Build erfolgreich.
+
+
+## PV-Erzeugungsmessung auf GUI 2.0 (dev.16, vorgesehen für Core 0.9.5)
+
+PV-Erzeugung ist eine **eigenständige, optionale Modbus/TCP-Messquelle**.
+Sie verwendet **genau einen konfigurierbaren Messwert** (eine
+Register-Startadresse, bei 32 Bit zwei gelesene Register) und wird
+im vorhandenen generischen Messquellen-Formular konfiguriert.
+Die Dashboard-Kachel zeigt W und eigenständige Qualität (LIVE,
+OFFLINE, DEAKTIVIERT); Ausfälle dürfen niemals als Live-Werte
+stehen bleiben.
+
+Die Modbus-Lesefunktionen wurden aus `battery_modbus.py`
+in `modbus_register.py` extrahiert und werden von beiden
+Treibern verwendet. Die PV-Messung läuft in **eigener Schleife**,
+ohne die Controller-Snapshots zu verändern. Details zu
+Einstellungen, Sicherheit, Registern und Tests:
+`docs/pv-generation.md`.
+
+Der neue Funktionspunkt ist in `docs/releases/v0.9.5.md`
+bereits aufgenommen, aber **noch kein Release freigegeben**.
+
+PV-Modbus-Integrationstest bestanden: vollständiger lokaler Modbus/TCP-Test
+mit 3427 W und eigener Qualität LIVE; kein PV-Wert im
+Controller-Snapshot. Browser-Vorschau GUI **2.0.0-dev.16**;
+76 Python- und 25 Frontend-Tests erfolgreich.

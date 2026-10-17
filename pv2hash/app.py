@@ -225,6 +225,13 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
             "quality": getattr(snapshot, "quality", None) if snapshot else None,
             "grid_power_w": float(snapshot.grid_power_w) if snapshot else None,
         },
+        "pv": {
+            "id": _device_uuid(state.config.get("pv", {})),
+            "enabled": services.pv_source is not None,
+            "power_w": services.pv_source.power_w if services.pv_source else None,
+            "quality": services.pv_source.quality if services.pv_source else "disabled",
+            "debug": pv_debug,
+        },
         "battery": {
             "id": _device_uuid(battery_cfg),
             "key": "battery",
@@ -2198,6 +2205,7 @@ def _build_miners_live_payload(open_ids: set[str] | None = None) -> dict:
 def _build_sources_live_payload() -> dict:
     source_debug = services.get_source_debug_info()
     battery_debug = services.get_battery_source_debug_info()
+    pv_debug = services.get_pv_source_debug_info()
     source_cfg = state.config.get("source", {})
     battery_cfg = state.config.get("battery", {})
     sma_devices, selected_sma_device_serial = _build_sma_device_choices(source_cfg, source_debug)
@@ -2227,6 +2235,13 @@ def _build_sources_live_payload() -> dict:
             "discovered_devices": sma_devices,
             "selected_device_serial": selected_sma_device_serial,
             "debug": source_debug or {},
+        },
+        "pv": {
+            "id": _device_uuid(state.config.get("pv", {})),
+            "enabled": services.pv_source is not None,
+            "power_w": services.pv_source.power_w if services.pv_source else None,
+            "quality": services.pv_source.quality if services.pv_source else "disabled",
+            "debug": pv_debug,
         },
         "battery": {
             "id": _device_uuid(battery_cfg),
@@ -2312,11 +2327,36 @@ def _apply_source_config_form(target_config: dict[str, Any], form: Any) -> dict[
     target_config["battery"]["settings"]["max_charge_current"] = _parse_modbus_value_form(form, "battery_max_charge_current")
     target_config["battery"]["settings"]["max_discharge_current"] = _parse_modbus_value_form(form, "battery_max_discharge_current")
 
+    # Older HTML clients do not submit pv_type; preserve their existing PV settings.
+    if "pv_type" in form:
+        pv_type = str(form.get("pv_type", "none") or "none").strip()
+        if pv_type not in {"none", "pv_modbus"}:
+            raise ValueError("Unbekanntes PV-Messprofil.")
+        pv_cfg = target_config.setdefault("pv", {})
+        pv_cfg["type"] = pv_type
+        pv_cfg["name"] = "PV-Erzeugung"
+        pv_cfg["enabled"] = (form.get("pv_enabled") == "on") and pv_type == "pv_modbus"
+        settings = pv_cfg.setdefault("settings", {})
+        settings["host"] = str(form.get("pv_host", settings.get("host", "")) or "").strip()
+        settings["port"] = _safe_int(form.get("pv_port", settings.get("port", 502)), 502)
+        settings["unit_id"] = _safe_int(form.get("pv_unit_id", settings.get("unit_id", 1)), 1)
+        settings["poll_interval_ms"] = _safe_int(form.get("pv_poll_interval_ms", settings.get("poll_interval_ms", 5000)), 5000)
+        settings["request_timeout_seconds"] = _safe_float(
+            form.get("pv_request_timeout_seconds", settings.get("request_timeout_seconds", 1.0)), 1.0,
+        )
+        # Do not erase configured registers when a user selects "none".
+        if pv_type == "pv_modbus":
+            settings["power"] = _parse_modbus_value_form(form, "pv_power")
     return target_config
 
 
 def _save_source_config_from_form(form: Any) -> dict[str, Any]:
-    next_config = _apply_source_config_form(deepcopy(state.config), form)
+    try:
+        next_config = _apply_source_config_form(deepcopy(state.config), form)
+        from pv2hash.factory import build_pv_source
+        build_pv_source(next_config)  # Validate optional PV register before persistence.
+    except (ValueError, TypeError, OverflowError) as exc:
+        return {"status": "error", "message": str(exc)}
     source_type = str(next_config.get("source", {}).get("type", "simulator")).strip()
     selected_device_serial = _normalize_sma_serial_number(
         next_config.get("source", {}).get("settings", {}).get("device_serial_number", "")
@@ -2341,6 +2381,7 @@ def _save_source_config_from_form(form: Any) -> dict[str, Any]:
 def _build_dashboard_live_payload() -> dict:
     snapshot = state.snapshot
     source_debug = services.get_source_debug_info()
+    pv_adapter = services.pv_source
     host_status = _get_host_status()
     controller_status = _build_controller_status()
     dashboard_miners = _build_dashboard_miner_rows()
@@ -2400,6 +2441,13 @@ def _build_dashboard_live_payload() -> dict:
                 "value": grid_value,
                 "class": grid_class,
                 "hint": "negativ = Einspeisung",
+            },
+            "pv": {
+                "power_w": pv_adapter.power_w if pv_adapter else None,
+                "quality": pv_adapter.quality if pv_adapter else "disabled",
+                "enabled": pv_adapter is not None,
+                "source": state.config.get("pv", {}).get("name", "PV-Erzeugung"),
+                "updated_at": pv_adapter.updated_at.isoformat() if pv_adapter and pv_adapter.updated_at else None,
             },
             "source": {
                 "label": source_label,
@@ -2715,10 +2763,27 @@ async def control_loop() -> None:
         await asyncio.sleep(refresh_seconds)
 
 
+async def pv_measurement_loop() -> None:
+    """PV read-only poller, deliberately independent of mining-control timing."""
+    logger.info("PV measurement loop started")
+    while True:
+        adapter = services.pv_source
+        if adapter is None:
+            await asyncio.sleep(1.0)
+            continue
+        try:
+            await adapter.read()
+        except Exception:
+            logger.exception("Unexpected PV measurement poll error")
+        # A stale read cannot enter the live source after reconfiguration.
+        await asyncio.sleep(max(1, adapter.poll_interval_ms / 1000))
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
     logger.info("Application startup complete")
     asyncio.create_task(control_loop())
+    asyncio.create_task(pv_measurement_loop())
     asyncio.create_task(update_checker.run_background_loop())
     asyncio.create_task(data_logger.run())
     asyncio.create_task(export_manager.run())
@@ -3920,6 +3985,7 @@ async def api_status():
         "last_reload_at": state.last_reload_at.isoformat(),
         "source_debug": services.get_source_debug_info(),
         "battery_source_debug": services.get_battery_source_debug_info(),
+        "pv_source_debug": services.get_pv_source_debug_info(),
     }
     return JSONResponse(content=jsonable_encoder(payload))
 

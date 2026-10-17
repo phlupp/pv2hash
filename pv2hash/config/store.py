@@ -45,6 +45,9 @@ def _normalize_identity_fields(config: dict[str, Any]) -> None:
     battery = config.setdefault("battery", {})
     battery["uuid"] = _ensure_uuid(battery.get("uuid"))
 
+    pv = config.setdefault("pv", {})
+    pv["uuid"] = _ensure_uuid(pv.get("uuid"))
+
     for miner in config.get("miners", []):
         miner["uuid"] = _ensure_uuid(miner.get("uuid"))
 

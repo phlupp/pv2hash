@@ -15,7 +15,10 @@ function EnergySection({ context }: { context: DashboardContext }) {
   const snap = context.telemetry?.snapshot;
   const config = context.telemetry?.config;
   const gridValid = typeof snap?.grid_power_w === 'number' && Number.isFinite(snap.grid_power_w);
-  const pvValid = typeof snap?.pv_power_w === 'number' && Number.isFinite(snap.pv_power_w);
+  // PV comes from its own non-regulating background poller, not the controller snapshot.
+  const pvData = cards?.pv;
+  const pvValid = pvData?.quality === 'live'
+    && typeof pvData.power_w === 'number' && Number.isFinite(pvData.power_w);
   const batteryEnabled = config?.battery?.enabled === true || snap?.battery_soc_pct != null || snap?.battery_is_active === true;
   const batteryValue = cards?.battery?.value ?? '—';
   const charging = snap?.battery_is_charging && typeof snap.battery_charge_power_w === 'number';
@@ -40,13 +43,15 @@ function EnergySection({ context }: { context: DashboardContext }) {
         />
         <Metric
           label="PV-Erzeugung"
-          value={pvValid ? formatPower(snap?.pv_power_w) : '—'}
-          detail={pvValid ? 'PV-Leistungswert aus der API' : 'Keine PV-Erzeugungsmessung vorhanden'}
+          value={pvValid ? formatPower(pvData?.power_w) : '—'}
+          detail={!pvData?.enabled ? 'Keine PV-Erzeugungsmessung eingerichtet'
+            : pvData.quality === 'offline' ? 'Modbus-Messung nicht erreichbar'
+            : pvValid ? 'Aktuelle PV-Leistung aus Modbus TCP' : 'Warte auf PV-Messwert'}
           quality={
             <QualityBadge
+              quality={pvData?.quality}
               measured={pvValid}
-              source={config?.pv?.name}
-              missingQualityHint="Die API liefert für PV-Erzeugung derzeit keinen separaten Qualitätsstatus."
+              source={pvData?.source ?? config?.pv?.name}
             />
           }
         />

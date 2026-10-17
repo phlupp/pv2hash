@@ -6,6 +6,7 @@ from pv2hash.miners.simulator import SimulatorMiner
 from pv2hash.miners.whatsminer_api3 import WhatsminerApi3Miner
 from pv2hash.sources.base import EnergySource
 from pv2hash.sources.battery_modbus import BatteryModbusSource, ModbusValueConfig
+from pv2hash.sources.pv_modbus import PvModbusSource
 from pv2hash.sources.simulator import SimulatorSource
 from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
 from pv2hash.sockets.base import SocketInfo
@@ -204,6 +205,33 @@ def build_battery_source(config: dict) -> EnergySource | None:
         )
 
     raise ValueError(f"Unsupported battery source type: {battery_type}")
+
+
+def build_pv_source(config: dict) -> PvModbusSource | None:
+    """Optional, entirely read-only measurement separate from grid/battery control."""
+    cfg = config.get("pv", {}) or {}
+    if not cfg.get("enabled") or cfg.get("type") != "pv_modbus":
+        return None
+    settings = cfg.get("settings", {}) or {}
+    raw = settings.get("power") if isinstance(settings.get("power"), dict) else {}
+    # Preserve exact user input; validation in PvModbusSource rejects invalid settings.
+    address = raw.get("address")
+    pv_value = ModbusValueConfig(
+        name="power",
+        register_type=str(raw.get("register_type", "holding")),
+        address=int(address) if address not in (None, "") else None,
+        value_type=str(raw.get("value_type", "uint16")),
+        endian=str(raw.get("endian", "big_endian")),
+        factor=float(raw.get("factor", 1.0)),
+    )
+    return PvModbusSource(
+        host=str(settings.get("host", "")),
+        port=int(settings.get("port", 502)),
+        unit_id=int(settings.get("unit_id", 1)),
+        poll_interval_ms=int(settings.get("poll_interval_ms", 5000)),
+        request_timeout_seconds=float(settings.get("request_timeout_seconds", 1.0)),
+        power=pv_value,
+    )
 
 
 def build_miners(config: dict) -> list[MinerAdapter]:
