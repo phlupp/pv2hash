@@ -127,7 +127,7 @@ class InfluxDB2Destination:
                 fields['pv2hash_core_version'] = self.build_identity['core_version']
                 fields['pv2hash_gui_version'] = self.build_identity['gui_version']
                 result = line('pv2hash_system',tags,fields,ts,
-                              text_fields=('source_quality', 'battery_quality',
+                              text_fields=('source_quality', 'battery_quality', 'pv_quality',
                                            'pv2hash_version', 'pv2hash_core_version',
                                            'pv2hash_gui_version'))
                 if result: lines.append(result)

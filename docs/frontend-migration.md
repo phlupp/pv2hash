@@ -1025,3 +1025,18 @@ Konkrete Kompatibilitäts- und Testdetails: `docs/post095-feedback.md`.
 Die React-Entwicklung trägt vor der nächsten Veröffentlichung
 den Vorab-Stand `2.0.1-dev.1`; der Core bleibt zunächst bei
 `0.9.5`. Keine Freigabe für ein neues Paket-Release.
+
+### Mobile Update-Anzeige & PV-Erzeugungshistorie (GUI 2.0.1-dev.2)
+
+Das mobile Menü zeigt bei Updates einen orangefarbenen, pulsierenden
+Indikator **direkt am Burger**, ohne dass das Menü geöffnet werden muss.
+Im Desktop-Menü sind GUI/Core, Updatehinweis und Backend-Status als
+kompakter Versionsbereich strukturiert. Technische Details dazu und
+zu den neuen PV-DataLogger-/Exporter-Feldern stehen in
+`docs/post095-feedback.md`.
+
+Die bestehende DataLogger-Datenbank wird additiv auf Schema v6 migriert
+(`pv_power_w`, `pv_quality`), ohne Verluste historischer Daten.
+Auch die DatenLogger-Zeitreihe und der InfluxDB2-Exporter erhalten
+diese Felder. Nullwert und Offline-Zustand werden korrekt
+unterschieden, die PV-Messung bleibt strikt außerhalb des Controllers.

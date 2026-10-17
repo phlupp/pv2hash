@@ -1,6 +1,7 @@
 /** Centralized semantic colors for DataLogger ECharts series (no per-page inline colors). */
 export const chartColors = {
   grid: '#6dcff6',
+  pv: '#f8cb72',
   miningPower: '#aa8bff',
   batteryCharge: '#42dba3',
   batteryDischarge: '#efae70',

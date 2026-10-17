@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import platform
 import shutil
@@ -141,6 +142,28 @@ def _device_uuid(config: dict[str, Any]) -> str:
 
 def _build_runtime_snapshot_payload() -> dict[str, Any]:
     snapshot = state.snapshot
+    pv_source = services.pv_source
+    pv_debug = services.get_pv_source_debug_info()
+    # The measurement is independent of mining control. Only confirmed live
+    # samples are exported; zero is a real night-time PV reading, not missing.
+    pv_quality = getattr(pv_source, "quality", "disabled") if pv_source else "disabled"
+    pv_power = getattr(pv_source, "power_w", None) if pv_source else None
+    pv_updated_at = getattr(pv_source, "updated_at", None) if pv_source else None
+    pv_poll_ms = getattr(pv_source, "poll_interval_ms", 5000) if pv_source else 5000
+    pv_age_ok = (
+        isinstance(pv_updated_at, datetime)
+        and pv_updated_at.tzinfo is not None
+        and 0 <= (datetime.now(UTC) - pv_updated_at).total_seconds()
+        <= max(15, 3 * pv_poll_ms / 1000)
+    )
+    try:
+        pv_power = float(pv_power) if pv_quality == "live" and pv_age_ok else None
+        if pv_power is not None and not math.isfinite(pv_power):
+            pv_power = None
+    except (TypeError, ValueError, OverflowError):
+        pv_power = None
+    if pv_quality == "live" and not pv_age_ok:
+        pv_quality = "stale"
     runtime_miners = {miner.id: miner for miner in state.miners}
     config_miners = state.config.get("miners", []) if state.config else []
 
@@ -213,9 +236,10 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
         },
         "pv": {
             "id": _device_uuid(state.config.get("pv", {})),
-            "enabled": services.pv_source is not None,
-            "power_w": services.pv_source.power_w if services.pv_source else None,
-            "quality": services.pv_source.quality if services.pv_source else "disabled",
+            "enabled": pv_source is not None,
+            "power_w": pv_power,
+            "quality": pv_quality,
+            "updated_at": pv_updated_at,
             "debug": pv_debug,
         },
         "battery": {
@@ -2224,9 +2248,10 @@ def _build_sources_live_payload() -> dict:
         },
         "pv": {
             "id": _device_uuid(state.config.get("pv", {})),
-            "enabled": services.pv_source is not None,
-            "power_w": services.pv_source.power_w if services.pv_source else None,
-            "quality": services.pv_source.quality if services.pv_source else "disabled",
+            "enabled": pv_source is not None,
+            "power_w": pv_power,
+            "quality": pv_quality,
+            "updated_at": pv_updated_at,
             "debug": pv_debug,
         },
         "battery": {
