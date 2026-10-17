@@ -20,9 +20,15 @@ class DummyClient:
     def __init__(self, responses):
         self.responses=responses
         self.calls=[]
-    async def __aenter__(self):return self
-    async def __aexit__(self,*args):pass
+    async def __aenter__(self):
+        self.closed = False
+        return self
+    async def __aexit__(self,*args):
+        self.closed = True
     async def get(self, url):
+        # httpx.AsyncClient does not allow a second request after its context has closed.
+        if getattr(self, "closed", False):
+            raise RuntimeError("Cannot send a request, as the client has been closed.")
         self.calls.append(url)
         return DummyResponse(self.responses[url])
 
