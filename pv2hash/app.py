@@ -60,6 +60,57 @@ instance_identity = load_instance_identity()
 
 app = FastAPI(title="PV2Hash", version=APP_VERSION_FULL)
 app.mount("/static", StaticFiles(directory="pv2hash/static"), name="static")
+# A release ships prebuilt, fingerprinted React assets; development runs on Vite
+# and does not contain these assets in the Python Core checkout.
+GUI_DIST_DIR = Path(__file__).resolve().parent / "gui"
+GUI_INDEX_FILE = GUI_DIST_DIR / "index.html"
+GUI_ASSETS_DIR = GUI_DIST_DIR / "assets"
+BUILD_INFO_FILE = Path(__file__).resolve().parent / "build_info.json"
+
+
+def _read_build_info() -> dict[str, Any]:
+    try:
+        payload = json.loads(BUILD_INFO_FILE.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("invalid release metadata")
+        return {
+            "status": "ok",
+            "release_id": str(payload.get("release_id") or "") or None,
+            "core_version": str(payload.get("core_version") or APP_VERSION_FULL),
+            "gui_version": str(payload.get("gui_version") or "") or None,
+        }
+    except (OSError, ValueError, TypeError):
+        return {"status": "ok", "release_id": None,
+                "core_version": APP_VERSION_FULL, "gui_version": None}
+
+
+@app.get("/api/system/build-info")
+async def api_system_build_info():
+    """Identity of the currently running release, not the install.env symlink."""
+    return JSONResponse(_read_build_info())
+
+if GUI_INDEX_FILE.is_file() and GUI_ASSETS_DIR.is_dir():
+    app.mount("/ui-next/assets", StaticFiles(directory=str(GUI_ASSETS_DIR)), name="gui-assets")
+
+
+@app.get("/ui-next", include_in_schema=False)
+async def gui_without_slash():
+    if not GUI_INDEX_FILE.is_file():
+        return JSONResponse({"detail": "GUI 2.0 is not installed"}, status_code=404)
+    return RedirectResponse(url="/ui-next/", status_code=307)
+
+
+@app.get("/ui-next/{path:path}", include_in_schema=False)
+async def gui_client_routes(path: str):
+    """React Router fallback; never interpret the incoming path as a filename."""
+    if not GUI_INDEX_FILE.is_file():
+        return JSONResponse({"detail": "GUI 2.0 is not installed"}, status_code=404)
+    # Unknown hashed asset paths must not return HTML (they must 404).
+    if path.startswith(("assets/", "static/")) or "." in path:
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    return FileResponse(GUI_INDEX_FILE, media_type="text/html",
+                        headers={"Cache-Control": "no-cache"})
+
 templates = Jinja2Templates(directory="pv2hash/templates")
 templates.env.globals["app_version_full"] = APP_VERSION_FULL
 
@@ -2701,8 +2752,12 @@ def reload_runtime() -> None:
 
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
+@app.get("/legacy", include_in_schema=False)
 async def dashboard(request: Request):
+    # New GUI is the default only after its built files have been installed.
+    if request.url.path == "/" and GUI_INDEX_FILE.is_file():
+        return RedirectResponse(url="/ui-next/", status_code=307)
     total_miner_power = sum(m.power_w for m in state.miners) if state.miners else 0.0
     miner_count = len(state.miners)
 

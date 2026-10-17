@@ -750,3 +750,124 @@ Im GUI-Draft-PR wird der neue Updater vorbereitet.
   abschließende Review und Freigabe.
   Weder `v0.9.5` noch ein neues Paket-ID-Release wurde
   veröffentlicht.
+
+
+## Release-Paket und Update-Transaktion (Phase 0.10)
+
+**Entwickelt/testvm01, nicht veröffentlicht.** Technischer Meilenstein
+nach GUI `2.0.0-dev.14` und Phase 0.9; weiterhin Draft-PR #25.
+
+### Auslieferung
+
+- `scripts/build_release.sh` baut vor jedem Paket den
+  React-/Mantine-Frontend-Bundle reproduzierbar mit `npm ci`,
+  `npm test` und `npm run build`. Die gebauten Dateien werden
+  ausschließlich im temporären Paket-Staging unter
+  `pv2hash/gui/` abgelegt – **keine** Quelldatei/Node-Module
+  werden ins Release-Paket aufgenommen.
+- In `pv2hash/build_info.json` liegen die im tatsächlich laufenden
+  Dienst überprüfbaren Angaben `release_id`, `core_version`,
+  `gui_version`. Das ausgelieferte `manifest.json` führt
+  dieselben Angaben, dazu die alten Kompatibilitätsfelder
+  `version`, `version_semver`, `tag`, `version_slug`,
+  `asset_name` und `asset_sha256`.
+- Das Brückenrelease **`v0.9.5`** enthält daher weiterhin
+  `pv2hash-0.9.5.tar.gz`, `manifest.json`, `SHA256SUMS`
+  und `install.sh`. Der alte Updatecheck und alte Installer
+  erkennen es mit dem bisherigen Tag-/Dateischema.
+- Ab dem bestätigten Abschluss der Migration aller drei Hashpis:
+  Paket-IDs `rYYYY.MM.DD.N`; die semantischen Core-/GUI-Versionen
+  laufen unabhängig, ohne dritte Gesamt-SemVer.
+- GitHub-Action `.github/workflows/release.yml` hat
+  `version` (Core), `gui_version` und optional
+  `release_id` als Inputs. Ohne ID wird wie bisher `vX.Y.Z`
+  veröffentlicht, mit ID nach dem neuen Schema. Die Action
+  baut und prüft zuerst und veröffentlicht erst nach erfolgreichen
+  Tests. **Release-Ausführung nur nach Freigabe!**
+- Der Core serviert `/ui-next/` samt Fingerprint-Assets direkt.
+  `/` führt bei vorhandenem GUI-Bundle zu `/ui-next/`.
+  Die alte Oberfläche bleibt zunächst über `/legacy`
+  sowie ihre bisherigen HTML-Routen erreichbar. Fehlt ein
+  Bundle (Entwicklungs-Core), bleibt der alte Root unverändert.
+  Direkte React-Unterseiten und Browser-Reload funktionieren.
+
+### Neustart und Rollback
+
+- Neuer lesender Endpunkt `GET /api/system/build-info`.
+  Seine Release-Identität stammt aus dem tatsächlich installierten
+  Python-Paket, **nicht** aus einer möglichen bereits
+  umgeschriebenen `install.env`.
+- Nach einem `systemctl restart` wartet der Installer bis
+  zu 30 Sekunden auf die erfolgreiche Bestätigung von Paket-ID,
+  Core- und GUI-Version. Erst dann wird die Update-Transaktion
+  als abgeschlossen markiert.
+- Vor dem Aktivieren werden der alte Release-Symlink und
+  `install.env`, die systemd-Service-Datei, der Update-Helper
+  und dessen sudoers-Datei temporär gesichert.
+  Bei fehlgeschlagener Aktivierung werden sie zurückgesetzt,
+  der alte Dienst neu gestartet und ein nur teilweise
+  installierter neuer Release-Ordner entfernt.
+- Der bisherige externe Helper protokolliert die realen sieben
+  Schritte und stellt das Log über die neue read-only
+  Update-Konsole bereit. Der Browser kontrolliert den
+  Installationsprozess nicht selbst.
+- Für lokale Buildtests kann mit
+  `PV2HASH_ALLOW_DEV_GUI=1 PV2HASH_BUILD_SKIP_NPM_CI=1`
+  eine explizit als Entwicklung gekennzeichnete GUI mit
+  vorhandenen Node-Modulen verwendet werden. Beides ist
+  **nicht** für veröffentlichte Releases vorgesehen.
+
+### Abgeschlossene isolierte Tests (2026-10-17)
+
+- Ein vollständiges lokales Release-Archiv inkl. SPA,
+  SHA256SUMS, Core und Metadaten wurde gebaut und aus
+  einem **isoliert gestarteten Python-Prozess** geprüft:
+  Root-Redirect HTTP 307, tiefe React-Route HTTP 200,
+  Legacy HTTP 200, CSS/JS HTTP 200, unbekanntes Asset HTTP 404.
+- Zwei weitere interne Pakete erstellt:
+  `v0.9.5` (Core 0.9.5, GUI 2.0.0)
+  und `r2026.10.18.1` (Core 0.9.5, GUI 2.0.1).
+  Beide mit konsistentem Manifest und gültigen SHA256SUMS.
+  Diese Paket-IDs sind **ausschließlich Testfixtures,
+  keine echten GitHub-Releases**.
+- Mit lokaler `file://`-Feedquelle wurden die echten
+  Installer-Funktionen für Metadaten, Download, Hashprüfung,
+  Extraktion, `install.env` und atomaren Current-Symlink
+  durchlaufen. Ein absichtlich beschädigtes Paket wurde
+  abgelehnt; das bestehende Release blieb aktiv.
+- Anschließend beide Pakete unter vollständig getrennten
+  Testverzeichnissen gestartet und neu gestartet:
+  `GET /api/system/build-info` lieferte jeweils die
+  richtige laufende Release-ID und die Core-/GUI-Versionen,
+  auch beim GUI-only-Update.
+- Die Live-Log-API wurde in einer isolierten, gebündelten
+  Release-Instanz mit künstlichem Installerlog getestet:
+  initiale Zeilen, cursorbasiertes Nachladen, Download und
+  Maskierung eines absichtlich eingefügten Test-Tokens.
+- Mock-basierte Rückfalltests bestätigen die Wiederherstellung
+  von altem Release-Symlink, Installationsdateien und
+  Service-Neustart ohne echte root-/systemd-Aktionen.
+  Ein falscher Paketstand wird selbst dann abgelehnt,
+  wenn die Core-Version identisch ist.
+- Gesamtes Backend: 63 unittest-Tests bestanden.
+  Frontend: 22 Tests bestanden. Shell-Skripte syntaktisch
+  geprüft. Keine Produktionsserver geändert, kein
+  GitHub-Release/Tag erzeugt, kein echtes apt/systemd
+  durch den Installer ausgeführt.
+
+### Release-Gate vor Core 0.9.5
+
+1. Benutzer prüft/akzeptiert GUI und Updater (Design bereits
+   abgenommen); offener Draft-PR wird final gereviewt/merged.
+2. In einem gesonderten Freigabeschritt Versionen im
+   offiziellen Release auf Core **0.9.5** / GUI **2.0.0**
+   setzen und genau das Build-Artefakt publizieren.
+3. Nach dem Release erst eigener Hashpi und hashpi-pueppi,
+   dann telefonische Kontrolle der dritten Installation:
+   alle nachweisbar auf 0.9.5.
+4. Erst danach erste echte `rYYYY.MM.DD.N`-Version via
+   regulärem GitHub Latest; Live-System und GUI prüfen.
+
+Die automatisierten Transaktionstests haben noch keinen
+vollständigen realen Produktiv-Raspberry-Pi-Updatevorgang
+ersetzt. Dies bleibt Teil der kontrollierten Freigabe.

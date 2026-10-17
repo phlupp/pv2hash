@@ -40,6 +40,11 @@ MANIFEST_URL=""
 SHA256_URL=""
 RELEASE_DIR=""
 TMP_RELEASE_DIR=""
+TRANSACTION_STARTED=0
+TRANSACTION_COMPLETE=0
+STAGED_RELEASE_CREATED=0
+PREVIOUS_CURRENT_TARGET=""
+TRANSACTION_BACKUP_DIR=""
 
 require_root() {
     if [[ "${EUID}" -ne 0 ]]; then
@@ -404,6 +409,7 @@ extract_release() {
     ln -s "${APP_DATA_DIR}" "${TMP_RELEASE_DIR}/data"
 
     mv "${TMP_RELEASE_DIR}" "${RELEASE_DIR}"
+    STAGED_RELEASE_CREATED=1
     chown -h "${APP_USER}:${APP_GROUP}" "${RELEASE_DIR}/data"
 
 }
@@ -441,6 +447,63 @@ PV2HASH_APP_USER=${APP_USER}
 PV2HASH_APP_GROUP=${APP_GROUP}
 PV2HASH_INSTALLED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 EOF_INFO
+}
+
+# Preserve a known-working release and system files until the new service
+# has started and the running Core confirms its *package* identity.
+backup_current_install() {
+    TRANSACTION_BACKUP_DIR="${TMP_DIR}/previous-install"
+    mkdir -p "${TRANSACTION_BACKUP_DIR}"
+    PREVIOUS_CURRENT_TARGET="$(readlink "${CURRENT_LINK}" 2>/dev/null || true)"
+
+    local key path
+    for key in install.env service helper sudoers; do
+        case "${key}" in
+            install.env) path="${INSTALL_INFO_FILE}" ;;
+            service) path="${SERVICE_FILE}" ;;
+            helper) path="${SELF_UPDATE_HELPER_PATH}" ;;
+            sudoers) path="${SELF_UPDATE_SUDOERS_FILE}" ;;
+        esac
+        if [[ -f "${path}" ]]; then
+            cp -a "${path}" "${TRANSACTION_BACKUP_DIR}/${key}"
+        else
+            touch "${TRANSACTION_BACKUP_DIR}/${key}.absent"
+        fi
+    done
+    TRANSACTION_STARTED=1
+}
+
+restore_install_file() {
+    local key="$1" path="$2"
+    if [[ -f "${TRANSACTION_BACKUP_DIR}/${key}" ]]; then
+        cp -a "${TRANSACTION_BACKUP_DIR}/${key}" "${path}"
+    elif [[ -f "${TRANSACTION_BACKUP_DIR}/${key}.absent" ]]; then
+        rm -f "${path}"
+    fi
+}
+
+rollback_current_install() {
+    echo "Update fehlgeschlagen: stelle vorheriges Release wieder her." >&2
+    # Restore the old target before restarting the old service.
+    if [[ -n "${PREVIOUS_CURRENT_TARGET}" ]]; then
+        ln -sfn "${PREVIOUS_CURRENT_TARGET}" "${CURRENT_LINK}.rollback"
+        mv -Tf "${CURRENT_LINK}.rollback" "${CURRENT_LINK}"
+    else
+        rm -f "${CURRENT_LINK}"
+    fi
+    restore_install_file install.env "${INSTALL_INFO_FILE}"
+    restore_install_file service "${SERVICE_FILE}"
+    restore_install_file helper "${SELF_UPDATE_HELPER_PATH}"
+    restore_install_file sudoers "${SELF_UPDATE_SUDOERS_FILE}"
+    systemctl daemon-reload || true
+    if [[ -n "${PREVIOUS_CURRENT_TARGET}" ]]; then
+        systemctl restart "${SERVICE_NAME}.service" || echo "WARNUNG: Neustart der bisherigen Version fehlgeschlagen." >&2
+    else
+        systemctl stop "${SERVICE_NAME}.service" || true
+    fi
+    if [[ "${STAGED_RELEASE_CREATED}" == 1 && -n "${RELEASE_DIR}" ]]; then
+        rm -rf "${RELEASE_DIR}"
+    fi
 }
 
 install_self_update_helper() {
@@ -493,10 +556,43 @@ activate_release() {
     chown -h "${APP_USER}:${APP_GROUP}" "${CURRENT_LINK}"
 }
 
+verify_running_release() {
+    local attempt
+    # A successful systemctl restart is not enough. Identical Core versions
+    # can contain different GUI packages, so compare the release ID served
+    # by the newly started Python process.
+    for attempt in $(seq 1 30); do
+        if curl -fsS --connect-timeout 2 --max-time 3 \
+            "http://127.0.0.1:${PORT}/api/system/build-info" 2>/dev/null |
+            PV2HASH_EXPECTED_TAG="${TAG_NAME}" \
+            PV2HASH_EXPECTED_CORE="${FULL_VERSION}" \
+            PV2HASH_EXPECTED_GUI="${GUI_VERSION}" \
+            python3 -c '
+import json,os,sys
+try: data=json.load(sys.stdin)
+except Exception:sys.exit(1)
+if (
+    data.get("release_id")==os.environ["PV2HASH_EXPECTED_TAG"]
+    and data.get("core_version")==os.environ["PV2HASH_EXPECTED_CORE"]
+    and data.get("gui_version")==os.environ["PV2HASH_EXPECTED_GUI"]
+):
+    sys.exit(0)
+sys.exit(1)
+' ; then
+            echo "Neue Version bestätigt: ${TAG_NAME} (Core ${FULL_VERSION}, GUI ${GUI_VERSION})."
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Fehler: neuer Dienst hat die erwartete Release-ID nicht bestätigt." >&2
+    return 1
+}
+
 enable_and_restart_service() {
     systemctl daemon-reload
     systemctl enable "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
     systemctl restart "${SERVICE_NAME}.service"
+    verify_running_release
 }
 
 cleanup() {
@@ -526,8 +622,18 @@ show_result() {
     echo
 }
 
+on_installer_exit() {
+    local rc="$1"
+    trap - EXIT
+    if [[ "${rc}" != 0 && "${TRANSACTION_STARTED}" == 1 && "${TRANSACTION_COMPLETE}" != 1 ]]; then
+        rollback_current_install || echo "KRITISCH: automatischer Rollback fehlgeschlagen!" >&2
+    fi
+    cleanup
+    exit "${rc}"
+}
+
 main() {
-    trap cleanup EXIT
+    trap 'on_installer_exit $?' EXIT
 
     require_root
     report_update_phase 1 "Systempakete prüfen"
@@ -545,12 +651,14 @@ main() {
     report_update_phase 5 "Python-Umgebung und Abhängigkeiten einrichten"
     install_python_dependencies
     report_update_phase 6 "Neue Version aktivieren"
+    backup_current_install
     install_self_update_helper
     activate_release
     write_install_info
     write_systemd_unit
     report_update_phase 7 "PV2Hash-Dienst neu starten"
     enable_and_restart_service
+    TRANSACTION_COMPLETE=1
     show_result
 }
 
