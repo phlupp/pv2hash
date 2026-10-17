@@ -143,3 +143,22 @@ GET /api/datalogger/controller-debug?range=1h&end=2026-05-10T12:00:00Z&limit=200
 ```
 
 Optional kann wie bei der Chart-Zeitreihe `miner_ids` übergeben werden. Globale Debug-Ereignisse ohne Miner-Bezug bleiben sichtbar.
+
+
+## GUI 2.0 (Entwicklung)
+
+Die bislang beschriebene lokale Chart.js-Darstellung gehört zur bestehenden
+Legacy-GUI und bleibt während der Migration erhalten.
+
+Die separate React-/Mantine-Oberfläche **GUI 2.0.0-dev.6** verwendet im
+DataLogger **Apache ECharts**. Sie greift lesend auf dieselben
+`/api/datalogger/status`, `/api/datalogger/series` und
+`/api/datalogger/controller-debug` Endpunkte zu, ohne den
+DataLogger-Dienst oder SQLite zu verändern.
+
+Geplant für die endgültige Migration ist eine aus Modulen gebildete
+Zeitreihen- und Regleranalyse: Zeitsteuerung, Minerfilter,
+klickbare und gruppierte angewendete Controller-Events, Ereignismarker
+in allen drei Zeitreihendiagrammen und optionaler Regler-Debug.
+Die technische Architektur, Teststand und die derzeitige 500-Event-Grenze
+sind in `docs/frontend-migration.md` dokumentiert.

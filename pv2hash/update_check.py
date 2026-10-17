@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 import httpx
 
 from pv2hash.logging_ext.setup import get_logger
+from pv2hash.release_identity import parse_release_id, installed_release_id
 from pv2hash.runtime import AppState, UpdateCheckState
 
 DEFAULT_UPDATE_BASE_URL = "https://api.github.com/repos/phlupp/pv2hash"
@@ -47,25 +48,16 @@ def _parse_version_tuple(version: str) -> tuple[int, int, int]:
 
 def _parse_release_tag(tag_name: str) -> dict[str, Any]:
     raw = str(tag_name).strip()
-    match = _SEMVER_TAG_RE.match(raw)
-    build: str | None = None
-
-    if match is None:
-        match = _LEGACY_BUILD_TAG_RE.match(raw)
-        if match is not None:
-            build = match.group("build")
-
-    if match is None:
-        raise ValueError(f"Unbekanntes Release-Tag-Format: {tag_name!r}")
-
-    version = match.group("version")
-
+    identity = parse_release_id(raw)
+    build_match = _LEGACY_BUILD_TAG_RE.match(raw)
+    version = identity.version or identity.release_id
     return {
-        "tag": raw if raw.startswith("v") else f"v{raw}",
+        "tag": identity.tag,
+        "release_id": identity.release_id,
         "version": version,
-        "build": build,
+        "build": build_match.group("build") if build_match else None,
         "version_full": version,
-        "tuple": _parse_version_tuple(version),
+        "tuple": identity.order,
     }
 
 
@@ -78,6 +70,10 @@ def _serialize_update_check(status: UpdateCheckState) -> dict[str, Any]:
         "local_version_full": status.local_version_full,
         "checked_at": status.checked_at.isoformat() if status.checked_at else None,
         "release_tag": status.release_tag,
+        "release_id": status.release_id,
+        "installed_release_id": status.installed_release_id,
+        "release_core_version": status.release_core_version,
+        "release_gui_version": status.release_gui_version,
         "release_name": status.release_name,
         "release_url": status.release_url,
         "release_version": status.release_version,
@@ -101,6 +97,9 @@ class UpdateChecker:
         self.current_version = match.group("version") if match else current_version
         self.current_version_full = self.current_version
         self.current_tuple = _parse_version_tuple(self.current_version)
+        from pv2hash.self_update import DEFAULT_INSTALL_INFO_FILE
+        self.installed_release_id = installed_release_id(DEFAULT_INSTALL_INFO_FILE)
+        self.current_order = parse_release_id(self.installed_release_id or self.current_version).order
         self._lock = asyncio.Lock()
 
     def _is_enabled(self) -> bool:
@@ -228,7 +227,23 @@ class UpdateChecker:
                                     if name.startswith("pv2hash-") and name.endswith(".tar.gz")), None)
                     if not archive or "manifest.json" not in assets or "SHA256SUMS" not in assets:
                         raise ValueError("GitHub-Release enthält nicht alle PV2Hash-Paketdateien")
+                    release_tag = str(feed.get("tag_name") or "")
+                    release_identity = parse_release_id(release_tag)
+                    extra = {}
+                    if release_identity.kind == "package":
+                        manifest_resp = await client.get(assets["manifest.json"]["browser_download_url"])
+                        manifest_resp.raise_for_status()
+                        manifest = manifest_resp.json()
+                        if not isinstance(manifest, dict) or manifest.get("tag") != release_identity.tag:
+                            raise ValueError("Manifest passt nicht zur Paket-Release-ID")
+                        extra = {
+                            "core_version": str(manifest.get("core_version") or ""),
+                            "gui_version": str(manifest.get("gui_version") or ""),
+                        }
+                        if not extra["core_version"] or not extra["gui_version"]:
+                            raise ValueError("Paket-Manifest enthält nicht beide Komponenten-Versionen")
                     feed = {"latest": {
+                        **extra,
                         "tag": feed.get("tag_name"),
                         "title": feed.get("name"),
                         "released_at": feed.get("published_at"),
@@ -258,9 +273,9 @@ class UpdateChecker:
                 release_info = _parse_release_tag(tag_name)
                 release_tuple = release_info["tuple"]
 
-                if release_tuple > self.current_tuple:
+                if release_tuple > self.current_order:
                     status_value = "update_available"
-                elif release_tuple == self.current_tuple:
+                elif release_tuple == self.current_order:
                     status_value = "up_to_date"
                 else:
                     status_value = "ahead_of_release"
@@ -287,6 +302,10 @@ class UpdateChecker:
                     local_version_full=self.current_version_full,
                     checked_at=datetime.now(UTC),
                     release_tag=release_info["tag"],
+                    release_id=release_info["release_id"],
+                    installed_release_id=self.installed_release_id,
+                    release_core_version=str(latest.get("core_version") or release_info["version"]),
+                    release_gui_version=str(latest.get("gui_version") or "") or None,
                     release_name=str(latest.get("title") or f"PV2Hash {release_info['version']}"),
                     release_url=release_url,
                     release_version=release_info["version"],
@@ -317,6 +336,10 @@ class UpdateChecker:
                     local_version_full=self.current_version_full,
                     checked_at=datetime.now(UTC),
                     release_tag=current.release_tag,
+                    release_id=current.release_id,
+                    installed_release_id=self.installed_release_id,
+                    release_core_version=current.release_core_version,
+                    release_gui_version=current.release_gui_version,
                     release_name=current.release_name,
                     release_url=current.release_url,
                     release_version=current.release_version,

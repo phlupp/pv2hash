@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from pv2hash.logging_ext.setup import get_logger
+from pv2hash.release_identity import parse_release_id, installed_release_id
 
 DEFAULT_INSTALL_INFO_FILE = Path("/etc/pv2hash/install.env")
 DEFAULT_HELPER_PATH = Path("/usr/local/libexec/pv2hash-self-update")
@@ -67,15 +68,11 @@ class SelfUpdateManager:
 
     def _parse_release_tag(self, tag: str) -> tuple[str, str]:
         raw = str(tag).strip()
-        match = _SEMVER_TAG_RE.match(raw)
-        if match is None:
-            match = _LEGACY_BUILD_TAG_RE.match(raw)
-        if match is None:
-            raise SelfUpdateError(f"Ungültiges Release-Tag: {tag!r}")
-
-        version = match.group("version")
-        normalized_tag = raw if raw.startswith("v") else f"v{raw}"
-        return normalized_tag, version
+        try:
+            identity = parse_release_id(raw)
+        except ValueError as exc:
+            raise SelfUpdateError(f"Ungültiges Release-Tag: {tag!r}") from exc
+        return identity.tag, identity.version or identity.release_id
 
     def _read_state(self) -> dict[str, Any]:
         if not self.state_file.exists():
@@ -227,7 +224,21 @@ class SelfUpdateManager:
         helper_path = str(file_state.get("helper_path") or self.helper_path)
         log_file = file_state.get("log_file")
 
-        if target_version_full and target_version_full == self.current_version_full:
+        target_identity = None
+        try:
+            target_identity = parse_release_id(str(target_tag or ""))
+        except ValueError:
+            pass
+        installed_tag = installed_release_id(self.install_info_file)
+        release_matches = bool(
+            target_identity and installed_tag
+            and target_identity.release_id == installed_tag
+        )
+        legacy_version_matches = bool(
+            target_identity and target_identity.kind == "legacy"
+            and target_version_full and target_version_full == self.current_version_full
+        )
+        if release_matches or legacy_version_matches:
             finished_at = str(file_state.get("finished_at") or "").strip() or self._now_iso()
             self._write_state(
                 status="success",
@@ -394,6 +405,7 @@ class SelfUpdateManager:
             "running": running,
             "can_start": can_start,
             "current_version_full": self.current_version_full,
+            "installed_release_id": installed_release_id(self.install_info_file),
             "available_release_tag": available_release_tag,
             "available_release_version_full": available_release_version_full,
             "target_tag": file_state.get("target_tag"),
@@ -471,6 +483,11 @@ class SelfUpdateManager:
         started_at = self._now_iso()
 
         try:
+            if target_tag.startswith("r"):
+                # Package ID is not a Core version.
+                target_version_full = str(update_status.get("release_core_version") or "").strip()
+                if not target_version_full:
+                    raise SelfUpdateError("Release enthält keine Core-Version.")
             self._verify_helper_ready()
             self._write_state(
                 status="starting",

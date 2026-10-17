@@ -488,3 +488,91 @@ Profile loading rules:
 - Duplicate profile IDs are not hidden; entries with duplicate IDs include the ID in the label so the conflict is visible.
 - Invalid YAML/profile files are ignored, logged as a warning, and exposed to the GUI as a warning toast.
 - The profile list is loaded on demand for GUI rendering and profile actions, not during normal Modbus polling.
+
+
+## GUI 2.0 Renderer (React/Mantine)
+
+Das gemeinsame GUI-Modell wird in GUI 2.0 durch
+`frontend/src/sources/SourceCard.tsx` für jede von
+`GET /api/sources/status` gelieferte Source gerendert.
+Quelle und Batterie stehen als volle, untereinanderliegende Karten.
+Eine künftige PV-Source kann eine zusätzliche Karte beisteuern, sobald
+der Core ihre Rollen-/Driver-Schemas und ihren eigenen Qualitätsstatus liefert.
+
+Der generische Feldrenderer unterstützt Text, Zahlen, Passwort,
+Checkbox, Select, Hidden und verschachtelte Fieldsets sowie responsive
+`layout.width`-Angaben. Neue Feldtypen werden explizit als nicht
+unterstützt markiert, anstatt stillschweigend als Text behandelt.
+Die Formularvalidierung, API-Vorschau, Source-Aktionen und Speicherung
+sind zentrale Funktionen. Während Live-Statuswerte aktualisiert werden,
+bleiben ungespeicherte Formulardaten unverändert.
+
+Der komplette Implementierungs- und Teststand ist in
+`docs/frontend-migration.md` dokumentiert.
+
+
+### Responsives Packing gleichartiger Feldgruppen (GUI 2.0)
+
+Treiber legen per `layout.width` die gewünschten relativen Feldbreiten
+fest. Der universelle React-Renderer beachtet diese Vorgaben und darf
+gleichartige Fieldsets auf breiten Screens dichter packen:
+Eine Gruppe aus fünf `quarter`-Feldern erhält auf großen Displays eine
+fünfspaltige Zeile, auf Tablets zwei Spalten und auf schmalen Smartphones
+ein Feld pro Zeile. Mischgruppen behalten explizite Breiten.
+Die Funktion ist unabhängig vom Treibernamen.
+
+Input-Farben/-Rahmen sind zentral im Mantine-Theme hinterlegt.
+Bei leeren Select-Optionen dient der vom Treiber gelieferte
+`help`-Text als Platzhalter des Auswahlfeldes statt als gesonderte Zeile.
+
+
+Auch eine Gruppe aus **drei gleichartigen** Eingabefeldern ohne explizite
+Breitenangaben wird vom gemeinsamen Renderer auf Desktop-Geräten dreispaltig
+angeordnet (Tablet 2+1, Smartphone 1+1+1). Eine explizite Treibervorgabe
+`layout.width` bleibt vorrangig. Dies gilt beispielsweise für die drei
+Simulator-Einstellungen, ohne Treibernamen im Renderer zu hinterlegen.
+
+
+## Miner-GUI in React (Phase 0.6)
+
+Neben dem bereits bestehenden Quellen-GUI-Modell können Miner in GUI 2.0
+über `GET /api/miners/gui` als **JSON-fähiges, passwortbereinigtes
+Metadatenmodell** dargestellt werden. Die Daten entstehen aus
+`_build_miners_view()` und den im Core registrierten
+DriverField-/DriverAction-Schemata: Identität, PV2Hash-Regelung,
+Treiberfelder, geräteseitige Werte und Actions.
+
+`frontend/src/miners/fields.tsx` bildet diese Felder unabhängig
+vom konkreten Treiber auf zentrale Mantine-Eingaben ab;
+`frontend/src/miners/MinerCard.tsx` kapselt die minerbezogene
+Darstellung, Live-Details und getrennte Speichervorgänge.
+Die alte HTML-Minerseite bleibt während der Migration erhalten.
+Verbindlicher Implementierungs- und Teststand:
+`docs/frontend-migration.md`.
+
+
+**JSON-Serialisierung der Miner-Live-Details:** Einzelne DriverDetailItem-
+Tabellen tragen verschachtelte DriverDetailColumn-Dataclasses. Deshalb
+muss die Live-Antwort vor `JSONResponse` über
+`jsonable_encoder` laufen. Ohne die Konvertierung kommt es
+beim Aufklappen betroffener Miner zu HTTP 500. Siehe
+`docs/frontend-migration.md` (GUI 2.0.0-dev.11).
+
+
+## Einstellungen/System in React (Phase 0.8)
+
+Der auf dem Core bereits vorhandene `settings.model.sections[].fields`
+Vertrag wird in GUI 2.0 mit dem wiederverwendbaren
+`frontend/src/configuration/ConfigFields.tsx` dargestellt.
+Das gleiche Feld-Rendering nutzt die Exporter-Verwaltung über
+`/api/exporters/config`, deren Feldmetadaten aus den
+Exportadapter-Definitionen kommen. Secrets werden nicht im Klartext
+als gespeicherte Werte ausgegeben; leer bedeutet beim Bearbeiten
+eines bestehenden Exportziels unverändert.
+
+Die Systemseite nutzt direkt die vorhandenen
+`GET /api/system/model` Karten und bestehende Endpunkte für
+Update, Backup, Logs und Runtime. Die React-Komponenten halten
+Eingabewerte, Filter und Interaktionszustände unabhängig von
+zyklisch abgefragten Statusdaten. Details und Teststand in
+`docs/frontend-migration.md` Phase 0.8.

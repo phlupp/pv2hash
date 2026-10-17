@@ -1,0 +1,86 @@
+:root {
+  color-scheme: dark;
+  --pv-accent: #9b79ff;
+}
+
+html, body, #root {
+  min-height: 100%;
+}
+
+body {
+  background: var(--mantine-color-body);
+}
+
+.pv-brand-accent { color: var(--pv-accent); }
+
+/* Navigation identity remains recognizable; content uses Mantine defaults. */
+.pv-navbar {
+  background: var(--mantine-color-dark-9);
+  border-right: 1px solid var(--mantine-color-dark-6);
+}
+
+.pv-nav-group {
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.pv-nav-item {
+  border-radius: var(--mantine-radius-sm);
+  min-height: 43px;
+  color: var(--mantine-color-dark-1);
+  margin: 3px 0;
+}
+
+.pv-nav-item[data-active] {
+  background: var(--mantine-color-violet-light);
+  color: var(--mantine-color-violet-2);
+}
+
+.pv-nav-item:not([data-active]):hover {
+  background: var(--mantine-color-dark-7);
+}
+
+.pv-main {
+  width: 100%;
+  max-width: 1700px;
+  margin: 0 auto;
+  padding-top: 12px;
+  padding-bottom: 20px;
+}
+
+.pv-mobile-header {
+  background: var(--mantine-color-dark-9);
+  border-bottom: 1px solid var(--mantine-color-dark-6);
+}
+
+@media (max-width: 48em) {
+  .pv-main { padding-top: 8px; }
+}
+
+
+/* Keep inputs level even when one long three-column field label wraps. */
+@media (min-width: 75em) {
+  .pv-source-compact-three .mantine-InputWrapper-label {
+    display: flex;
+    align-items: flex-end;
+    min-height: 46px;
+  }
+}
+
+
+/* Update availability: only the dot pulses; the label never animates. */
+.pv-update-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mantine-color-orange-5);
+  box-shadow: 0 0 0 0 rgba(255,169,77,0.25);
+  animation: pv-update-pulse 2.7s ease-in-out infinite;
+}
+@keyframes pv-update-pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(255,169,77,0.18); }
+  50% { box-shadow: 0 0 0 4px rgba(255,169,77,0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pv-update-dot { animation: none; }
+}

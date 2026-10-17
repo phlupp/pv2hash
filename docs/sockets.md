@@ -120,3 +120,23 @@ Discovery results are checked against the configured sockets. A Tasmota device w
 - Home Assistant bridge
 - Matter, much later, likely through an existing local controller/bridge instead of direct Matter commissioning inside PV2Hash
 
+
+
+## GUI 2.0 (Entwicklungsstand)
+
+Die neue React-/Mantine-Oberfläche zeigt alle Sockets als volle,
+einklappbare Karten mit eigenständigem Qualitätsstatus, Liveleistung,
+Konfiguration und manuellen Aktionen. Der Treiberkatalog wird über
+`GET /api/sockets/gui` bereitgestellt. Dessen Felddefinitionen
+befinden sich vorerst zentral in `pv2hash/socket_gui.py`,
+bis die Socket-Adapter – analog zu den Miner-Adaptern – ein
+DriverField-Schema selbst liefern können.
+
+Die API überträgt **keine gespeicherten Tasmota-Passwörter**.
+Bestehende Passwörter werden beim Bearbeiten ohne neue Eingabe über
+`__KEEP__` bewahrt. Die alte HTML-Socket-Seite bleibt parallel
+vorhanden; keine Umstellung oder Erweiterung der Socket-Automatik
+ist Teil dieser GUI-Migration.
+
+Implementierung, Tests, Einschränkungen und Rückfallweg siehe
+`docs/frontend-migration.md`, Phase 0.7.

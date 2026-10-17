@@ -4,47 +4,108 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
+NODE_DIR="${REPO_ROOT}/frontend"
 VERSION_FILE="pv2hash/version.py"
 
-if [[ ! -f "${VERSION_FILE}" ]]; then
-    echo "Fehler: ${VERSION_FILE} nicht gefunden"
-    exit 1
-fi
-
-readarray -t VERSION_INFO < <(python3 - <<'PY'
+readarray -t VERSIONS < <(python3 - <<'PY'
+import json
 import re
 from pathlib import Path
-
-text = Path("pv2hash/version.py").read_text(encoding="utf-8")
-
-match = re.search(r'^APP_VERSION\s*=\s*"([^"]+)"', text, re.MULTILINE)
+text=Path("pv2hash/version.py").read_text(encoding="utf-8")
+match=re.search(r'^APP_VERSION\s*=\s*"([^"]+)"',text,re.MULTILINE)
 if not match:
-    raise SystemExit("APP_VERSION nicht in pv2hash/version.py gefunden")
-
-version = match.group(1)
-
-print(version)
-print(version)
-print(f"v{version}")
+    raise SystemExit("APP_VERSION not set")
+print(match.group(1))
+print(json.loads(Path("frontend/package.json").read_text(encoding="utf-8"))["version"])
 PY
 )
+CORE_VERSION="${VERSIONS[0]}"
+GUI_VERSION="${VERSIONS[1]}"
+TAG="${PV2HASH_RELEASE_ID:-v${CORE_VERSION}}"
 
-APP_VERSION="${VERSION_INFO[0]}"
-VERSION_SLUG="${VERSION_INFO[1]}"
-TAG="${VERSION_INFO[2]}"
-FULL_VERSION="${APP_VERSION}"
-
+readarray -t RELEASE < <(TAG="${TAG}" CORE_VERSION="${CORE_VERSION}" GUI_VERSION="${GUI_VERSION}" python3 - <<'PY'
+import os
+import re
+from pv2hash.release_identity import parse_release_id
+core=os.environ["CORE_VERSION"]
+gui=os.environ["GUI_VERSION"]
+tag=os.environ["TAG"]
+if not re.fullmatch(r"\d+\.\d+\.\d+",core):
+    raise SystemExit("Core version must be X.Y.Z")
+if not re.fullmatch(r"\d+\.\d+\.\d+",gui):
+    if os.getenv("PV2HASH_ALLOW_DEV_GUI")!="1":
+        raise SystemExit("Release GUI version must be stable X.Y.Z")
+    if not re.fullmatch(r"\d+\.\d+\.\d+-dev\.\d+",gui):
+        raise SystemExit("Unknown development GUI version")
+identity=parse_release_id(tag)
+if identity.kind=="legacy" and identity.version!=core:
+    raise SystemExit("Legacy release tag must equal Core version")
+print(identity.tag)
+print(identity.slug)
+PY
+)
+TAG="${RELEASE[0]}"
+VERSION_SLUG="${RELEASE[1]}"
 DIST_ROOT="dist/${VERSION_SLUG}"
-PACKAGE_DIR_NAME="pv2hash-${VERSION_SLUG}"
-ARCHIVE_NAME="${PACKAGE_DIR_NAME}.tar.gz"
+ARCHIVE_NAME="pv2hash-${VERSION_SLUG}.tar.gz"
 ARCHIVE_PATH="${DIST_ROOT}/${ARCHIVE_NAME}"
 MANIFEST_PATH="${DIST_ROOT}/manifest.json"
 SHA256_PATH="${DIST_ROOT}/SHA256SUMS"
+RELEASE_NOTES_SOURCE="docs/releases/${TAG}.md"
+RELEASE_NOTES_PATH="${DIST_ROOT}/RELEASE_NOTES.md"
+if [[ -f "${RELEASE_NOTES_SOURCE}" ]]; then
+    python3 scripts/release_notes.py "${TAG}" "${RELEASE_NOTES_SOURCE}"
+elif [[ "${PV2HASH_ALLOW_DEV_GUI:-0}" == "1" ]]; then
+    echo "INTERNAL TEST ONLY: no curated release notes for ${TAG}."
+else
+    echo "Fehler: Release Notes fehlen: ${RELEASE_NOTES_SOURCE}" >&2
+    exit 1
+fi
 
-rm -rf "${DIST_ROOT}"
+
+command -v npm >/dev/null || { echo "Node/npm is required to build the GUI" >&2; exit 1; }
+echo "Building PV2Hash Core ${CORE_VERSION}, GUI ${GUI_VERSION}, release ${TAG}"
+
+if [[ "${PV2HASH_BUILD_SKIP_NPM_CI:-0}" != "1" ]]; then
+    ( cd "${NODE_DIR}" && npm ci )
+else
+    [[ -d "${NODE_DIR}/node_modules" ]] || { echo "Missing node_modules" >&2; exit 1; }
+    echo "DEVELOPMENT ONLY: reusing installed node_modules."
+fi
+
+( cd "${NODE_DIR}" && npm test && npm run build )
+[[ -s "${NODE_DIR}/dist/index.html" ]] || { echo "Missing GUI build" >&2; exit 1; }
+[[ -d "${NODE_DIR}/dist/assets" ]] || { echo "Missing GUI assets" >&2; exit 1; }
+grep -q '/ui-next/assets/' "${NODE_DIR}/dist/index.html" || {
+    echo "GUI bundle has incorrect base URL" >&2
+    exit 1
+}
+
+STAGE_DIR="$(mktemp -d)"
+trap 'rm -rf "${STAGE_DIR}"' EXIT
+mkdir -p "${STAGE_DIR}/pv2hash/gui"
+cp -a "${NODE_DIR}/dist/." "${STAGE_DIR}/pv2hash/gui/"
+if [[ -f "${RELEASE_NOTES_SOURCE}" ]]; then
+    cp "${RELEASE_NOTES_SOURCE}" "${STAGE_DIR}/RELEASE_NOTES.md"
+else
+    printf '# PV2Hash %s (INTERNER TEST)\n\n## Verbesserungen\n\n- Test-Build ohne Veröffentlichung.\n' "${TAG}" > "${STAGE_DIR}/RELEASE_NOTES.md"
+fi
+
+TAG="${TAG}" CORE_VERSION="${CORE_VERSION}" GUI_VERSION="${GUI_VERSION}" \
+  python3 - <<'PY_INFO' > "${STAGE_DIR}/pv2hash/build_info.json"
+import json
+import os
+print(json.dumps({
+    "release_id":os.environ["TAG"],
+    "core_version":os.environ["CORE_VERSION"],
+    "gui_version":os.environ["GUI_VERSION"],
+},indent=2))
+PY_INFO
+
+
 mkdir -p "${DIST_ROOT}"
-
-echo "Baue Release-Paket für ${FULL_VERSION}"
+rm -f "${ARCHIVE_PATH}" "${MANIFEST_PATH}" "${SHA256_PATH}" "${RELEASE_NOTES_PATH}"
+cp "${STAGE_DIR}/RELEASE_NOTES.md" "${RELEASE_NOTES_PATH}"
 
 tar \
     --exclude-vcs \
@@ -59,45 +120,46 @@ tar \
     --exclude='./.github' \
     --exclude='*.pyc' \
     --exclude='*.pyo' \
-    --transform "s|^|${PACKAGE_DIR_NAME}/|" \
+    --transform "s|^|pv2hash-${VERSION_SLUG}/|" \
     -czf "${ARCHIVE_PATH}" \
     pv2hash \
     scripts \
     third_party \
     requirements.txt \
     README.md \
-    LICENSE
+    LICENSE \
+    -C "${STAGE_DIR}" pv2hash/gui pv2hash/build_info.json RELEASE_NOTES.md
 
 ARCHIVE_SHA256="$(sha256sum "${ARCHIVE_PATH}" | awk '{print $1}')"
-
-python3 - <<PY > "${MANIFEST_PATH}"
+TAG="${TAG}" VERSION_SLUG="${VERSION_SLUG}" \
+  CORE_VERSION="${CORE_VERSION}" GUI_VERSION="${GUI_VERSION}" \
+  ARCHIVE_NAME="${ARCHIVE_NAME}" ARCHIVE_SHA256="${ARCHIVE_SHA256}" \
+  python3 - <<'PY' > "${MANIFEST_PATH}"
 import json
+import os
 from datetime import datetime, UTC
-
-manifest = {
-    "app": "pv2hash",
-    "version": "${FULL_VERSION}",
-    "version_semver": "${APP_VERSION}",
-    "version_slug": "${VERSION_SLUG}",
-    "tag": "${TAG}",
-    "asset_name": "${ARCHIVE_NAME}",
-    "asset_sha256": "${ARCHIVE_SHA256}",
-    "created_at_utc": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+manifest={
+    "app":"pv2hash",
+    "release_id":os.environ["TAG"],
+    "tag":os.environ["TAG"],
+    "version":os.environ["CORE_VERSION"],  # Legacy 0.9.5 installers need this.
+    "version_semver":os.environ["CORE_VERSION"],
+    "core_version":os.environ["CORE_VERSION"],
+    "gui_version":os.environ["GUI_VERSION"],
+    "version_slug":os.environ["VERSION_SLUG"],
+    "asset_name":os.environ["ARCHIVE_NAME"],
+    "asset_sha256":os.environ["ARCHIVE_SHA256"],
+    "created_at_utc":datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00","Z"),
 }
-
-print(json.dumps(manifest, indent=2, ensure_ascii=False))
+print(json.dumps(manifest,indent=2,ensure_ascii=False))
 PY
 
 (
     cd "${DIST_ROOT}"
-    sha256sum "$(basename "${ARCHIVE_PATH}")" "$(basename "${MANIFEST_PATH}")" > "$(basename "${SHA256_PATH}")"
+    sha256sum "${ARCHIVE_NAME}" manifest.json RELEASE_NOTES.md > SHA256SUMS
 )
 
-echo
-echo "Fertig."
-echo "Version:      ${FULL_VERSION}"
-echo "Tag:          ${TAG}"
-echo "Archiv:       ${ARCHIVE_PATH}"
-echo "Manifest:     ${MANIFEST_PATH}"
-echo "Checksummen:  ${SHA256_PATH}"
-echo
+echo "Release archive: ${ARCHIVE_PATH}"
+echo "Manifest: ${MANIFEST_PATH}"
+echo "SHA256: ${SHA256_PATH}"
+echo "Components: Core ${CORE_VERSION} / GUI ${GUI_VERSION}"

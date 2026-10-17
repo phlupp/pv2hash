@@ -1,13 +1,21 @@
 name: Release
 
-run-name: Release ${{ inputs.version }}
+run-name: Release ${{ inputs.release_id || format('v{0}', inputs.version) }}
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "SemVer, z. B. 0.2.0"
+        description: "Core SemVer (z. B. 0.9.5)"
         required: true
+        type: string
+      gui_version:
+        description: "GUI SemVer (z. B. 2.0.0)"
+        required: true
+        type: string
+      release_id:
+        description: "Leer für Brückenrelease vX.Y.Z; danach rYYYY.MM.DD.N"
+        required: false
         type: string
 
 permissions:
@@ -24,105 +32,133 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Validate version
+      - name: Validate component versions and release identity
+        env:
+          INPUT_CORE: ${{ inputs.version }}
+          INPUT_GUI: ${{ inputs.gui_version }}
+          INPUT_RELEASE_ID: ${{ inputs.release_id }}
         shell: bash
         run: |
           set -euo pipefail
-          VERSION='${{ inputs.version }}'
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Version muss wie 0.2.0 aussehen"
-            exit 1
-          fi
-
-      - name: Set release variables
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
-          echo "FULL_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
-          echo "VERSION_SLUG=${{ inputs.version }}" >> "$GITHUB_ENV"
-          echo "TAG=v${{ inputs.version }}" >> "$GITHUB_ENV"
-          echo "DIST_DIR=dist/${{ inputs.version }}" >> "$GITHUB_ENV"
-
-      - name: Update pv2hash/version.py
-        shell: bash
-        run: |
           python3 - <<'PY'
           import os
+          import re
           from pathlib import Path
+          from pv2hash.release_identity import parse_release_id
 
-          version = os.environ["VERSION"]
+          core=os.environ['INPUT_CORE'].strip()
+          gui=os.environ['INPUT_GUI'].strip()
+          tag=os.environ['INPUT_RELEASE_ID'].strip() or 'v'+core
 
-          content = (
-              f'APP_VERSION = "{version}"\n'
-              'APP_VERSION_FULL = APP_VERSION\n'
-          )
+          if not re.fullmatch(r'\d+\.\d+\.\d+',core):
+              raise SystemExit('Core version must be X.Y.Z')
+          if not re.fullmatch(r'\d+\.\d+\.\d+',gui):
+              raise SystemExit('GUI version must be X.Y.Z')
 
-          Path("pv2hash/version.py").write_text(content, encoding="utf-8")
+          release=parse_release_id(tag)
+          if release.kind=='legacy' and release.version!=core:
+              raise SystemExit('Legacy tag must match Core version')
+          for key,value in {
+              'CORE_VERSION':core,
+              'GUI_VERSION':gui,
+              'TAG':release.tag,
+              'VERSION_SLUG':release.slug,
+              'DIST_DIR':f'dist/{release.slug}',
+          }.items():
+              with Path(os.environ['GITHUB_ENV']).open('a') as out:
+                  out.write(f'{key}={value}\n')
           PY
-
-      - name: Check tag does not exist
-        shell: bash
-        run: |
-          set -euo pipefail
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG existiert bereits"
+            echo "Tag $TAG already exists" >&2
             exit 1
           fi
 
-      - name: Commit version file
+      - name: Configure Python for backend regression tests
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Test Core, Modbus and update migration
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pv2hash/version.py
-          git commit -m "Release $FULL_VERSION"
+          python3 -m pip install -r requirements.txt
+          python3 -m unittest discover -s tests -p 'test_*.py'
 
-      - name: Create tag
+      - name: Configure Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Update source component versions for tagged release
         shell: bash
         run: |
           set -euo pipefail
-          git tag -a "$TAG" -m "PV2Hash $FULL_VERSION"
+          CORE_VERSION="$CORE_VERSION" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path("pv2hash/version.py")
+          version=os.environ['CORE_VERSION']
+          p.write_text(
+              f'APP_VERSION = "{version}"\nAPP_VERSION_FULL = APP_VERSION\n',
+              encoding='utf-8',
+          )
+          PY
+          (cd frontend && npm version "$GUI_VERSION" --no-git-tag-version --allow-same-version)
 
-      - name: Push commit
+      - name: Validate curated release notes
         shell: bash
         run: |
           set -euo pipefail
-          git push origin HEAD:main
+          python3 scripts/release_notes.py "$TAG" "docs/releases/$TAG.md"
 
-      - name: Push tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          git push origin "$TAG"
-
-      - name: Build release assets
+      - name: Build and test release (including React GUI)
         shell: bash
         run: |
           set -euo pipefail
           chmod +x scripts/build_release.sh
-          bash scripts/build_release.sh
+          PV2HASH_RELEASE_ID="$TAG" bash scripts/build_release.sh
 
-      - name: Verify release assets
+      - name: Validate complete package and checksums
         shell: bash
         run: |
           set -euo pipefail
-          test -f "$DIST_DIR/pv2hash-$VERSION_SLUG.tar.gz"
-          test -f "$DIST_DIR/manifest.json"
-          test -f "$DIST_DIR/SHA256SUMS"
+          ARCHIVE="$DIST_DIR/pv2hash-$VERSION_SLUG.tar.gz"
+          test -s "$ARCHIVE"
+          test -s "$DIST_DIR/manifest.json"
+          test -s "$DIST_DIR/RELEASE_NOTES.md"
+          cmp "docs/releases/$TAG.md" "$DIST_DIR/RELEASE_NOTES.md"
+          test -s "$DIST_DIR/SHA256SUMS"
+          (cd "$DIST_DIR" && sha256sum -c SHA256SUMS)
+          tar -tzf "$ARCHIVE" | grep -q "^pv2hash-$VERSION_SLUG/pv2hash/gui/index.html$"
+          tar -tzf "$ARCHIVE" | grep -q "^pv2hash-$VERSION_SLUG/pv2hash/gui/assets/"
+          tar -tzf "$ARCHIVE" | grep -q "^pv2hash-$VERSION_SLUG/RELEASE_NOTES.md$"
 
-          cd "$DIST_DIR"
-          sha256sum -c SHA256SUMS
-
-      - name: Prepare public installer asset
+      - name: Prepare public bootstrap installer asset
         shell: bash
         run: |
           set -euo pipefail
           cp scripts/install_release.sh "$DIST_DIR/install.sh"
           bash -n "$DIST_DIR/install.sh"
 
-      - name: Create GitHub release
+      - name: Commit component versions (if changed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pv2hash/version.py frontend/package.json frontend/package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Release $TAG (Core $CORE_VERSION, GUI $GUI_VERSION)"
+          fi
+          git tag -a "$TAG" -m "PV2Hash $TAG"
+          git push origin HEAD:main
+          git push origin "$TAG"
+
+      - name: Publish stable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -132,7 +168,8 @@ jobs:
             "$DIST_DIR/pv2hash-$VERSION_SLUG.tar.gz" \
             "$DIST_DIR/manifest.json" \
             "$DIST_DIR/SHA256SUMS" \
+            "$DIST_DIR/RELEASE_NOTES.md" \
             "$DIST_DIR/install.sh" \
-            --title "PV2Hash $FULL_VERSION" \
-            --notes "Release $FULL_VERSION" \
+            --title "PV2Hash $TAG · Core $CORE_VERSION · GUI $GUI_VERSION" \
+            --notes-file "$DIST_DIR/RELEASE_NOTES.md" \
             --latest

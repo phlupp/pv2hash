@@ -74,6 +74,25 @@ DEFAULT_CONFIG = {
             },
         },
     },
+    "pv": {
+        "name": "PV-Erzeugung",
+        "type": "none",
+        "enabled": False,
+        "settings": {
+            "host": "",
+            "port": 502,
+            "unit_id": 1,
+            "poll_interval_ms": 5000,
+            "request_timeout_seconds": 1.0,
+            "power": {
+                "register_type": "holding",
+                "address": None,
+                "value_type": "uint16",
+                "endian": "big_endian",
+                "factor": 1.0,
+            },
+        },
+    },
     "sockets": [],
     "miners": [
         {

@@ -19,7 +19,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Form, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -47,9 +47,11 @@ from pv2hash.miners.whatsminer_api3 import WhatsminerApi3Miner
 from pv2hash.self_update import SelfUpdateManager
 from pv2hash.services import RuntimeServices
 from pv2hash.update_check import UpdateChecker
+from pv2hash.update_log import log_chunk, update_log_path, redact_line
 from pv2hash.version import APP_VERSION, APP_VERSION_FULL
 from pv2hash.netutils import get_local_ipv4_networks
 from pv2hash.sockets.tasmota_http import discover_tasmota_http
+from pv2hash.socket_gui import driver_catalog as socket_driver_catalog, socket_gui_item
 
 initial_config = load_config()
 setup_logging(initial_config.get("system", {}).get("log_level", "INFO"))
@@ -58,6 +60,57 @@ instance_identity = load_instance_identity()
 
 app = FastAPI(title="PV2Hash", version=APP_VERSION_FULL)
 app.mount("/static", StaticFiles(directory="pv2hash/static"), name="static")
+# A release ships prebuilt, fingerprinted React assets; development runs on Vite
+# and does not contain these assets in the Python Core checkout.
+GUI_DIST_DIR = Path(__file__).resolve().parent / "gui"
+GUI_INDEX_FILE = GUI_DIST_DIR / "index.html"
+GUI_ASSETS_DIR = GUI_DIST_DIR / "assets"
+BUILD_INFO_FILE = Path(__file__).resolve().parent / "build_info.json"
+
+
+def _read_build_info() -> dict[str, Any]:
+    try:
+        payload = json.loads(BUILD_INFO_FILE.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("invalid release metadata")
+        return {
+            "status": "ok",
+            "release_id": str(payload.get("release_id") or "") or None,
+            "core_version": str(payload.get("core_version") or APP_VERSION_FULL),
+            "gui_version": str(payload.get("gui_version") or "") or None,
+        }
+    except (OSError, ValueError, TypeError):
+        return {"status": "ok", "release_id": None,
+                "core_version": APP_VERSION_FULL, "gui_version": None}
+
+
+@app.get("/api/system/build-info")
+async def api_system_build_info():
+    """Identity of the currently running release, not the install.env symlink."""
+    return JSONResponse(_read_build_info())
+
+if GUI_INDEX_FILE.is_file() and GUI_ASSETS_DIR.is_dir():
+    app.mount("/ui-next/assets", StaticFiles(directory=str(GUI_ASSETS_DIR)), name="gui-assets")
+
+
+@app.get("/ui-next", include_in_schema=False)
+async def gui_without_slash():
+    if not GUI_INDEX_FILE.is_file():
+        return JSONResponse({"detail": "GUI 2.0 is not installed"}, status_code=404)
+    return RedirectResponse(url="/ui-next/", status_code=307)
+
+
+@app.get("/ui-next/{path:path}", include_in_schema=False)
+async def gui_client_routes(path: str):
+    """React Router fallback; never interpret the incoming path as a filename."""
+    if not GUI_INDEX_FILE.is_file():
+        return JSONResponse({"detail": "GUI 2.0 is not installed"}, status_code=404)
+    # Unknown hashed asset paths must not return HTML (they must 404).
+    if path.startswith(("assets/", "static/")) or "." in path:
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    return FileResponse(GUI_INDEX_FILE, media_type="text/html",
+                        headers={"Cache-Control": "no-cache"})
+
 templates = Jinja2Templates(directory="pv2hash/templates")
 templates.env.globals["app_version_full"] = APP_VERSION_FULL
 
@@ -171,6 +224,13 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
             "enabled": bool(source_cfg.get("enabled", True)),
             "quality": getattr(snapshot, "quality", None) if snapshot else None,
             "grid_power_w": float(snapshot.grid_power_w) if snapshot else None,
+        },
+        "pv": {
+            "id": _device_uuid(state.config.get("pv", {})),
+            "enabled": services.pv_source is not None,
+            "power_w": services.pv_source.power_w if services.pv_source else None,
+            "quality": services.pv_source.quality if services.pv_source else "disabled",
+            "debug": pv_debug,
         },
         "battery": {
             "id": _device_uuid(battery_cfg),
@@ -2133,6 +2193,8 @@ def _build_miners_live_payload(open_ids: set[str] | None = None) -> dict:
                 logger.exception("Failed to refresh miner details for live payload: %s", miner_id)
                 merged["details"] = {}
             item["details_html"] = _render_miner_details_html(merged)
+            # Structured details for GUI 2.0; legacy HTML consumers remain unchanged.
+            item["details"] = merged["details"]
 
         miners_payload.append(item)
 
@@ -2143,6 +2205,7 @@ def _build_miners_live_payload(open_ids: set[str] | None = None) -> dict:
 def _build_sources_live_payload() -> dict:
     source_debug = services.get_source_debug_info()
     battery_debug = services.get_battery_source_debug_info()
+    pv_debug = services.get_pv_source_debug_info()
     source_cfg = state.config.get("source", {})
     battery_cfg = state.config.get("battery", {})
     sma_devices, selected_sma_device_serial = _build_sma_device_choices(source_cfg, source_debug)
@@ -2172,6 +2235,13 @@ def _build_sources_live_payload() -> dict:
             "discovered_devices": sma_devices,
             "selected_device_serial": selected_sma_device_serial,
             "debug": source_debug or {},
+        },
+        "pv": {
+            "id": _device_uuid(state.config.get("pv", {})),
+            "enabled": services.pv_source is not None,
+            "power_w": services.pv_source.power_w if services.pv_source else None,
+            "quality": services.pv_source.quality if services.pv_source else "disabled",
+            "debug": pv_debug,
         },
         "battery": {
             "id": _device_uuid(battery_cfg),
@@ -2257,11 +2327,36 @@ def _apply_source_config_form(target_config: dict[str, Any], form: Any) -> dict[
     target_config["battery"]["settings"]["max_charge_current"] = _parse_modbus_value_form(form, "battery_max_charge_current")
     target_config["battery"]["settings"]["max_discharge_current"] = _parse_modbus_value_form(form, "battery_max_discharge_current")
 
+    # Older HTML clients do not submit pv_type; preserve their existing PV settings.
+    if "pv_type" in form:
+        pv_type = str(form.get("pv_type", "none") or "none").strip()
+        if pv_type not in {"none", "pv_modbus"}:
+            raise ValueError("Unbekanntes PV-Messprofil.")
+        pv_cfg = target_config.setdefault("pv", {})
+        pv_cfg["type"] = pv_type
+        pv_cfg["name"] = "PV-Erzeugung"
+        pv_cfg["enabled"] = (form.get("pv_enabled") == "on") and pv_type == "pv_modbus"
+        settings = pv_cfg.setdefault("settings", {})
+        settings["host"] = str(form.get("pv_host", settings.get("host", "")) or "").strip()
+        settings["port"] = _safe_int(form.get("pv_port", settings.get("port", 502)), 502)
+        settings["unit_id"] = _safe_int(form.get("pv_unit_id", settings.get("unit_id", 1)), 1)
+        settings["poll_interval_ms"] = _safe_int(form.get("pv_poll_interval_ms", settings.get("poll_interval_ms", 5000)), 5000)
+        settings["request_timeout_seconds"] = _safe_float(
+            form.get("pv_request_timeout_seconds", settings.get("request_timeout_seconds", 1.0)), 1.0,
+        )
+        # Do not erase configured registers when a user selects "none".
+        if pv_type == "pv_modbus":
+            settings["power"] = _parse_modbus_value_form(form, "pv_power")
     return target_config
 
 
 def _save_source_config_from_form(form: Any) -> dict[str, Any]:
-    next_config = _apply_source_config_form(deepcopy(state.config), form)
+    try:
+        next_config = _apply_source_config_form(deepcopy(state.config), form)
+        from pv2hash.factory import build_pv_source
+        build_pv_source(next_config)  # Validate optional PV register before persistence.
+    except (ValueError, TypeError, OverflowError) as exc:
+        return {"status": "error", "message": str(exc)}
     source_type = str(next_config.get("source", {}).get("type", "simulator")).strip()
     selected_device_serial = _normalize_sma_serial_number(
         next_config.get("source", {}).get("settings", {}).get("device_serial_number", "")
@@ -2286,6 +2381,7 @@ def _save_source_config_from_form(form: Any) -> dict[str, Any]:
 def _build_dashboard_live_payload() -> dict:
     snapshot = state.snapshot
     source_debug = services.get_source_debug_info()
+    pv_adapter = services.pv_source
     host_status = _get_host_status()
     controller_status = _build_controller_status()
     dashboard_miners = _build_dashboard_miner_rows()
@@ -2345,6 +2441,13 @@ def _build_dashboard_live_payload() -> dict:
                 "value": grid_value,
                 "class": grid_class,
                 "hint": "negativ = Einspeisung",
+            },
+            "pv": {
+                "power_w": pv_adapter.power_w if pv_adapter else None,
+                "quality": pv_adapter.quality if pv_adapter else "disabled",
+                "enabled": pv_adapter is not None,
+                "source": state.config.get("pv", {}).get("name", "PV-Erzeugung"),
+                "updated_at": pv_adapter.updated_at.isoformat() if pv_adapter and pv_adapter.updated_at else None,
             },
             "source": {
                 "label": source_label,
@@ -2660,10 +2763,27 @@ async def control_loop() -> None:
         await asyncio.sleep(refresh_seconds)
 
 
+async def pv_measurement_loop() -> None:
+    """PV read-only poller, deliberately independent of mining-control timing."""
+    logger.info("PV measurement loop started")
+    while True:
+        adapter = services.pv_source
+        if adapter is None:
+            await asyncio.sleep(1.0)
+            continue
+        try:
+            await adapter.read()
+        except Exception:
+            logger.exception("Unexpected PV measurement poll error")
+        # A stale read cannot enter the live source after reconfiguration.
+        await asyncio.sleep(max(1, adapter.poll_interval_ms / 1000))
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
     logger.info("Application startup complete")
     asyncio.create_task(control_loop())
+    asyncio.create_task(pv_measurement_loop())
     asyncio.create_task(update_checker.run_background_loop())
     asyncio.create_task(data_logger.run())
     asyncio.create_task(export_manager.run())
@@ -2697,8 +2817,12 @@ def reload_runtime() -> None:
 
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
+@app.get("/legacy", include_in_schema=False)
 async def dashboard(request: Request):
+    # New GUI is the default only after its built files have been installed.
+    if request.url.path == "/" and GUI_INDEX_FILE.is_file():
+        return RedirectResponse(url="/ui-next/", status_code=307)
     total_miner_power = sum(m.power_w for m in state.miners) if state.miners else 0.0
     miner_count = len(state.miners)
 
@@ -3295,6 +3419,27 @@ async def api_sockets_status():
     return JSONResponse({"status": "ok", "sockets": _build_socket_snapshot_items()})
 
 
+@app.get("/api/sockets/gui")
+async def api_sockets_gui():
+    """Structured, password-safe configuration models for the React socket UI."""
+    views = _build_sockets_view()
+    miner_names = {
+        str(item.get("id") or ""): str(item.get("name") or "")
+        for item in state.config.get("miners", []) or []
+    }
+    items = [socket_gui_item(view) for view in views]
+    for item in items:
+        assigned_id = item["assignment"].get("target_id")
+        if assigned_id:
+            item["assignment"]["target_name"] = miner_names.get(assigned_id, "")
+    return JSONResponse(content=jsonable_encoder({
+        "status": "ok",
+        "drivers": socket_driver_catalog(),
+        "sockets": items,
+        "discovery_interfaces": _socket_discovery_interfaces(),
+    }))
+
+
 @app.get("/api/sockets/list")
 async def api_sockets_list(request: Request):
     return templates.TemplateResponse(
@@ -3335,10 +3480,11 @@ def _socket_settings_from_form(form: Any, driver: str, current: dict[str, Any] |
         return {
             "port": as_int("port", 80),
             "relay": as_int("relay", 1),
-            "username": str(form.get("username") or settings.get("username", "") or "").strip(),
+            "username": str(form.get("username") if form.get("username") is not None else (settings.get("username", "") or "")).strip(),
             "password": password,
             "timeout_s": as_float("timeout_s", 2.0),
-            "use_energy": form.get("use_energy") == "on" or bool(settings.get("use_energy", True)) and form.get("use_energy") is None,
+            # An absent HTML checkbox means disabled; do not silently retain 'True'.
+            "use_energy": form.get("use_energy") == "on",
         }
 
     def as_float(name: str, default: float) -> float:
@@ -3640,10 +3786,64 @@ async def api_ui_versionstatus():
     return JSONResponse(content=jsonable_encoder(_build_ui_versionstatus_payload()))
 
 
+def _public_miner_gui_fields(fields: list[dict]) -> list[dict]:
+    """Expose driver fields to the browser without disclosing stored passwords."""
+    result = deepcopy(fields)
+    for field in result:
+        if field.get("type") == "password":
+            field["value"] = ""
+            # Blank password is a valid no-change for existing miner config.
+    return result
+
+
+def _build_miners_gui_payload() -> dict[str, Any]:
+    """Read-only, driver-defined GUI schema shared with the legacy miner page.
+
+    Explicit allowlist: never serialize the full miner configuration or secrets.
+    Device readbacks and live detail sections retain the existing GUI contract.
+    """
+    views = _build_miners_view()
+    return {
+        "status": "ok",
+        "miners": [
+            {
+                "id": view.get("id"),
+                "name": view.get("name"),
+                "driver": view.get("driver"),
+                "driver_label": _resolve_miner_driver_label(view.get("driver")),
+                "web_gui_url": _build_miner_gui_url(view.get("host")),
+                "supports_gui_schema": view.get("supports_gui_schema", False),
+                "summary": _format_miner_summary_for_api(view.get("summary") or {}),
+                "control_enabled": bool((view.get("summary") or {}).get("control_enabled")),
+                "identity_fields": _public_miner_gui_fields(view.get("identity_fields") or []),
+                "control_fields": _public_miner_gui_fields(view.get("control_fields") or []),
+                "driver_fields": _public_miner_gui_fields(view.get("driver_fields") or []),
+                "device_settings_fields": _public_miner_gui_fields(view.get("device_settings_fields") or []),
+                "action_fields": view.get("action_fields") or [],
+                "details": view.get("details") or {},
+            }
+            for view in views
+        ],
+        "driver_catalog": [
+            {**driver, "basic_fields": _public_miner_gui_fields(driver.get("basic_fields") or [])}
+            for driver in _build_driver_catalog()
+        ],
+        "core_identity_basic_fields": _public_miner_gui_fields(_core_identity_basic_fields()),
+    }
+
+
+@app.get("/api/miners/gui")
+async def api_miners_gui():
+    return JSONResponse(content=jsonable_encoder(_build_miners_gui_payload()))
+
+
 @app.get("/api/miners/status")
 async def api_miners_status(open_ids: str = ""):
     selected_open_ids = {item.strip() for item in str(open_ids or "").split(",") if item.strip()}
-    return JSONResponse(_build_miners_live_payload(selected_open_ids))
+    # Driver details can contain nested DriverDetailColumn/DriverDetailItem
+    # dataclasses. Encode the structured payload just as for /api/miners/gui.
+    # Preserve the existing details_html for the legacy GUI.
+    return JSONResponse(content=jsonable_encoder(_build_miners_live_payload(selected_open_ids)))
 
 
 @app.get("/api/system/host-status")
@@ -3723,7 +3923,44 @@ async def api_system_update_check():
 async def api_system_self_update_status():
     update_status = update_checker.snapshot()
     payload = _update_runner_snapshot(update_status)
+    payload["progress_percent"] = _update_progress_value(payload)
     return JSONResponse(content=jsonable_encoder(payload))
+
+
+@app.get("/api/system/update-log")
+async def api_system_update_log(offset: int = 0, file_id: str = ""):
+    """Read a bounded segment of the fixed installation log (no arbitrary paths)."""
+    if offset < 0 or offset > 10**12 or len(file_id) > 128:
+        return JSONResponse({"status":"error","message":"Ungültiger Log-Cursor."},status_code=400)
+    path = update_log_path(self_update_manager.state_file.parent.resolve())
+    try:
+        data = log_chunk(path, offset, file_id)
+    except OSError:
+        return JSONResponse({"status":"error","message":"Installationsprotokoll nicht lesbar."},status_code=503)
+    return JSONResponse(content=data,headers={"Cache-Control":"no-store"})
+
+
+@app.get("/api/system/update-log/download")
+async def api_system_update_log_download():
+    """Export a redacted bounded log copy, never the raw privileged logfile."""
+    path = update_log_path(self_update_manager.state_file.parent.resolve())
+    try:
+        if not path.is_file() or path.is_symlink():
+            raise OSError("Missing installer log")
+        with path.open("rb") as stream:
+            size = path.stat().st_size
+            stream.seek(max(0,size-(2 * 1024 * 1024)))
+            if stream.tell():
+                stream.readline()
+            lines = stream.read(2 * 1024 * 1024).decode("utf-8",errors="replace").splitlines()
+    except OSError:
+        return JSONResponse({"status":"error","message":"Installationsprotokoll nicht verfügbar."},status_code=404)
+    content = "\n".join(redact_line(line) for line in lines)+"\n"
+    return Response(content, media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition":'attachment; filename="pv2hash-update.log"',
+                             "Cache-Control":"no-store"})
+
+
 
 
 @app.post("/api/system/self-update")
@@ -3748,6 +3985,7 @@ async def api_status():
         "last_reload_at": state.last_reload_at.isoformat(),
         "source_debug": services.get_source_debug_info(),
         "battery_source_debug": services.get_battery_source_debug_info(),
+        "pv_source_debug": services.get_pv_source_debug_info(),
     }
     return JSONResponse(content=jsonable_encoder(payload))
 

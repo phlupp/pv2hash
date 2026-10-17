@@ -2,8 +2,9 @@ from datetime import UTC, datetime
 
 from pv2hash.config.store import load_config
 from pv2hash.controller.basic import BasicController
-from pv2hash.factory import build_battery_source, build_miners, build_source, build_sockets
+from pv2hash.factory import build_battery_source, build_miners, build_source, build_sockets, build_pv_source
 from pv2hash.sources.battery_modbus import BatteryModbusSource, ModbusValueConfig
+from pv2hash.sources.pv_modbus import PvModbusSource
 from pv2hash.sources.simulator import SimulatorSource
 from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
 from pv2hash.logging_ext.setup import get_logger
@@ -18,6 +19,7 @@ class RuntimeServices:
         self.state = state
         self.source = None
         self.battery_source = None
+        self.pv_source = None
         self.miners = []
         self.sockets = []
         self.controller = None
@@ -42,6 +44,7 @@ class RuntimeServices:
 
         old_source = self.source
         old_battery_source = self.battery_source
+        old_pv_source = self.pv_source
         old_miners = list(self.miners)
         old_sockets = list(self.sockets)
         old_by_id = {getattr(miner.info, "id", None): miner for miner in old_miners}
@@ -57,6 +60,7 @@ class RuntimeServices:
 
         self.source = build_source(config)
         self.battery_source = build_battery_source(config)
+        self.pv_source = build_pv_source(config)
         self.miners = build_miners(config)
         self.sockets = build_sockets(config)
         self._carry_runtime_state(old_by_id)
@@ -70,6 +74,8 @@ class RuntimeServices:
             self._close_adapter(old_source)
         if old_battery_source is not self.battery_source:
             self._close_adapter(old_battery_source)
+        if old_pv_source is not self.pv_source:
+            self._close_adapter(old_pv_source)
         for old_socket in old_sockets:
             if old_socket not in self.sockets:
                 self._close_adapter(old_socket)
@@ -122,6 +128,11 @@ class RuntimeServices:
         if self.battery_source is None:
             return {}
         return getattr(self.battery_source, "debug_info", {}) or {}
+
+    def get_pv_source_debug_info(self) -> dict:
+        if self.pv_source is None:
+            return {}
+        return getattr(self.pv_source, "debug_info", {}) or {}
 
     def _preview_source_adapter(self, source_type: str, source_cfg: dict):
         settings = source_cfg.get("settings", {}) or {}
@@ -300,5 +311,61 @@ class RuntimeServices:
             *list(battery_model.get("config_fields") or []),
         ]
         models.append(battery_model)
+
+        # Independent PV measurement (never a controller/grid source).
+        pv_cfg = config.get("pv", {}) or {}
+        pv_type = str(pv_cfg.get("type", "none") or "none")
+        pv_enabled = bool(pv_cfg.get("enabled")) and pv_type == "pv_modbus"
+        pv_adapter = self.pv_source if (not preview_mode and self.pv_source is not None) else None
+        if pv_enabled and pv_adapter is None:
+            try:
+                pv_adapter = build_pv_source(config)
+            except (ValueError, TypeError):
+                # An incomplete editor draft still needs its fields rendered.
+                pv_adapter = None
+        if pv_enabled and pv_adapter is not None:
+            pv_model = pv_adapter.get_gui_model(
+                source_id="pv",
+                role="pv",
+                title="PV-Erzeugung",
+                enabled=True,
+                config=pv_cfg,
+                debug_info=(self.get_pv_source_debug_info() if not preview_mode else {}),
+            )
+        else:
+            pv_model = {
+                "id": "pv", "role": "pv", "title": "PV-Erzeugung",
+                "enabled": pv_enabled, "driver": pv_type,
+                "driver_label": "Modbus TCP PV-Erzeugung" if pv_type == "pv_modbus" else "Keine PV-Messung",
+                "status": {"state": "no_data" if pv_enabled else "disabled",
+                           "text": "Keine Daten" if pv_enabled else "Deaktiviert",
+                           "age_seconds": None, "updated_at": None},
+                "header_fields": [{"label": "Status", "value": "Keine Daten" if pv_enabled else "Deaktiviert"}],
+                "config_fields": (
+                    PvModbusSource.config_fields_from_settings(pv_cfg.get("settings", {}) or {})
+                    if pv_type == "pv_modbus" else []
+                ),
+                "detail_groups": [], "capabilities": {},
+            }
+        pv_model["summary"] = [
+            {"label": "Profil", "value": pv_model["driver_label"]},
+            {"label": "Status", "value": "aktiv" if pv_enabled else "deaktiviert"},
+        ]
+        pv_model["driver_field"] = {
+            "name": "pv_type", "label": "PV-Messprofil",
+            "type": "select", "value": pv_type,
+            "help": "PV-Erzeugung wird unabhängig vom Netz- und Batterie-Regler nur gelesen.",
+            "options": [
+                {"value": "none", "label": "Keine PV-Messung"},
+                {"value": "pv_modbus", "label": "Modbus TCP PV-Erzeugung"},
+            ],
+        }
+        pv_model["config_fields"] = [
+            {"name": "pv_enabled", "label": "PV-Messung aktiviert",
+             "type": "checkbox", "value": pv_enabled,
+             "disabled_when_driver": "none"},
+            *list(pv_model.get("config_fields") or []),
+        ]
+        models.append(pv_model)
 
         return models

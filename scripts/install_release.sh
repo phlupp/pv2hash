@@ -40,6 +40,11 @@ MANIFEST_URL=""
 SHA256_URL=""
 RELEASE_DIR=""
 TMP_RELEASE_DIR=""
+TRANSACTION_STARTED=0
+TRANSACTION_COMPLETE=0
+STAGED_RELEASE_CREATED=0
+PREVIOUS_CURRENT_TARGET=""
+TRANSACTION_BACKUP_DIR=""
 
 require_root() {
     if [[ "${EUID}" -ne 0 ]]; then
@@ -184,7 +189,7 @@ fetch_release_metadata() {
             FEED_URL="${base_url}/releases/latest"
         else
             TAG="$(normalize_tag "${TAG}")"
-            [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || "${TAG}" =~ ^r20[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*$ ]] || {
                 echo "Ungültiger GitHub-Release-Tag: ${TAG}" >&2
                 exit 1
             }
@@ -199,7 +204,7 @@ from pathlib import Path
 
 release = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 tag = str(release.get("tag_name") or "")
-if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
+if not (re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag) or re.fullmatch(r"r20[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*", tag)):
     raise SystemExit("Ungültiger GitHub-Release-Tag")
 if release.get("draft") or release.get("prerelease"):
     raise SystemExit("Nur veröffentlichte stabile GitHub-Releases sind erlaubt")
@@ -249,7 +254,7 @@ if not isinstance(latest, dict):
 tag_name = str(latest.get("version_full") or latest.get("tag") or latest.get("version") or "").strip()
 if not tag_name:
     raise SystemExit("Update-Feed enthält keinen Release-Tag")
-if not tag_name.startswith("v"):
+if not tag_name.startswith(("v","r")):
     tag_name = "v" + tag_name
 
 asset = latest.get("asset") or {}
@@ -267,7 +272,7 @@ if not manifest_url:
 if not sha256_url:
     raise SystemExit("Update-Feed enthält keine checksums_url")
 
-version_slug = tag_name[1:] if tag_name.startswith("v") else tag_name
+version_slug = tag_name[1:] if tag_name.startswith(("v","r")) else tag_name
 
 print(tag_name)
 print(version_slug)
@@ -299,10 +304,10 @@ base_url = sys.argv[4].rstrip("/")
 tag_name = str(manifest.get("tag") or "").strip()
 if not tag_name:
     raise SystemExit("Manifest enthält keinen tag")
-if not tag_name.startswith("v"):
+if not tag_name.startswith(("v","r")):
     tag_name = "v" + tag_name
 
-version_slug = str(manifest.get("version_slug") or (tag_name[1:] if tag_name.startswith("v") else tag_name)).strip()
+version_slug = str(manifest.get("version_slug") or (tag_name[1:] if tag_name.startswith(("v","r")) else tag_name)).strip()
 archive_name = str(manifest.get("asset_name") or "").strip()
 if not archive_name:
     raise SystemExit("Manifest enthält keinen asset_name")
@@ -344,11 +349,12 @@ from pathlib import Path
 
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 
-print(manifest.get("version") or "")
+print(manifest.get("core_version") or manifest.get("version") or "")
 print(manifest.get("tag") or "")
 print(manifest.get("version_slug") or "")
 print(manifest.get("asset_name") or "")
 print(manifest.get("asset_sha256") or "")
+print(manifest.get("gui_version") or "")
 PY
 )
 
@@ -357,6 +363,8 @@ PY
     local manifest_version_slug="${MANIFEST_INFO[2]}"
     local manifest_asset_name="${MANIFEST_INFO[3]}"
     local manifest_asset_sha256="${MANIFEST_INFO[4]}"
+    GUI_VERSION="${MANIFEST_INFO[5]:-}"
+    RELEASE_ID="${TAG_NAME}"
 
     if [[ "${manifest_tag}" != "${TAG_NAME}" ]]; then
         echo "Fehler: manifest tag (${manifest_tag}) passt nicht zu Release-Tag (${TAG_NAME})"
@@ -401,6 +409,7 @@ extract_release() {
     ln -s "${APP_DATA_DIR}" "${TMP_RELEASE_DIR}/data"
 
     mv "${TMP_RELEASE_DIR}" "${RELEASE_DIR}"
+    STAGED_RELEASE_CREATED=1
     chown -h "${APP_USER}:${APP_GROUP}" "${RELEASE_DIR}/data"
 
 }
@@ -415,7 +424,7 @@ install_python_dependencies() {
 write_install_info() {
     # Upgrade installations keep their old download source until this release is installed.
     # After a successful installation, future update downloads use GitHub.
-    if [[ "${FULL_VERSION}" =~ ^0\.8\.[0-9]+$ || "${FULL_VERSION}" =~ ^[1-9][0-9]*\.[0-9]+\.[0-9]+$ ]]; then
+    if [[ "${PV2HASH_UPDATE_BASE_URL}" == "https://get.pv2hash.xyz" ]]; then
         PV2HASH_UPDATE_BASE_URL="https://api.github.com/repos/phlupp/pv2hash"
     fi
     cat > "${INSTALL_INFO_FILE}" <<EOF_INFO
@@ -423,6 +432,9 @@ PV2HASH_INSTALL_MODE=release
 PV2HASH_UPDATE_BASE_URL=${PV2HASH_UPDATE_BASE_URL}
 PV2HASH_UPDATE_CHANNEL=${PV2HASH_UPDATE_CHANNEL}
 PV2HASH_TAG=${TAG_NAME}
+PV2HASH_RELEASE_ID=${RELEASE_ID}
+PV2HASH_CORE_VERSION=${FULL_VERSION}
+PV2HASH_GUI_VERSION=${GUI_VERSION}
 PV2HASH_VERSION=${FULL_VERSION}
 PV2HASH_VERSION_SLUG=${VERSION_SLUG}
 PV2HASH_ARCHIVE_NAME=${ARCHIVE_NAME}
@@ -435,6 +447,63 @@ PV2HASH_APP_USER=${APP_USER}
 PV2HASH_APP_GROUP=${APP_GROUP}
 PV2HASH_INSTALLED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 EOF_INFO
+}
+
+# Preserve a known-working release and system files until the new service
+# has started and the running Core confirms its *package* identity.
+backup_current_install() {
+    TRANSACTION_BACKUP_DIR="${TMP_DIR}/previous-install"
+    mkdir -p "${TRANSACTION_BACKUP_DIR}"
+    PREVIOUS_CURRENT_TARGET="$(readlink "${CURRENT_LINK}" 2>/dev/null || true)"
+
+    local key path
+    for key in install.env service helper sudoers; do
+        case "${key}" in
+            install.env) path="${INSTALL_INFO_FILE}" ;;
+            service) path="${SERVICE_FILE}" ;;
+            helper) path="${SELF_UPDATE_HELPER_PATH}" ;;
+            sudoers) path="${SELF_UPDATE_SUDOERS_FILE}" ;;
+        esac
+        if [[ -f "${path}" ]]; then
+            cp -a "${path}" "${TRANSACTION_BACKUP_DIR}/${key}"
+        else
+            touch "${TRANSACTION_BACKUP_DIR}/${key}.absent"
+        fi
+    done
+    TRANSACTION_STARTED=1
+}
+
+restore_install_file() {
+    local key="$1" path="$2"
+    if [[ -f "${TRANSACTION_BACKUP_DIR}/${key}" ]]; then
+        cp -a "${TRANSACTION_BACKUP_DIR}/${key}" "${path}"
+    elif [[ -f "${TRANSACTION_BACKUP_DIR}/${key}.absent" ]]; then
+        rm -f "${path}"
+    fi
+}
+
+rollback_current_install() {
+    echo "Update fehlgeschlagen: stelle vorheriges Release wieder her." >&2
+    # Restore the old target before restarting the old service.
+    if [[ -n "${PREVIOUS_CURRENT_TARGET}" ]]; then
+        ln -sfn "${PREVIOUS_CURRENT_TARGET}" "${CURRENT_LINK}.rollback"
+        mv -Tf "${CURRENT_LINK}.rollback" "${CURRENT_LINK}"
+    else
+        rm -f "${CURRENT_LINK}"
+    fi
+    restore_install_file install.env "${INSTALL_INFO_FILE}"
+    restore_install_file service "${SERVICE_FILE}"
+    restore_install_file helper "${SELF_UPDATE_HELPER_PATH}"
+    restore_install_file sudoers "${SELF_UPDATE_SUDOERS_FILE}"
+    systemctl daemon-reload || true
+    if [[ -n "${PREVIOUS_CURRENT_TARGET}" ]]; then
+        systemctl restart "${SERVICE_NAME}.service" || echo "WARNUNG: Neustart der bisherigen Version fehlgeschlagen." >&2
+    else
+        systemctl stop "${SERVICE_NAME}.service" || true
+    fi
+    if [[ "${STAGED_RELEASE_CREATED}" == 1 && -n "${RELEASE_DIR}" ]]; then
+        rm -rf "${RELEASE_DIR}"
+    fi
 }
 
 install_self_update_helper() {
@@ -487,10 +556,43 @@ activate_release() {
     chown -h "${APP_USER}:${APP_GROUP}" "${CURRENT_LINK}"
 }
 
+verify_running_release() {
+    local attempt
+    # A successful systemctl restart is not enough. Identical Core versions
+    # can contain different GUI packages, so compare the release ID served
+    # by the newly started Python process.
+    for attempt in $(seq 1 30); do
+        if curl -fsS --connect-timeout 2 --max-time 3 \
+            "http://127.0.0.1:${PORT}/api/system/build-info" 2>/dev/null |
+            PV2HASH_EXPECTED_TAG="${TAG_NAME}" \
+            PV2HASH_EXPECTED_CORE="${FULL_VERSION}" \
+            PV2HASH_EXPECTED_GUI="${GUI_VERSION}" \
+            python3 -c '
+import json,os,sys
+try: data=json.load(sys.stdin)
+except Exception:sys.exit(1)
+if (
+    data.get("release_id")==os.environ["PV2HASH_EXPECTED_TAG"]
+    and data.get("core_version")==os.environ["PV2HASH_EXPECTED_CORE"]
+    and data.get("gui_version")==os.environ["PV2HASH_EXPECTED_GUI"]
+):
+    sys.exit(0)
+sys.exit(1)
+' ; then
+            echo "Neue Version bestätigt: ${TAG_NAME} (Core ${FULL_VERSION}, GUI ${GUI_VERSION})."
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Fehler: neuer Dienst hat die erwartete Release-ID nicht bestätigt." >&2
+    return 1
+}
+
 enable_and_restart_service() {
     systemctl daemon-reload
     systemctl enable "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
     systemctl restart "${SERVICE_NAME}.service"
+    verify_running_release
 }
 
 cleanup() {
@@ -520,8 +622,18 @@ show_result() {
     echo
 }
 
+on_installer_exit() {
+    local rc="$1"
+    trap - EXIT
+    if [[ "${rc}" != 0 && "${TRANSACTION_STARTED}" == 1 && "${TRANSACTION_COMPLETE}" != 1 ]]; then
+        rollback_current_install || echo "KRITISCH: automatischer Rollback fehlgeschlagen!" >&2
+    fi
+    cleanup
+    exit "${rc}"
+}
+
 main() {
-    trap cleanup EXIT
+    trap 'on_installer_exit $?' EXIT
 
     require_root
     report_update_phase 1 "Systempakete prüfen"
@@ -539,12 +651,14 @@ main() {
     report_update_phase 5 "Python-Umgebung und Abhängigkeiten einrichten"
     install_python_dependencies
     report_update_phase 6 "Neue Version aktivieren"
+    backup_current_install
     install_self_update_helper
     activate_release
     write_install_info
     write_systemd_unit
     report_update_phase 7 "PV2Hash-Dienst neu starten"
     enable_and_restart_service
+    TRANSACTION_COMPLETE=1
     show_result
 }
 
