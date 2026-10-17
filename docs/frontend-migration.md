@@ -984,3 +984,22 @@ Nach der Korrektur bestanden 79 Python-Tests.
 **Den fehlgeschlagenen Run #109 nicht erneut ausführen:** Der Run ist
 an den ursprünglichen Commit gebunden. Stattdessen einen neuen
 `workflow_dispatch` auf dem korrigierten `main` starten.
+
+### Release 0.9.5: Archiv-Validierung mit pipefail korrigiert
+
+Der zweite Workflow-Lauf (#110) baute Core und GUI erfolgreich, bestand
+79 Backend- und 27 Frontend-Tests und prüfte die SHA256-Dateien.
+Die anschließende Archiv-Liste wurde jedoch mit `tar -tzf ... | grep -q`
+geprüft. `grep -q` schloss die Pipe beim ersten Treffer; `tar` meldete
+unter `set -o pipefail` deshalb SIGPIPE/Exit 141, obwohl das Archiv gültig war.
+
+Der Workflow konsumiert die komplette Archivliste nun einmal in eine
+temporäre Datei und prüft die vorhandenen Dateien anschließend mit `grep`.
+`tests/test_release_workflow_archive.py` führt die originale YAML-Prüfstufe
+aus und testet ein großes korrektes Archiv, fehlende GUI-Assets sowie
+eine falsche SHA256-Prüfsumme. **82 Backend-Tests bestanden**. Zusätzlich
+bestand der neue Prüfcode mit dem lokal gebauten echten
+`pv2hash-0.9.5.tar.gz` aus der isolierten Release-Vorbereitung.
+
+Der fehlgeschlagene Workflow-Lauf #110 darf nicht lediglich via Re-run
+wiederholt werden: Nach dem Merge einen **neuen** Run auf `main` starten.

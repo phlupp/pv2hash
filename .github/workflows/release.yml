@@ -136,9 +136,14 @@ jobs:
           cmp "docs/releases/$TAG.md" "$DIST_DIR/RELEASE_NOTES.md"
           test -s "$DIST_DIR/SHA256SUMS"
           (cd "$DIST_DIR" && sha256sum -c SHA256SUMS)
-          tar -tzf "$ARCHIVE" | grep -q "^pv2hash-$VERSION_SLUG/pv2hash/gui/index.html$"
-          tar -tzf "$ARCHIVE" | grep -q "^pv2hash-$VERSION_SLUG/pv2hash/gui/assets/"
-          tar -tzf "$ARCHIVE" | grep -q "^pv2hash-$VERSION_SLUG/RELEASE_NOTES.md$"
+          # Under pipefail, grep -q may close a pipe early, causing tar to fail.
+          # Consume the complete archive listing before checking file names.
+          ARCHIVE_CONTENTS="$(mktemp)"
+          trap 'rm -f "$ARCHIVE_CONTENTS"' EXIT
+          tar -tzf "$ARCHIVE" > "$ARCHIVE_CONTENTS"
+          grep -Fxq "pv2hash-$VERSION_SLUG/pv2hash/gui/index.html" "$ARCHIVE_CONTENTS"
+          grep -Fq "pv2hash-$VERSION_SLUG/pv2hash/gui/assets/" "$ARCHIVE_CONTENTS"
+          grep -Fxq "pv2hash-$VERSION_SLUG/RELEASE_NOTES.md" "$ARCHIVE_CONTENTS"
 
       - name: Prepare public bootstrap installer asset
         shell: bash
