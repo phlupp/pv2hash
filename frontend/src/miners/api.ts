@@ -1,4 +1,5 @@
 import type { MinersGuiPayload, MinersLivePayload } from './model';
+import type {SocketAssignmentResponse} from './socketAssignment';
 
 export async function unpack<T>(promise: Promise<Response>): Promise<T> {
   const r = await promise;
@@ -19,6 +20,7 @@ export async function unpack<T>(promise: Promise<Response>): Promise<T> {
 const get = (url: string) => fetch(url, { headers: {Accept:'application/json'}, cache: 'no-store' });
 const postForm = (url: string, form: FormData) => unpack<{status:string;message?:string;miner_id?:string;control_enabled?:boolean;monitor_enabled?:boolean}>(fetch(url, { method:'POST', body:form }));
 export const loadMinerGui = () => unpack<MinersGuiPayload>(get('/api/miners/gui'));
+export const loadMinerSocketAssignments = () => unpack<SocketAssignmentResponse>(get('/api/miners/socket-assignment/model'));
 export const loadMinerLive = (expandedIds: string[]) => {
   const query = new URLSearchParams();
   if (expandedIds.length) query.set('open_ids',expandedIds.join(','));

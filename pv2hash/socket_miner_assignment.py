@@ -324,20 +324,25 @@ def install(app_mod: Any) -> None:
 
     async def update_miner_config_result(form: Any) -> dict[str, Any]:
         miner_id = str(form.get("miner_id", "")).strip()
-        socket_config = _parse_socket_config_from_form(form)
-        error = validate_socket_assignment(app_mod.state.config, miner_id, socket_config)
-        if error:
-            return {"status": "error", "message": error, "miner_id": miner_id}
+        # Older or partial clients do not submit socket fields. Do not silently
+        # disconnect an existing miner socket when saving unrelated miner fields.
+        update_socket = "socket.socket_id" in form
+        if update_socket:
+            socket_config = _parse_socket_config_from_form(form)
+            error = validate_socket_assignment(app_mod.state.config, miner_id, socket_config)
+            if error:
+                return {"status": "error", "message": error, "miner_id": miner_id}
 
         result = await original_update_miner_config_result(form)
         if result.get("status") != "ok":
             return result
 
-        _apply_miner_socket_config(app_mod, miner_id, socket_config)
-        app_mod.save_config(app_mod.state.config)
-        app_mod.reload_runtime()
+        if update_socket:
+            _apply_miner_socket_config(app_mod, miner_id, socket_config)
+            app_mod.save_config(app_mod.state.config)
+            app_mod.reload_runtime()
+            result["socket"] = socket_config
         result["message"] = "Miner-Konfiguration gespeichert."
-        result["socket"] = socket_config
         return result
 
     app_mod._build_miners_view = build_miners_view

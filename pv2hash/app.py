@@ -70,6 +70,11 @@ instance_identity = load_instance_identity()
 
 app = FastAPI(title="PV2Hash", version=APP_VERSION_FULL)
 app.mount("/static", StaticFiles(directory="pv2hash/static"), name="static")
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Serve the same icon for browsers requesting the conventional root URL."""
+    return FileResponse(Path(__file__).resolve().parent / "static" / "favicon.ico", media_type="image/x-icon")
 # A release ships prebuilt, fingerprinted React assets; development runs on Vite
 # and does not contain these assets in the Python Core checkout.
 GUI_DIST_DIR = Path(__file__).resolve().parent / "gui"

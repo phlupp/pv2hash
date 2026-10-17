@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Anchor, Badge, Button, Card, Divider, Group, Modal, ScrollArea, SimpleGrid, Stack, Table, Text, Title,
+  Anchor, Badge, Box, Button, Card, Divider, Group, Modal, ScrollArea, Select, SimpleGrid, Stack, Table, Text, TextInput, Title,
 } from '@mantine/core';
 import { IconChevronDown, IconChevronRight, IconDeviceFloppy, IconExternalLink, IconTrash } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
@@ -9,6 +9,8 @@ import { applyDeviceSettings, deleteMiner, loadMinerGui, minerAction, saveMiner 
 import { MinerFields } from './fields';
 import { fieldsToValues, formForFields, validateFields, type MinerAction, type MinerDetail, type MinerModel, type MinerSummary, type MinerValues } from './model';
 import { minerWebGuiUrl } from '../dashboard/minerLink';
+import {formatSocketEnergy, formatSocketPower, setSocketFormValues, socketValuesFrom, validateSocketAssignment,
+  type MinerSocketAssignment, type SocketAssignmentValues} from './socketAssignment';
 
 function SummaryBadge({ text, state }: { text: string; state?: string }) {
   return <Badge size="sm" variant="light" radius="sm"
@@ -44,10 +46,11 @@ function showError(e: unknown) {
 }
 
 export function MinerCard({
-  model, live, liveDetails, expanded, onExpandedChange,
+  model, live, liveDetails, socketAssignment, expanded, onExpandedChange,
 }: {
   model: MinerModel;
   live?: MinerSummary;
+  socketAssignment?: MinerSocketAssignment;
   liveDetails?: MinerModel['details'];
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
@@ -57,12 +60,18 @@ export function MinerCard({
   const [values,setValues] = useState<MinerValues>(()=>fieldsToValues(allFields));
   const [deviceValues,setDeviceValues] = useState<MinerValues>(()=>fieldsToValues(model.device_settings_fields));
   const [dirty,setDirty] = useState(false);
+  const [socketValues,setSocketValues] = useState<SocketAssignmentValues>(()=>socketValuesFrom(socketAssignment));
+  const [socketDirty,setSocketDirty] = useState(false);
   const [deviceDirty,setDeviceDirty] = useState(false);
   const [busy,setBusy] = useState(false);
   const [pending,setPending] = useState<{kind:'action'|'delete'|'device';action?:MinerAction}|null>(null);
   const summary = live??model.summary;
   // Use the saved backend WebGUI target, never an uncommitted host edit.
   const webLink = minerWebGuiUrl(model.web_gui_url);
+
+  useEffect(()=>{
+    if(!socketDirty)setSocketValues(socketValuesFrom(socketAssignment));
+  },[socketAssignment,socketDirty]);
 
   useEffect(()=>{
     if (dirty || deviceDirty) return;
@@ -79,22 +88,36 @@ export function MinerCard({
     });
     setDirty(true);
   }
+  function changeSocket(patch:Partial<SocketAssignmentValues>){
+    setSocketValues(old=>({...old,...patch}));
+    setSocketDirty(true);
+  }
+  function discard(){
+    setValues(fieldsToValues(allFields));setDirty(false);
+    setSocketValues(socketValuesFrom(socketAssignment));setSocketDirty(false);
+  }
   async function refresh() {
     await queryClient.invalidateQueries({queryKey:['miners','gui']});
     await queryClient.invalidateQueries({queryKey:['miners','status']});
+    await queryClient.invalidateQueries({queryKey:['miners','socket-assignment']});
     await queryClient.invalidateQueries({queryKey:['dashboard']});
   }
   async function save() {
-    if(!dirty || busy)return;
-    const error=validateFields(allFields,values,true);
+    if((!dirty&&!socketDirty) || busy)return;
+    const error=validateFields(allFields,values,true)
+      || (socketDirty ? validateSocketAssignment(socketValues,socketAssignment?.min_power_off_after_off_seconds??600) : null);
     if(error){notifications.show({color:'red',message:error});return;}
     setBusy(true);
     try {
       const form=formForFields(allFields,values);
       form.set('miner_id',model.id);
+      // Send socket fields only when the association was explicitly edited.
+      // Legacy miner forms must never silently remove the saved socket.
+      if(socketDirty)setSocketFormValues(form,socketValues);
       const res=await saveMiner(model.id,form);
       notifications.show({color:'teal',message:res.message||'Miner gespeichert.'});
       setDirty(false);
+      setSocketDirty(false);
       await refresh();
     }catch(e){showError(e);}finally{setBusy(false);}
   }
@@ -128,6 +151,9 @@ export function MinerCard({
   }
 
   const deviceFields=model.device_settings_fields;
+  const currentSocket = socketAssignment?.runtime;
+  const metrics = currentSocket?.details || {};
+  const workflow = socketAssignment?.workflow;
   return <Card component="section" aria-label={model.name} padding="md">
     <Stack gap="sm">
       <Group align="flex-start" justify="space-between" gap="xs">
@@ -136,7 +162,7 @@ export function MinerCard({
             <Text fw={650}>{model.name}</Text>
             <SummaryBadge text={summary.control_text} state={summary.control_class}/>
             <SummaryBadge text={summary.connection_text} state={summary.connection_class}/>
-            {dirty && <Badge size="xs" color="orange" variant="light">Ungespeichert</Badge>}
+            {(dirty||socketDirty) && <Badge size="xs" color="orange" variant="light">Ungespeichert</Badge>}
           </Group>
           <Group gap="xs" mt={4}>
             <Text size="xs" c="dimmed">{model.driver_label}</Text>
@@ -165,14 +191,52 @@ export function MinerCard({
           <MinerFields fields={model.identity_fields} values={values} disabled={busy} onChange={change}/>
           <Divider label="PV2Hash-Regelung" labelPosition="left"/>
           <MinerFields fields={model.control_fields} values={values} disabled={busy} onChange={change}/>
+          {socketAssignment?.show_section && <>
+            <Divider label="Stromversorgung / Socket" labelPosition="left"/>
+            <Text size="xs" c="dimmed">Socket einem Miner zuordnen. „Nur messen“ liest Leistungs- und Energiezähler, ohne den Strom zu schalten.</Text>
+            <SimpleGrid cols={{base:1,md:2,lg:4}} spacing="xs">
+              <Select label="Zugeordnete Steckdose" placeholder="Keine Steckdose zugeordnet" clearable
+                value={socketValues.socket_id||null} disabled={busy}
+                data={socketAssignment.options.map(o=>({value:o.id,label:o.label}))}
+                onChange={v=>changeSocket({socket_id:v||''})}/>
+              <Select label="Betriebsart" value={socketValues.mode} disabled={busy||!socketValues.socket_id}
+                data={[{value:'measure_only',label:'Nur messen'},{value:'switching',label:'Messen und schalten'}]}
+                onChange={v=>changeSocket({mode:v==='switching'?'switching':'measure_only'})}/>
+              <TextInput label="Einschaltverzögerung (s)" type="number" min={0}
+                disabled={busy||!socketValues.socket_id||socketValues.mode!=='switching'}
+                value={socketValues.startup_delay_seconds}
+                onChange={e=>changeSocket({startup_delay_seconds:e.currentTarget.value})}/>
+              <TextInput label="Ausschaltverzögerung (s)" type="number"
+                min={socketAssignment.min_power_off_after_off_seconds}
+                disabled={busy||!socketValues.socket_id||socketValues.mode!=='switching'}
+                value={socketValues.power_off_after_off_seconds}
+                onChange={e=>changeSocket({power_off_after_off_seconds:e.currentTarget.value})}/>
+            </SimpleGrid>
+            {socketAssignment.socket_missing && <Text c="orange" size="xs">Die bisherige Steckdose ist nicht mehr vorhanden.</Text>}
+            {socketAssignment.socket.socket_id && <>
+              <Text fw={600} size="xs">Messwerte · {socketAssignment.socket_name}</Text>
+              <SimpleGrid cols={{base:2,sm:3,lg:5}} spacing="xs">
+                {[['Aktuelle Leistung',formatSocketPower(currentSocket?.power_w)],
+                  ['Heute',formatSocketEnergy(metrics.energy_today_kwh)],
+                  ['Gestern',formatSocketEnergy(metrics.energy_yesterday_kwh)],
+                  ['Gesamt',formatSocketEnergy(metrics.energy_total_kwh)],
+                  ['Steckdose',currentSocket?.reachable===false?'Nicht erreichbar':currentSocket?.is_on===true?'Ein':currentSocket?.is_on===false?'Aus':'—']
+                ].map(([label,value])=><Box key={label}><Text size="xs" c="dimmed">{label}</Text><Text size="sm" fw={600}>{value}</Text></Box>)}
+              </SimpleGrid>
+              {socketAssignment.socket.mode==='switching' && <Stack gap={2}>
+                {workflow?.message && <Text size="xs" c="dimmed">{workflow.message}</Text>}
+                {workflow?.startup_remaining_text && <Text size="xs">Start in: {workflow.startup_remaining_text}</Text>}
+                {workflow?.power_off_remaining_text && <Text size="xs">Abschalten in: {workflow.power_off_remaining_text}</Text>}
+              </Stack>}
+            </>}
+          </>}
           <Divider label="Treiber-Konfiguration" labelPosition="left"/>
           <MinerFields fields={model.driver_fields} values={values} disabled={busy} onChange={change}/>
           <Group justify="flex-end" gap="xs">
-            {dirty && <Button variant="subtle" color="gray" size="sm" disabled={busy} onClick={()=>{
-              setValues(fieldsToValues(allFields));setDirty(false);
-            }}>Verwerfen</Button>}
+            {(dirty||socketDirty) && <Button variant="subtle" color="gray" size="sm" disabled={busy}
+              onClick={discard}>Verwerfen</Button>}
             <Button size="sm" leftSection={<IconDeviceFloppy size={16}/>}
-              loading={busy} disabled={!dirty} onClick={()=>void save()}>Speichern</Button>
+              loading={busy} disabled={!dirty&&!socketDirty} onClick={()=>void save()}>Speichern</Button>
           </Group>
           {!!deviceFields.length && <>
             <Divider label="Geräte-Einstellungen" labelPosition="left"/>

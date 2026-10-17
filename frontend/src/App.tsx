@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import {
   ActionIcon, AppShell, Badge, Box, Burger, Center, Divider, Group, Image, Loader, NavLink,
   ScrollArea, Stack, Text, Tooltip
@@ -12,6 +12,8 @@ import {
   IconWand, IconZoomCheck
 } from '@tabler/icons-react';
 import { getStatus, getVersion } from './api';
+import { getSettings } from './configuration/api';
+import { browserTitle, instanceNameFromSettings } from './branding';
 import { version as guiVersion } from '../package.json';
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 const DataLogger = lazy(() => import('./pages/DataLogger').then(module => ({ default: module.DataLogger })));
@@ -54,6 +56,9 @@ export function App() {
   const location = useLocation();
   const { data: version } = useQuery({ queryKey: ['version'], queryFn: getVersion, refetchInterval: 60000 });
   const { isError: statusError } = useQuery({ queryKey: ['status'], queryFn: getStatus, refetchInterval: 15000 });
+  const { data: settings } = useQuery({queryKey: ['settings','model'], queryFn: getSettings, staleTime: 60000, refetchInterval: 60000});
+  const instanceName = instanceNameFromSettings(settings);
+  useEffect(() => { document.title = browserTitle(instanceName); }, [instanceName]);
   const isMobile = useMediaQuery('(max-width: 48em)');
   const navCollapsed = collapsed && !isMobile;
   const updateAvailable=version?.update_available===true;
@@ -98,7 +103,7 @@ export function App() {
               {!navCollapsed && (
                 <Box>
                   <Text fw={900} size="lg" lh="1.2">PV2<span className="pv-brand-accent">Hash</span></Text>
-                  <Text size="xs" c="dimmed">Mining-Energiemanager</Text>
+                  <Text size="xs" c="dimmed" lineClamp={2} title={instanceName || undefined}>{instanceName || 'Mining-Energiemanager'}</Text>
                 </Box>
               )}
             </Group>
