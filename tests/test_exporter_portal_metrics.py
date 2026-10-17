@@ -45,12 +45,19 @@ class ExporterPortalMetricsTest(unittest.TestCase):
                'instance_id': 'node1', 'instance_name': 'Test Node'}
         sample = {'ts': '2026-10-10T20:00:00Z', 'instance_id': 'node1',
                   'pv2hash_version': 'stale-from-old-sample', 'grid_power_w': 12}
-        with patch('pv2hash.exporters.influxdb2.APP_VERSION_FULL', '0.9.1+build.42'):
+        running_build = {
+            'release_id': 'r2026.10.18.1',
+            'core_version': '0.9.5',
+            'gui_version': '2.0.1',
+        }
+        with patch('pv2hash.exporters.influxdb2.read_build_identity', return_value=running_build):
             with patch('pv2hash.exporters.influxdb2.httpx.Client') as client:
                 client.return_value.__enter__.return_value.post.return_value.status_code = 204
                 InfluxDB2Destination(cfg).send('samples', [sample])
                 data = client.return_value.__enter__.return_value.post.call_args.kwargs['content'].decode()
-        self.assertIn('pv2hash_version="0.9.1+build.42"', data)
+        self.assertIn('pv2hash_version="r2026.10.18.1"', data)
+        self.assertIn('pv2hash_core_version="0.9.5"', data)
+        self.assertIn('pv2hash_gui_version="2.0.1"', data)
         self.assertNotIn('stale-from-old-sample', data)
         self.assertNotIn('pv2hash_version=', data.split(' ', 1)[0])
 
@@ -75,7 +82,10 @@ class ExporterPortalMetricsTest(unittest.TestCase):
         system_line = next(row for row in data.splitlines()
                            if row.startswith('pv2hash_system,'))
         self.assertIn(f'pv2hash_version="{APP_VERSION_FULL}"', system_line)
+        self.assertIn(f'pv2hash_core_version="{APP_VERSION_FULL}"', system_line)
+        self.assertNotIn('pv2hash_gui_version=', system_line)
         self.assertNotIn('pv2hash_version=', system_line.split(' ', 1)[0])
+        self.assertNotIn('pv2hash_core_version=', system_line.split(' ', 1)[0])
         self.assertIn('registered_miner_count=2i', data)
         self.assertIn('running_miner_count=1i', data)
         self.assertIn('running_miner_power_w=100.0', data)

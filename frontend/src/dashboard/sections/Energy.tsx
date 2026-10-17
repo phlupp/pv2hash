@@ -18,7 +18,7 @@ function EnergySection({ context }: { context: DashboardContext }) {
   const gridValid = typeof snap?.grid_power_w === 'number' && Number.isFinite(snap.grid_power_w);
   // PV comes from its own non-regulating background poller, not the controller snapshot.
   const pvData = cards?.pv;
-  const pvValid = pvData?.quality === 'live'
+  const pvValid = (pvData?.quality === 'live' || pvData?.quality === 'degraded')
     && typeof pvData.power_w === 'number' && Number.isFinite(pvData.power_w);
   const batteryEnabled = config?.battery?.enabled === true || snap?.battery_soc_pct != null || snap?.battery_is_active === true;
   const { showPv, columns } = energyCardLayout(pvData?.enabled, batteryEnabled);
@@ -47,12 +47,13 @@ function EnergySection({ context }: { context: DashboardContext }) {
           label="PV-Erzeugung"
           value={pvValid ? formatPower(pvData?.power_w) : '—'}
           detail={pvData?.quality === 'offline' ? 'Modbus-Messung nicht erreichbar'
-            : pvValid ? 'Aktuelle PV-Leistung aus Modbus TCP' : 'Warte auf PV-Messwert'}
+            : pvValid && pvData?.quality === 'degraded' ? 'Teilsumme aus ' + (pvData.live_count ?? 0) + '/' + (pvData.enabled_count ?? 0) + ' Wechselrichtern'
+            : pvValid ? 'Aktuelle PV-Leistung' : 'Warte auf PV-Messwert'}
           quality={
             <QualityBadge
               quality={pvData?.quality}
               measured={pvValid}
-              source={pvData?.source ?? config?.pv?.name}
+              source={pvData?.driver_label ?? pvData?.source ?? config?.pv?.name}
             />
           }
         />}

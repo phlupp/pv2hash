@@ -2,6 +2,8 @@ export type DataLoggerRange = '1h' | '3h' | '6h' | '12h' | '24h' | '7d';
 export type DataLoggerPoint = {
   ts: string;
   grid_power_w: number | null;
+  pv_power_w: number | null;
+  pv_quality?: string | null;
   battery_soc_pct: number | null;
   battery_charge_power_w: number | null;
   battery_discharge_power_w: number | null;

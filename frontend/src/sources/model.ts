@@ -1,3 +1,4 @@
+import { validateModbusFormula } from './modbusFormulaModel.ts';
 /** Source GUI schema emitted by each PV2Hash driver through Core API 0.9.4. */
 export type SourceField = {
   name?: string;
@@ -64,6 +65,17 @@ export function isFiveFieldUniformGroup(fields: SourceField[]): boolean {
   );
 }
 
+/** Modbus register fields (name, address, type, etc.) use six desktop columns. */
+export function isSixFieldModbusGroup(fields: SourceField[]): boolean {
+  if (fields.length !== 6 || fields.some(field =>
+    field.type === 'fieldset' || field.layout?.width !== 'quarter')) return false;
+  const first = fields[0].name;
+  if (!first?.endsWith('_name')) return false;
+  const prefix = first.slice(0, -'_name'.length);
+  return ['name', 'address', 'register_type', 'value_type', 'endian', 'factor']
+    .every((suffix, index) => fields[index].name === `${prefix}_${suffix}`);
+}
+
 /**
  * Compact unopinionated groups of three like-kind inputs.
  * An explicit width from the driver always wins over this default.
@@ -124,6 +136,10 @@ export function validateSourceValues(models: SourceModel[], values: FormValues):
       if (field.required && (empty || (field.type === 'checkbox' && value !== true))) {
         errors.push(`${model.title} – ${field.label || field.name}: Pflichtfeld.`);
         continue;
+      }
+      if (field.type === 'modbus_calculation' && !empty) {
+        const issue = validateModbusFormula(String(value));
+        if (issue) errors.push(`${model.title} – ${field.label || field.name}: ${issue}`);
       }
       if (empty || field.type !== 'number') continue;
       const number = Number(value);

@@ -7,6 +7,7 @@ from pv2hash.miners.whatsminer_api3 import WhatsminerApi3Miner
 from pv2hash.sources.base import EnergySource
 from pv2hash.sources.battery_modbus import BatteryModbusSource, ModbusValueConfig
 from pv2hash.sources.pv_modbus import PvModbusSource
+from pv2hash.sources.pv_group import PvGenerationGroup, pv_device_configs
 from pv2hash.sources.simulator import SimulatorSource
 from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
 from pv2hash.sockets.base import SocketInfo
@@ -128,7 +129,7 @@ def _build_modbus_value_config(name: str, cfg: dict | None) -> ModbusValueConfig
         factor = 1.0
 
     return ModbusValueConfig(
-        name=name,
+        name=str(cfg.get("name") or address if address is not None else name).strip(),
         register_type=register_type,
         address=address,
         value_type=value_type,
@@ -207,17 +208,17 @@ def build_battery_source(config: dict) -> EnergySource | None:
     raise ValueError(f"Unsupported battery source type: {battery_type}")
 
 
-def build_pv_source(config: dict) -> PvModbusSource | None:
-    """Optional, entirely read-only measurement separate from grid/battery control."""
-    cfg = config.get("pv", {}) or {}
-    if not cfg.get("enabled") or cfg.get("type") != "pv_modbus":
-        return None
-    settings = cfg.get("settings", {}) or {}
+def build_pv_device(device: dict) -> PvModbusSource:
+    """Factory registry for device drivers; extend here, not in the aggregator."""
+    driver = str(device.get("driver", "pv_modbus"))
+    if driver != "pv_modbus":
+        raise ValueError(f"Nicht unterstützter PV-Treiber: {driver}")
+    settings = device.get("settings", {}) or {}
     raw = settings.get("power") if isinstance(settings.get("power"), dict) else {}
     # Preserve exact user input; validation in PvModbusSource rejects invalid settings.
     address = raw.get("address")
     pv_value = ModbusValueConfig(
-        name="power",
+        name=str(raw.get("name") or address if address is not None else "power").strip(),
         register_type=str(raw.get("register_type", "holding")),
         address=int(address) if address not in (None, "") else None,
         value_type=str(raw.get("value_type", "uint16")),
@@ -231,7 +232,30 @@ def build_pv_source(config: dict) -> PvModbusSource | None:
         poll_interval_ms=int(settings.get("poll_interval_ms", 5000)),
         request_timeout_seconds=float(settings.get("request_timeout_seconds", 1.0)),
         power=pv_value,
+        power_mode=str(settings.get("power_mode", "single")),
+        calculation=settings.get("calculation"),
     )
+
+
+
+def build_pv_source(config: dict) -> PvGenerationGroup | None:
+    """One independent, atomic aggregate of all enabled PV measurements."""
+    cfg = config.get("pv", {}) or {}
+    if not cfg.get("enabled", False):
+        return None
+    devices = pv_device_configs(cfg)
+    if len(devices) > 64:
+        raise ValueError("Maximal 64 PV-Wechselrichter pro Instanz.")
+    ids = [str(x.get("id") or "") for x in devices]
+    if not all(ids) or len(ids) != len(set(ids)):
+        raise ValueError("PV-Geräte benötigen eindeutige IDs.")
+    active = [(d, build_pv_device(d)) for d in devices if d.get("enabled", True)]
+    if not active:
+        return None
+    poll_ms = int(cfg.get("poll_interval_ms", 5000))
+    if not 1000 <= poll_ms <= 60000:
+        raise ValueError("PV-Erzeugung: Intervall muss zwischen 1000 und 60000 ms liegen.")
+    return PvGenerationGroup(active, poll_interval_ms=poll_ms)
 
 
 def build_miners(config: dict) -> list[MinerAdapter]:

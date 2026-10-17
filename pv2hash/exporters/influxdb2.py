@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 import math
 import httpx
 
-from pv2hash.version import APP_VERSION_FULL
+from pv2hash.build_identity import read_build_identity
 
 
 def esc_tag(value):
@@ -106,6 +106,9 @@ class InfluxDB2Destination:
         self.instance = str(config.get('instance_id') or 'pv2hash')
         self.instance_name = str(config.get('instance_name') or '')
         self.miner_names = config.get('miner_names') or {}
+        # Immutable identity of the RUNNING package (not historical sample metadata
+        # and not mutable /etc/pv2hash/install.env from a previous update).
+        self.build_identity = read_build_identity()
 
     def send(self, kind, items):
         lines = []
@@ -118,10 +121,15 @@ class InfluxDB2Destination:
                 # Export the version installed on this PV2Hash node (not the
                 # version encoded in historical DataLogger samples). Keep it
                 # a string FIELD, never a series tag.
-                fields['pv2hash_version'] = APP_VERSION_FULL
+                fields['pv2hash_version'] = (
+                    self.build_identity['release_id'] or self.build_identity['core_version']
+                )
+                fields['pv2hash_core_version'] = self.build_identity['core_version']
+                fields['pv2hash_gui_version'] = self.build_identity['gui_version']
                 result = line('pv2hash_system',tags,fields,ts,
-                              text_fields=('source_quality', 'battery_quality',
-                                           'pv2hash_version'))
+                              text_fields=('source_quality', 'battery_quality', 'pv_quality',
+                                           'pv2hash_version', 'pv2hash_core_version',
+                                           'pv2hash_gui_version'))
                 if result: lines.append(result)
                 # A dedicated measurement keeps portal-compatible mining stats
                 # isolated from any legacy field types in pv2hash_system.

@@ -183,6 +183,10 @@ class BatteryModbusSource(ModbusTcpRegisterReader, EnergySource):
                 "unit": unit,
                 "layout": {"width": "full"},
                 "fields": [
+                    {"name": f"{prefix}_name", "label": "Registername", "type": "text",
+                     "value": str(cfg.get("name") or (cfg.get("address") if cfg.get("address") is not None else "")),
+                     "required": required or cfg.get("address") not in (None, ""),
+                     "layout": {"width": "quarter"}},
                     {"name": f"{prefix}_address", "label": "Adresse", "type": "number", "value": cfg.get("address", getattr(value_cfg, "address", "")), "step": 1, "required": required, "layout": {"width": "quarter"}},
                     {
                         "name": f"{prefix}_register_type",
@@ -491,6 +495,7 @@ class BatteryModbusSource(ModbusTcpRegisterReader, EnergySource):
 
     def _config_to_debug(self, cfg: ModbusValueConfig) -> dict:
         return {
+            "name": cfg.name,
             "register_type": cfg.register_type,
             "address": cfg.address,
             "value_type": cfg.value_type,

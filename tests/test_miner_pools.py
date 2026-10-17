@@ -74,7 +74,7 @@ class PoolDatabaseTest(unittest.TestCase):
         self.assertEqual(
             self.read("SELECT value FROM schema_meta "
                       "WHERE key='datalogger_schema_version'")[0][0],
-            "5",
+            "6",
         )
 
     def test_first_observation_and_no_repeat_events(self):

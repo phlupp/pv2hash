@@ -6,6 +6,7 @@ from typing import Any
 
 from pv2hash.config.defaults import DEFAULT_CONFIG
 from pv2hash.datalogger import normalize_datalogger_config
+from pv2hash.sources.pv_group import pv_device_configs
 
 CONFIG_PATH = Path("data/config.json")
 
@@ -47,6 +48,47 @@ def _normalize_identity_fields(config: dict[str, Any]) -> None:
 
     pv = config.setdefault("pv", {})
     pv["uuid"] = _ensure_uuid(pv.get("uuid"))
+
+    # Idempotent migration: legacy 0.9.5 single Modbus PV source becomes the
+    # first member of a flexible device group without losing settings.
+    if pv.get("type") == "pv_modbus" or not isinstance(pv.get("devices"), list):
+        pv["devices"] = pv_device_configs(pv)
+    # Keep the legacy pv_modbus type while the user has not edited the
+    # new group. A rollback to 0.9.5 can then still read the original
+    # single-device settings. New multi-device saves switch to pv_group.
+    if pv.get("type") != "pv_modbus":
+        pv["type"] = "pv_group"
+    pv.setdefault("poll_interval_ms", 5000)
+    for index, device in enumerate(pv["devices"]):
+        if not isinstance(device, dict):
+            continue
+        device["id"] = str(device.get("id") or f"pv-{uuid4().hex[:10]}")
+        device["uuid"] = _ensure_uuid(device.get("uuid") or device["id"])
+        device["name"] = str(device.get("name") or f"Wechselrichter {index + 1}")
+        device["driver"] = str(device.get("driver") or "pv_modbus")
+        device["enabled"] = bool(device.get("enabled", True))
+
+
+    # Existing register configurations have no display names. Assign the
+    # decimal register address once, idempotently, without altering values.
+    def ensure_register_name(raw: Any) -> None:
+        if isinstance(raw, dict) and raw.get("address") not in (None, ""):
+            if "name" not in raw:  # migrate absent legacy names; do not hide a newly blank required name
+                raw["name"] = str(raw["address"])
+
+    battery_settings = battery.get("settings") or {}
+    for key in ("soc", "charge_power", "discharge_power", "voltage", "current",
+                "soh", "temperature", "capacity", "max_charge_current", "max_discharge_current"):
+        ensure_register_name(battery_settings.get(key))
+    for device in pv["devices"]:
+        if not isinstance(device, dict):
+            continue
+        settings = device.get("settings") or {}
+        ensure_register_name(settings.get("power"))
+        calculation = settings.get("calculation") or {}
+        for register in calculation.get("registers", []) if isinstance(calculation, dict) else []:
+            ensure_register_name(register)
+    ensure_register_name(pv.get("settings", {}).get("power"))
 
     for miner in config.get("miners", []):
         miner["uuid"] = _ensure_uuid(miner.get("uuid"))
