@@ -68,6 +68,9 @@ jobs:
               with Path(os.environ['GITHUB_ENV']).open('a') as out:
                   out.write(f'{key}={value}\n')
           PY
+          # GITHUB_ENV only affects subsequent steps, not this Bash process.
+          # Keep this step's validated tag available locally as well.
+          TAG="${INPUT_RELEASE_ID:-v${INPUT_CORE}}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists" >&2
             exit 1

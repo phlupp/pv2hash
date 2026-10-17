@@ -961,3 +961,26 @@ ebenfalls die gesamte Python-Unittest-Suite unter Python 3.13
 aus (zusätzlich zu Frontend-Tests und gebauten Assets).
 Das verhindert die Veröffentlichung bei fehlgeschlagenen
 Core-/Modbus-/Update-Migrationsprüfungen.
+
+### Brückenrelease 0.9.5 – GitHub-Action-Validierungsfehler (2026-10-17)
+
+Der erste manuelle GitHub-Actions-Lauf #109 für `v0.9.5` scheiterte **vor
+jedem Build und jeder Veröffentlichung** im Schritt
+`Validate component versions and release identity` mit
+`TAG: unbound variable`.
+
+Ursache: `TAG` wurde in die GitHub-Datei `$GITHUB_ENV` geschrieben,
+steht damit aber erst **nach** diesem Workflow-Schritt als Shell-
+Umgebungsvariable zur Verfügung. Noch im selben Schritt versuchte
+`git rev-parse "$TAG"` darauf zuzugreifen.
+
+Korrektur: explizite lokale Initialisierung
+`TAG="${INPUT_RELEASE_ID:-v${INPUT_CORE}}"` nach der Python-Validierung.
+Die neue Regression `tests/test_release_workflow.py` führt den tatsächlich
+aus der Workflow-YAML extrahierten Schritt mit `bash -euo pipefail` aus.
+Legacy- und Paket-ID-Eingaben bestehen, ungültige IDs werden abgelehnt.
+Nach der Korrektur bestanden 79 Python-Tests.
+
+**Den fehlgeschlagenen Run #109 nicht erneut ausführen:** Der Run ist
+an den ursprünglichen Commit gebunden. Stattdessen einen neuen
+`workflow_dispatch` auf dem korrigierten `main` starten.
