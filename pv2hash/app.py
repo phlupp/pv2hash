@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from pv2hash.config.store import CONFIG_PATH, load_config, save_config
+from pv2hash.build_identity import read_build_identity
 from pv2hash.identity import load_instance_identity
 from pv2hash.datalogger import DataLogger, normalize_datalogger_config
 from pv2hash.exporters import ExportSource
@@ -65,24 +66,9 @@ app.mount("/static", StaticFiles(directory="pv2hash/static"), name="static")
 GUI_DIST_DIR = Path(__file__).resolve().parent / "gui"
 GUI_INDEX_FILE = GUI_DIST_DIR / "index.html"
 GUI_ASSETS_DIR = GUI_DIST_DIR / "assets"
-BUILD_INFO_FILE = Path(__file__).resolve().parent / "build_info.json"
-
-
 def _read_build_info() -> dict[str, Any]:
-    try:
-        payload = json.loads(BUILD_INFO_FILE.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError("invalid release metadata")
-        return {
-            "status": "ok",
-            "release_id": str(payload.get("release_id") or "") or None,
-            "core_version": str(payload.get("core_version") or APP_VERSION_FULL),
-            "gui_version": str(payload.get("gui_version") or "") or None,
-        }
-    except (OSError, ValueError, TypeError):
-        return {"status": "ok", "release_id": None,
-                "core_version": APP_VERSION_FULL, "gui_version": None}
-
+    """Runtime identity shared by API and InfluxDB exporter."""
+    return {"status": "ok", **read_build_identity()}
 
 @app.get("/api/system/build-info")
 async def api_system_build_info():
@@ -2447,6 +2433,7 @@ def _build_dashboard_live_payload() -> dict:
                 "quality": pv_adapter.quality if pv_adapter else "disabled",
                 "enabled": pv_adapter is not None,
                 "source": state.config.get("pv", {}).get("name", "PV-Erzeugung"),
+                "driver_label": getattr(pv_adapter, "driver_label", None) if pv_adapter else None,
                 "updated_at": pv_adapter.updated_at.isoformat() if pv_adapter and pv_adapter.updated_at else None,
             },
             "source": {

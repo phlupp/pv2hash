@@ -134,7 +134,7 @@ export function App() {
         </AppShell.Section>
         <AppShell.Section p={navCollapsed ? 'xs' : 'sm'}>
           <Divider color="rgba(255,255,255,.08)" mb="sm" />
-          {!navCollapsed && <Text size="xs" c="dimmed" mb={1}>GUI {guiVersion} · Vorschau</Text>}
+          {!navCollapsed && <Text size="xs" c="dimmed" mb={1}>GUI {guiVersion}</Text>}
           {!navCollapsed&&updateAvailable&&<Text component={Link} to="/system" size="xs"
             c="orange" fw={650} mb={6} style={{textDecoration:'none'}}>
             <span className="pv-update-dot" style={{display:'inline-block',marginRight:7}}/>

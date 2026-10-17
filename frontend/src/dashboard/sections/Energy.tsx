@@ -47,12 +47,12 @@ function EnergySection({ context }: { context: DashboardContext }) {
           label="PV-Erzeugung"
           value={pvValid ? formatPower(pvData?.power_w) : '—'}
           detail={pvData?.quality === 'offline' ? 'Modbus-Messung nicht erreichbar'
-            : pvValid ? 'Aktuelle PV-Leistung aus Modbus TCP' : 'Warte auf PV-Messwert'}
+            : pvValid ? 'Aktuelle PV-Leistung' : 'Warte auf PV-Messwert'}
           quality={
             <QualityBadge
               quality={pvData?.quality}
               measured={pvValid}
-              source={pvData?.source ?? config?.pv?.name}
+              source={pvData?.driver_label ?? pvData?.source ?? config?.pv?.name}
             />
           }
         />}

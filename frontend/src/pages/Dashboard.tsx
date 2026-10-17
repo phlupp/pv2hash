@@ -1,10 +1,9 @@
-import { Alert, Badge, Group, Stack, Text, Title } from '@mantine/core';
+import { Alert, Stack, Text, Title } from '@mantine/core';
 import { IconAlertCircle } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { getDashboardStatus, getStatus } from '../api';
 import { dashboardSections } from '../dashboard/registry';
 import type { DashboardContext } from '../dashboard/types';
-import { version as guiVersion } from '../../package.json';
 
 export function Dashboard() {
   const live = useQuery({
@@ -28,13 +27,10 @@ export function Dashboard() {
 
   return (
     <Stack gap="md">
-      <Group justify="space-between" align="center" gap="xs">
-        <div>
-          <Title order={2} size="h3">Dashboard</Title>
-          <Text c="dimmed" size="xs">Live-Status der Energie- und Miner-Steuerung</Text>
-        </div>
-        <Badge variant="light" color="gray" size="xs">GUI v{guiVersion}</Badge>
-      </Group>
+      <div>
+        <Title order={2} size="h3">Dashboard</Title>
+        <Text c="dimmed" size="xs">Live-Status der Energie- und Miner-Steuerung</Text>
+      </div>
       {(live.error || telemetry.error) && (
         <Alert color="red" icon={<IconAlertCircle size={18} />} title="Verbindung gestört">
           {live.error?.message || telemetry.error?.message || 'Messwerte konnten nicht aktualisiert werden.'}
