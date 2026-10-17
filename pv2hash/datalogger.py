@@ -557,7 +557,7 @@ class DataLogger:
                     _float_or_none(source.get("grid_power_w")),
                     source.get("quality"),
                     battery.get("quality"),
-                    _float_or_none(pv.get("power_w")) if pv.get("quality") == "live" else None,
+                    _float_or_none(pv.get("power_w")) if pv.get("quality") in ("live", "degraded") else None,
                     str(pv.get("quality") or "no_data"),
                     _float_or_none(battery.get("soc_pct")),
                     _float_or_none(battery.get("charge_power_w")),

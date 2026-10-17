@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import re
 import os
 import platform
 import shutil
@@ -143,27 +144,18 @@ def _device_uuid(config: dict[str, Any]) -> str:
 def _build_runtime_snapshot_payload() -> dict[str, Any]:
     snapshot = state.snapshot
     pv_source = services.pv_source
-    pv_debug = services.get_pv_source_debug_info()
+    round_snapshot = pv_source.snapshot if pv_source is not None else None
+    pv_debug = round_snapshot.as_dict() if round_snapshot is not None else {}
     # The measurement is independent of mining control. Only confirmed live
     # samples are exported; zero is a real night-time PV reading, not missing.
-    pv_quality = getattr(pv_source, "quality", "disabled") if pv_source else "disabled"
-    pv_power = getattr(pv_source, "power_w", None) if pv_source else None
-    pv_updated_at = getattr(pv_source, "updated_at", None) if pv_source else None
-    pv_poll_ms = getattr(pv_source, "poll_interval_ms", 5000) if pv_source else 5000
-    pv_age_ok = (
-        isinstance(pv_updated_at, datetime)
-        and pv_updated_at.tzinfo is not None
-        and 0 <= (datetime.now(UTC) - pv_updated_at).total_seconds()
-        <= max(15, 3 * pv_poll_ms / 1000)
-    )
-    try:
-        pv_power = float(pv_power) if pv_quality == "live" and pv_age_ok else None
-        if pv_power is not None and not math.isfinite(pv_power):
-            pv_power = None
-    except (TypeError, ValueError, OverflowError):
+    pv_quality = round_snapshot.quality if round_snapshot else "disabled"
+    pv_power = round_snapshot.power_w if round_snapshot else None
+    pv_updated_at = round_snapshot.updated_at if round_snapshot else None
+    # Never recompute quality by wall-clock age here: between two rounds all
+    # consumers must see exactly the last *completed* coordinator snapshot.
+    # The coordinator bounds every member read by its own timeout.
+    if pv_quality not in ("live", "degraded"):
         pv_power = None
-    if pv_quality == "live" and not pv_age_ok:
-        pv_quality = "stale"
     runtime_miners = {miner.id: miner for miner in state.miners}
     config_miners = state.config.get("miners", []) if state.config else []
 
@@ -2213,6 +2205,11 @@ def _build_miners_live_payload(open_ids: set[str] | None = None) -> dict:
 
 
 def _build_sources_live_payload() -> dict:
+    pv_source = services.pv_source
+    pv_round = pv_source.snapshot if pv_source is not None else None
+    pv_power = pv_round.power_w if pv_round else None
+    pv_quality = pv_round.quality if pv_round else "disabled"
+    pv_updated_at = pv_round.updated_at if pv_round else None
     source_debug = services.get_source_debug_info()
     battery_debug = services.get_battery_source_debug_info()
     pv_debug = services.get_pv_source_debug_info()
@@ -2338,8 +2335,55 @@ def _apply_source_config_form(target_config: dict[str, Any], form: Any) -> dict[
     target_config["battery"]["settings"]["max_charge_current"] = _parse_modbus_value_form(form, "battery_max_charge_current")
     target_config["battery"]["settings"]["max_discharge_current"] = _parse_modbus_value_form(form, "battery_max_discharge_current")
 
-    # Older HTML clients do not submit pv_type; preserve their existing PV settings.
-    if "pv_type" in form:
+    # New group editor: an explicit ID list is authoritative for adding and
+    # deleting draft devices. Existing device identities are never reused.
+    if "pv_device_ids" in form:
+        from pv2hash.sources.pv_group import pv_device_configs
+        pv_cfg = target_config.setdefault("pv", {})
+        pv_cfg["type"] = "pv_group"
+        pv_cfg["enabled"] = form.get("pv_enabled") == "on"
+        pv_cfg["poll_interval_ms"] = _safe_int(
+            form.get("pv_poll_interval_ms", pv_cfg.get("poll_interval_ms", 5000)), 5000
+        )
+        members = {str(d.get("id")): d for d in pv_device_configs(pv_cfg)}
+        requested = [t.strip() for t in str(form.get("pv_device_ids", "")).split(",") if t.strip()]
+        if len(requested) != len(set(requested)):
+            raise ValueError("Doppelte PV-Geräte-ID.")
+        if len(requested) > 64:
+            raise ValueError("Maximal 64 PV-Wechselrichter pro Instanz.")
+        devices = []
+        for identifier in requested:
+            if not re.fullmatch(r"pv-[a-f0-9]{10}|[a-zA-Z0-9-]{1,48}", identifier):
+                raise ValueError("Ungültige PV-Geräte-ID.")
+            existing = deepcopy(members.get(identifier, {}))
+            prefix = f"pvdev_{identifier}_"
+            device = {
+                **existing, "id": identifier,
+                "name": str(form.get(prefix + "name", existing.get("name", "Wechselrichter"))).strip(),
+                "enabled": form.get(prefix + "enabled") == "on",
+                "driver": str(form.get(prefix + "driver", existing.get("driver", "pv_modbus"))).strip(),
+            }
+            if not device["name"]:
+                raise ValueError("Wechselrichtername darf nicht leer sein.")
+            if device["driver"] != "pv_modbus":
+                raise ValueError(f"Unbekannter PV-Treiber: {device['driver']}")
+            old_settings = existing.get("settings", {}) or {}
+            settings = deepcopy(old_settings)
+            settings.update({
+                "host": str(form.get(prefix+"host", old_settings.get("host", ""))).strip(),
+                "port": _safe_int(form.get(prefix+"port", old_settings.get("port", 502)), 502),
+                "unit_id": _safe_int(form.get(prefix+"unit_id", old_settings.get("unit_id", 1)), 1),
+                "poll_interval_ms": _safe_int(form.get(prefix+"poll_interval_ms", old_settings.get("poll_interval_ms", 5000)), 5000),
+                "request_timeout_seconds": _safe_float(form.get(prefix+"request_timeout_seconds", old_settings.get("request_timeout_seconds", 1.0)), 1.0),
+            })
+            if prefix + "power_address" in form:
+                settings["power"] = _parse_modbus_value_form(form, prefix+"power")
+            device["settings"] = settings
+            devices.append(device)
+        pv_cfg["devices"] = devices
+
+    # Existing 0.9.5 clients may still submit a legacy single PV form.
+    if "pv_type" in form and "pv_device_ids" not in form:
         pv_type = str(form.get("pv_type", "none") or "none").strip()
         if pv_type not in {"none", "pv_modbus"}:
             raise ValueError("Unbekanntes PV-Messprofil.")
@@ -2358,6 +2402,17 @@ def _apply_source_config_form(target_config: dict[str, Any], form: Any) -> dict[
         # Do not erase configured registers when a user selects "none".
         if pv_type == "pv_modbus":
             settings["power"] = _parse_modbus_value_form(form, "pv_power")
+            old_devices = pv_cfg.get("devices", [])
+            current = deepcopy(old_devices[0]) if old_devices else {}
+            current.update({
+                "id": current.get("id") or str(pv_cfg.get("uuid") or "legacy-pv"),
+                "name": current.get("name") or pv_cfg["name"],
+                "driver": "pv_modbus",
+                "enabled": True,
+                "settings": deepcopy(settings),
+            })
+            pv_cfg["devices"] = [current]
+        pv_cfg["type"] = "pv_group"
     return target_config
 
 
@@ -2393,6 +2448,7 @@ def _build_dashboard_live_payload() -> dict:
     snapshot = state.snapshot
     source_debug = services.get_source_debug_info()
     pv_adapter = services.pv_source
+    pv_round = pv_adapter.snapshot if pv_adapter else None
     host_status = _get_host_status()
     controller_status = _build_controller_status()
     dashboard_miners = _build_dashboard_miner_rows()
@@ -2454,12 +2510,14 @@ def _build_dashboard_live_payload() -> dict:
                 "hint": "negativ = Einspeisung",
             },
             "pv": {
-                "power_w": pv_adapter.power_w if pv_adapter else None,
-                "quality": pv_adapter.quality if pv_adapter else "disabled",
+                "power_w": pv_round.power_w if pv_round else None,
+                "quality": pv_round.quality if pv_round else "disabled",
                 "enabled": pv_adapter is not None,
+                "live_count": pv_round.live_count if pv_round else 0,
+                "enabled_count": pv_round.enabled_count if pv_round else 0,
                 "source": state.config.get("pv", {}).get("name", "PV-Erzeugung"),
                 "driver_label": getattr(pv_adapter, "driver_label", None) if pv_adapter else None,
-                "updated_at": pv_adapter.updated_at.isoformat() if pv_adapter and pv_adapter.updated_at else None,
+                "updated_at": pv_round.updated_at.isoformat() if pv_round and pv_round.updated_at else None,
             },
             "source": {
                 "label": source_label,
@@ -3027,6 +3085,35 @@ async def api_sources_action(request: Request):
     source_id = str(form.get("source_id", "")).strip()
     action_id = str(form.get("action_id", "")).strip()
     preview_config = _apply_source_config_form(deepcopy(state.config), form)
+
+    if (source_id == "pv" and action_id == "pv_add_device") or (
+        source_id.startswith("pv-device:") and action_id == "pv_remove_device"
+    ):
+        from uuid import uuid4
+        pv_cfg = preview_config.setdefault("pv", {})
+        pv_cfg["type"] = "pv_group"
+        members = list(pv_cfg.get("devices") or [])
+        if action_id == "pv_add_device":
+            if len(members) >= 64:
+                return JSONResponse(content={"status": "error", "message": "Maximal 64 PV-Geräte."}, status_code=400)
+            members.append({
+                "id": "pv-" + uuid4().hex[:10],
+                "name": f"Wechselrichter {len(members)+1}",
+                "driver": "pv_modbus", "enabled": False,
+                "settings": {"host": "", "port": 502, "unit_id": 1,
+                             "poll_interval_ms": 5000, "request_timeout_seconds": 1.0,
+                             "power": {"register_type":"holding", "address": None,
+                                       "value_type":"uint16", "endian":"big_endian", "factor":1.0}},
+            })
+        else:
+            member_id = source_id.split(":", 1)[1]
+            members = [d for d in members if str(d.get("id")) != member_id]
+        pv_cfg["devices"] = members
+        return JSONResponse(content=jsonable_encoder({
+            "status": "ok",
+            "message": "PV-Gerät hinzugefügt." if action_id == "pv_add_device" else "PV-Gerät entfernt (ungespeichert).",
+            "sources": services.get_source_gui_models(config=preview_config),
+        }))
 
     if source_id == "battery" and action_id == "battery_modbus_apply_profile":
         battery_type = str(preview_config.get("battery", {}).get("type", "")).strip()

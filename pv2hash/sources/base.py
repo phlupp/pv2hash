@@ -117,6 +117,7 @@ class EnergySource(ABC):
             "live": "Live",
             "simulated": "Simulation",
             "stale": "Veraltet",
+            "degraded": "Teilweise",
             "offline": "Offline",
             "no_data": "Keine Daten",
             "disabled": "Deaktiviert",

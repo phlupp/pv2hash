@@ -107,3 +107,55 @@ Vite-Build, LIVE-Mouse-over „Quelle: Modbus TCP PV-Erzeugung“,
 
 Browsersmoke: 390 px, Burger-Badge an der rechten oberen Ecke erkennbar,
 Screenreader-Navigationstext und keine horizontalen Überläufe.
+
+## Letzte geplante Erweiterung: Mehrere Wechselrichter pro PV-Gruppe
+
+Für das nächste Release wird aus der bisherigen einzelnen PV-Modbus-Messquelle
+eine **PV-Erzeugung gesamt** mit beliebig vielen Geräte-Einträgen.
+Die einzelnen Messgeräte behalten eine eigene ID, Name, Treiber,
+Verbindung/Timeout und Aktivierung. Der generische Treiberadapter
+`pv_modbus` bleibt unverändert; neue Treiber können später über die
+zentrale Gerät-Factory ergänzt werden.
+
+**Gesamtergebnis nur am Ende einer vollständigen Abfragerunde:**
+alle aktivierten Geräte werden parallel gelesen. Erst nach allen
+Antworten oder jeweiligen Geräte-Timeouts wird ein einziges
+unveränderliches `PvRound`-Snapshot publiziert. Es gibt keine
+Zwischensummen oder zwischendurch aktualisierte Qualitäten.
+
+- LIVE: alle aktiven Geräte liefern gültige Werte.
+- DEGRADED: mindestens ein aktives Gerät liefert einen Wert, mindestens
+  ein weiteres liefert keinen gültigen Wert; die Summe ist ausdrücklich
+  eine unvollständige **Teilsumme**.
+- OFFLINE: kein Gerät LIVE, Gesamtleistung NULL, nicht 0.
+- Deaktivierte Einzelgeräte zählen nicht mit; eine deaktivierte
+  PV-Gruppe hat keine Dashboard-Kachel.
+- Late-/Timeout-Threads können keine verspätete Summe publizieren.
+  Auf Reload werden Ergebnisse des alten Sammlers verworfen.
+
+Das Dashboard zeigt **nur die Gesamtleistung** mit Qualität und bei
+DEGRADED dem Verhältnis LIVE/Aktiv. Die Messungen-Seite zeigt zusätzlich
+PV-Gesamtkarte und pro Gerät eine Treiberkarte, inklusive
+`Wechselrichter hinzufügen` und `Gerät entfernen` als ungespeicherte
+Vorschau. Einzelgerätedaten werden nicht in SQLite oder InfluxDB
+persistiert; das vorhandene Paar `pv_power_w` und `pv_quality`
+bleibt die einzige PV-Zeitreihe.
+
+Migration von 0.9.5 (`pv.type=pv_modbus`): per normalisiertem
+Konfigurations-Load wird die alte Einzelquelle idempotent zu einem
+PV-Gruppenmitglied mit gleichen Einstellungen und gleicher UUID.
+Für unveränderte Single-Device-Konfigurationen bleibt der alte
+PV-Typ als Rollback-Kompatibilität vorerst erhalten.
+Erst beim expliziten Speichern der neuen Oberfläche wird der
+PV-Typ `pv_group` verwendet.
+
+Abnahme auf `testvm01`: 101 Python-Tests inkl. zwei parallel gestarteter
+Geräte mit abweichender Antwortzeit, voriger Gesamtwert während der
+gesamten Runde unverändert, Timeout → DEGRADED in einem Schritt,
+Late-Thread-Schutz, Deaktivierung, Reload-Schutz, Datenlogger-/Exporter-
+Teilsummen-Tests und Migration. Echtes bisheriges Modbus-Gerät nach
+Neustart weiterhin LIVE. Zweites Gerät ausschließlich per GUI
+hinzugefügt und wieder entfernt, anschließend Vorschau verworfen.
+
+Umsetzung/Architektur: `docs/pv-generation.md`.
+GUI-Entwicklungsstand `2.0.1-dev.3`, noch kein Release.

@@ -6,6 +6,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from pv2hash import app as app_module
+from pv2hash.sources.pv_group import PvRound
 
 
 class PvDriverLabelTest(TestCase):
@@ -13,6 +14,8 @@ class PvDriverLabelTest(TestCase):
         fake = SimpleNamespace(
             power_w=284.0, quality="live", updated_at=None,
             driver_label="Modbus TCP PV-Erzeugung",
+            snapshot=PvRound(power_w=284.0, quality="live", enabled_count=1,
+                             live_count=1),
         )
         with (
             patch.object(app_module.services, "pv_source", fake),

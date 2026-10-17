@@ -6,6 +6,7 @@ from typing import Any
 
 from pv2hash.config.defaults import DEFAULT_CONFIG
 from pv2hash.datalogger import normalize_datalogger_config
+from pv2hash.sources.pv_group import pv_device_configs
 
 CONFIG_PATH = Path("data/config.json")
 
@@ -47,6 +48,26 @@ def _normalize_identity_fields(config: dict[str, Any]) -> None:
 
     pv = config.setdefault("pv", {})
     pv["uuid"] = _ensure_uuid(pv.get("uuid"))
+
+    # Idempotent migration: legacy 0.9.5 single Modbus PV source becomes the
+    # first member of a flexible device group without losing settings.
+    if pv.get("type") == "pv_modbus" or not isinstance(pv.get("devices"), list):
+        pv["devices"] = pv_device_configs(pv)
+    # Keep the legacy pv_modbus type while the user has not edited the
+    # new group. A rollback to 0.9.5 can then still read the original
+    # single-device settings. New multi-device saves switch to pv_group.
+    if pv.get("type") != "pv_modbus":
+        pv["type"] = "pv_group"
+    pv.setdefault("poll_interval_ms", 5000)
+    for index, device in enumerate(pv["devices"]):
+        if not isinstance(device, dict):
+            continue
+        device["id"] = str(device.get("id") or f"pv-{uuid4().hex[:10]}")
+        device["uuid"] = _ensure_uuid(device.get("uuid") or device["id"])
+        device["name"] = str(device.get("name") or f"Wechselrichter {index + 1}")
+        device["driver"] = str(device.get("driver") or "pv_modbus")
+        device["enabled"] = bool(device.get("enabled", True))
+
 
     for miner in config.get("miners", []):
         miner["uuid"] = _ensure_uuid(miner.get("uuid"))

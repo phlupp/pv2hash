@@ -50,7 +50,7 @@ export interface DashboardLiveResponse {
   status: 'ok';
   cards: {
     grid?: { value: string; class: string; hint: string };
-    pv?: { power_w: number | null; quality: string; enabled: boolean; source?: string; driver_label?: string | null; updated_at?: string | null };
+    pv?: { power_w: number | null; quality: string; enabled: boolean; live_count?: number; enabled_count?: number; source?: string; driver_label?: string | null; updated_at?: string | null };
     source?: { label: string; meta: string; quality: string };
     miners?: { power: string; meta: string };
     battery?: { value: string; class: string; state: string };

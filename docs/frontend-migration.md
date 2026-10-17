@@ -1040,3 +1040,14 @@ Die bestehende DataLogger-Datenbank wird additiv auf Schema v6 migriert
 Auch die DatenLogger-Zeitreihe und der InfluxDB2-Exporter erhalten
 diese Felder. Nullwert und Offline-Zustand werden korrekt
 unterschieden, die PV-Messung bleibt strikt außerhalb des Controllers.
+
+### PV-Summierung: Abfragerunde atomar publizieren (GUI 2.0.1-dev.3)
+
+Die PV-Funktion verwaltet nun Geräte unter `pv.devices[]` und
+publiziert ausschließlich nach einer **vollständigen** Abfragerunde
+das aggregierte Mess-Snapshot. `degraded` enthält die sichtbare
+Teilsumme sowie die Anzahl der LIVE- und aktivierten Geräte.
+DataLogger/Exporter erhalten ausschließlich Gesamtleistung und
+Gesamtqualität; ihre Schemafelder aus v6 bleiben unverändert.
+Einzelheiten, Timeout-Logik, GUI und Rollback-Migration:
+`docs/pv-generation.md`.

@@ -17,6 +17,7 @@ from pv2hash import app as app_module
 from pv2hash.datalogger import DataLogger
 from pv2hash.exporters.influxdb2 import InfluxDB2Destination
 from pv2hash.exporters.source import ExportSource
+from pv2hash.sources.pv_group import PvRound
 
 
 class PVHistoryTest(TestCase):
@@ -97,10 +98,35 @@ class PVHistoryTest(TestCase):
         self.assertIn('pv2hash_gui_version="2.0.1"', system)
         self.assertNotIn("pv_quality=", system.split(" ", 1)[0])
 
-    def test_runtime_snapshot_does_not_use_controller_pv_power_and_detects_age(self):
+    def test_degraded_partial_sum_persisted_with_quality(self):
+        now = datetime.now(UTC)
+        self.logger._write_snapshot({
+            "timestamp": now,
+            "instance": {"id": "n-degraded"},
+            "pv": {"power_w": 230.0, "quality": "degraded"},
+        }, self.cfg)
+        rows = ExportSource(self.db, lambda: {}).samples()["items"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["pv_power_w"], 230.0)
+        self.assertEqual(rows[0]["pv_quality"], "degraded")
+        with patch("pv2hash.exporters.influxdb2.httpx.Client") as client:
+            client.return_value.__enter__.return_value.post.return_value.status_code = 204
+            InfluxDB2Destination({
+                "settings": {"url": "http://localhost:8086", "org": "org",
+                             "bucket": "bucket", "token": "testing"}
+            }).send("samples", rows)
+            lines = client.return_value.__enter__.return_value.post.call_args.kwargs["content"].decode()
+        system = next(line for line in lines.splitlines() if line.startswith("pv2hash_system,"))
+        self.assertIn("pv_power_w=230.0", system)
+        self.assertIn('pv_quality="degraded"', system)
+
+    def test_runtime_snapshot_uses_only_published_round_quality(self):
         timestamp = datetime.now(UTC)
-        fake = SimpleNamespace(power_w=0.0, quality="live", updated_at=timestamp,
-                               poll_interval_ms=5000)
+        fake = SimpleNamespace(
+            snapshot=PvRound(power_w=0.0, quality="live",
+                             updated_at=timestamp, live_count=1, enabled_count=1),
+            poll_interval_ms=5000,
+        )
         with patch.object(app_module.services, "pv_source", fake), patch.object(
             app_module.services, "get_pv_source_debug_info", return_value={"current_quality": "live"}
         ), patch.object(app_module, "_build_controller_status", return_value={}), patch.object(
@@ -109,11 +135,27 @@ class PVHistoryTest(TestCase):
             live = app_module._build_runtime_snapshot_payload()
             self.assertEqual(live["pv"]["power_w"], 0.0)
             self.assertEqual(live["pv"]["quality"], "live")
-            fake.updated_at = timestamp - timedelta(minutes=2)
+            fake.snapshot = PvRound(
+                power_w=0.0, quality="live",
+                updated_at=timestamp - timedelta(minutes=2),
+                live_count=1, enabled_count=1,
+            )
+            # While the next round is still collecting, consumers MUST
+            # retain the previous published value and quality together.
+            waiting = app_module._build_runtime_snapshot_payload()
+            self.assertEqual(waiting["pv"]["power_w"], 0.0)
+            self.assertEqual(waiting["pv"]["quality"], "live")
+            fake.snapshot = PvRound(
+                power_w=None, quality="stale",
+                updated_at=datetime.now(UTC), live_count=0, enabled_count=1,
+            )
             stale = app_module._build_runtime_snapshot_payload()
             self.assertIsNone(stale["pv"]["power_w"])
             self.assertEqual(stale["pv"]["quality"], "stale")
-            fake.quality = "offline"
+            fake.snapshot = PvRound(
+                power_w=None, quality="offline", updated_at=datetime.now(UTC),
+                live_count=0, enabled_count=1,
+            )
             offline = app_module._build_runtime_snapshot_payload()
             self.assertIsNone(offline["pv"]["power_w"])
             self.assertEqual(offline["pv"]["quality"], "offline")

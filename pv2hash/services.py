@@ -5,6 +5,7 @@ from pv2hash.controller.basic import BasicController
 from pv2hash.factory import build_battery_source, build_miners, build_source, build_sockets, build_pv_source
 from pv2hash.sources.battery_modbus import BatteryModbusSource, ModbusValueConfig
 from pv2hash.sources.pv_modbus import PvModbusSource
+from pv2hash.sources.pv_group import pv_device_configs
 from pv2hash.sources.simulator import SimulatorSource
 from pv2hash.sources.sma_meter_protocol import SmaMeterProtocolSource
 from pv2hash.logging_ext.setup import get_logger
@@ -312,60 +313,119 @@ class RuntimeServices:
         ]
         models.append(battery_model)
 
-        # Independent PV measurement (never a controller/grid source).
+        # PV generation is a group of per-driver devices. All displayed live
+        # values originate from the last COMPLETE group round, never interim.
         pv_cfg = config.get("pv", {}) or {}
-        pv_type = str(pv_cfg.get("type", "none") or "none")
-        pv_enabled = bool(pv_cfg.get("enabled")) and pv_type == "pv_modbus"
-        pv_adapter = self.pv_source if (not preview_mode and self.pv_source is not None) else None
-        if pv_enabled and pv_adapter is None:
-            try:
-                pv_adapter = build_pv_source(config)
-            except (ValueError, TypeError):
-                # An incomplete editor draft still needs its fields rendered.
-                pv_adapter = None
-        if pv_enabled and pv_adapter is not None:
-            pv_model = pv_adapter.get_gui_model(
-                source_id="pv",
-                role="pv",
-                title="PV-Erzeugung",
-                enabled=True,
-                config=pv_cfg,
-                debug_info=(self.get_pv_source_debug_info() if not preview_mode else {}),
-            )
-        else:
-            pv_model = {
-                "id": "pv", "role": "pv", "title": "PV-Erzeugung",
-                "enabled": pv_enabled, "driver": pv_type,
-                "driver_label": "Modbus TCP PV-Erzeugung" if pv_type == "pv_modbus" else "Keine PV-Messung",
-                "status": {"state": "no_data" if pv_enabled else "disabled",
-                           "text": "Keine Daten" if pv_enabled else "Deaktiviert",
-                           "age_seconds": None, "updated_at": None},
-                "header_fields": [{"label": "Status", "value": "Keine Daten" if pv_enabled else "Deaktiviert"}],
-                "config_fields": (
-                    PvModbusSource.config_fields_from_settings(pv_cfg.get("settings", {}) or {})
-                    if pv_type == "pv_modbus" else []
-                ),
-                "detail_groups": [], "capabilities": {},
-            }
-        pv_model["summary"] = [
-            {"label": "Profil", "value": pv_model["driver_label"]},
-            {"label": "Status", "value": "aktiv" if pv_enabled else "deaktiviert"},
-        ]
-        pv_model["driver_field"] = {
-            "name": "pv_type", "label": "PV-Messprofil",
-            "type": "select", "value": pv_type,
-            "help": "PV-Erzeugung wird unabhängig vom Netz- und Batterie-Regler nur gelesen.",
-            "options": [
-                {"value": "none", "label": "Keine PV-Messung"},
-                {"value": "pv_modbus", "label": "Modbus TCP PV-Erzeugung"},
+        pv_devices = pv_device_configs(pv_cfg)
+        group_enabled = bool(pv_cfg.get("enabled", False))
+        group = self.pv_source
+        round_snapshot = (group.snapshot if group is not None
+                          else None)
+        by_id = {
+            item["id"]: item
+            for item in round_snapshot.devices
+        } if round_snapshot else {}
+        group_quality = round_snapshot.quality if group_enabled and round_snapshot else (
+            "no_data" if group_enabled else "disabled"
+        )
+        group_power = round_snapshot.power_w if round_snapshot else None
+        models.append({
+            "id": "pv", "role": "pv", "title": "PV-Erzeugung gesamt",
+            "driver": "pv_group", "driver_label": "PV-Erzeugung (gesamt)",
+            "enabled": group_enabled,
+            "status": {"state": group_quality, "text": PvModbusSource._format_quality_text(group_quality),
+                       "updated_at": round_snapshot.updated_at.isoformat() if round_snapshot and round_snapshot.updated_at else None},
+            "header_fields": [
+                {"label": "Gesamtleistung", "value": group_power, "unit": "W", "precision": 0},
+                {"label": "Geräte", "value": len(pv_devices)},
+                {"label": "Aktiv", "value": round_snapshot.enabled_count if round_snapshot else 0},
+                {"label": "LIVE", "value": round_snapshot.live_count if round_snapshot else 0},
             ],
-        }
-        pv_model["config_fields"] = [
-            {"name": "pv_enabled", "label": "PV-Messung aktiviert",
-             "type": "checkbox", "value": pv_enabled,
-             "disabled_when_driver": "none"},
-            *list(pv_model.get("config_fields") or []),
-        ]
-        models.append(pv_model)
+            "detail_groups": [
+                {"title": "Letzte vollständige Abfragerunde", "fields": [
+                    {"label": "Runde", "value": round_snapshot.number if round_snapshot else 0},
+                    {"label": "Gesamtqualität", "value": group_quality},
+                ]},
+            ],
+            "config_fields": [
+                {"name": "pv_enabled", "label": "PV-Messung aktiviert", "type": "checkbox",
+                 "value": group_enabled},
+                {"name": "pv_poll_interval_ms", "label": "Abfrageintervall der PV-Gruppe (ms)",
+                 "type": "number", "value": pv_cfg.get("poll_interval_ms", 5000),
+                 "min": 1000, "max": 60000, "step": 1000, "layout": {"width": "half"}},
+                {"name": "pv_device_ids", "type": "hidden",
+                 "value": ",".join(str(d["id"]) for d in pv_devices)},
+            ],
+            "actions": [{"id": "pv_add_device", "label": "Wechselrichter hinzufügen",
+                         "help": "Neuen PV-Wechselrichter als ungespeicherte Konfiguration anlegen."}],
+            "summary": [
+                {"label": "Geräte", "value": len(pv_devices)},
+                {"label": "Status", "value": group_quality},
+            ],
+            "capabilities": {}, "warnings": [],
+        })
+        for index, device in enumerate(pv_devices):
+            identifier = str(device.get("id") or "")
+            driver = str(device.get("driver") or "pv_modbus")
+            prefix = f"pvdev_{identifier}_"
+            status = by_id.get(identifier, {}) if not preview_mode else {}
+            live_quality = status.get("quality") or (
+                "disabled" if not device.get("enabled", True) else "no_data"
+            )
+            config_fields = [
+                {"name": prefix + "enabled", "label": "Gerät aktiviert",
+                 "type": "checkbox", "value": device.get("enabled", True),
+                 "refresh_on_change": True},
+                {"name": prefix + "name", "label": "Name des Wechselrichters",
+                 "type": "text", "value": device.get("name", f"Wechselrichter {index+1}"),
+                 "required": True, "layout": {"width": "half"}},
+                {"name": prefix + "driver", "label": "PV-Treiber",
+                 "type": "select", "value": driver,
+                 "options": [{"value": "pv_modbus", "label": "Modbus TCP PV-Erzeugung"}],
+                 "required": True, "layout": {"width": "half"}},
+            ]
+            if driver == "pv_modbus":
+                # Driver owns the fields. Only names are scoped by device ID.
+                from copy import deepcopy
+                def scope(fields):
+                    output = deepcopy(fields)
+                    for field in output:
+                        if field.get("name", "").startswith("pv_"):
+                            field["name"] = prefix + field["name"][3:]
+                        if field.get("fields"):
+                            field["fields"] = scope(field["fields"])
+                    return output
+                driver_fields = scope(
+                    PvModbusSource.config_fields_from_settings(device.get("settings", {}) or {})
+                )
+                if not device.get("enabled", True):
+                    for field in driver_fields:
+                        for candidate in field.get("fields", [field]):
+                            candidate["required"] = False
+                config_fields.extend(driver_fields)
+            models.append({
+                "id": f"pv-device:{identifier}", "role": "pv_device",
+                "title": str(device.get("name") or f"Wechselrichter {index+1}"),
+                "driver": driver, "driver_label": (
+                    PvModbusSource.driver_label if driver == "pv_modbus" else driver
+                ), "enabled": bool(device.get("enabled", True)),
+                "status": {"state": live_quality,
+                           "text": PvModbusSource._format_quality_text(live_quality),
+                           "updated_at": status.get("updated_at")},
+                "header_fields": [
+                    {"label": "Leistung", "value": status.get("power_w"), "unit": "W", "precision": 0},
+                    {"label": "Gerätestatus", "value": live_quality},
+                ],
+                "detail_groups": [{"title": "Letzte abgeschlossene Runde",
+                                   "fields": [
+                                       {"label": "Treiber", "value": driver},
+                                       {"label": "Fehler", "value": status.get("last_error")},
+                                   ]}],
+                "config_fields": config_fields,
+                "actions": [{"id": "pv_remove_device", "label": "Gerät entfernen",
+                             "help": "Entfernt diesen Wechselrichter erst nach dem Speichern.",
+                             "style": "danger"}],
+                "capabilities": {}, "warnings": [],
+            })
 
         return models

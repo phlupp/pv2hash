@@ -82,9 +82,9 @@ class PvModbusTest(unittest.TestCase):
 
     def test_device_offline_clears_stale_numeric_value(self):
         adapter=build_pv_source(cfg(port=502))
-        with patch.object(adapter,"_poll_sync",return_value=802.0):
+        with patch.object(adapter.devices[0][1],"_poll_sync",return_value=802.0):
             self.assertEqual(asyncio.run(adapter.read()),802.0)
-        with patch.object(adapter,"_poll_sync",side_effect=OSError("Connection refused")):
+        with patch.object(adapter.devices[0][1],"_poll_sync",side_effect=OSError("Connection refused")):
             self.assertIsNone(asyncio.run(adapter.read()))
         self.assertIsNone(adapter.power_w)
         self.assertEqual(adapter.quality,"offline")
@@ -107,7 +107,7 @@ class PvModbusTest(unittest.TestCase):
 
     def test_pv_is_configurable_via_generic_schema(self):
         adapter=build_pv_source(cfg())
-        fields=adapter.get_config_fields(config=cfg()["pv"])
+        fields=adapter.devices[0][1].get_config_fields(config=cfg()["pv"])
         flat=[v["name"] for field in fields for v in
               (field.get("fields") if field.get("type")=="fieldset" else [field])]
         self.assertEqual(flat.count("pv_power_address"),1)
@@ -136,10 +136,11 @@ class PvModbusTest(unittest.TestCase):
         }
         x=_apply_source_config_form(deepcopy(DEFAULT_CONFIG),fields)
         pv=build_pv_source(x)
-        self.assertEqual(pv.unit_id,2)
-        self.assertEqual(pv.power_cfg.address,470)
-        self.assertEqual(pv.power_cfg.factor,1000.0)
-        self.assertEqual(pv.power_cfg.register_type,"input")
+        member = pv.devices[0][1]
+        self.assertEqual(member.unit_id,2)
+        self.assertEqual(member.power_cfg.address,470)
+        self.assertEqual(member.power_cfg.factor,1000.0)
+        self.assertEqual(member.power_cfg.register_type,"input")
 
     def test_existing_battery_modbus_parser_unchanged(self):
         battery=BatteryModbusSource(host="127.0.0.1")
