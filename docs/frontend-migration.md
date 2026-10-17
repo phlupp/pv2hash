@@ -940,3 +940,15 @@ PV-Modbus-Integrationstest bestanden: vollständiger lokaler Modbus/TCP-Test
 mit 3427 W und eigener Qualität LIVE; kein PV-Wert im
 Controller-Snapshot. Browser-Vorschau GUI **2.0.0-dev.16**;
 76 Python- und 25 Frontend-Tests erfolgreich.
+
+### PV-Kachel nur bei aktivierter Quelle (GUI 2.0.0-dev.17)
+
+Die vorhandene PV-Dashboard-Kachel wird nur gerendert, wenn
+`/api/dashboard/status.cards.pv.enabled === true`. Eine
+konfigurierte, aber momentan offline gemeldete Quelle bleibt
+sichtbar und zeigt weiterhin ihren eigenen Status. Ist die Quelle
+nicht konfiguriert oder deaktiviert, entfällt die Kachel komplett,
+genau wie bei der optionalen Batterie. Das Energie-Grid verwendet
+nur so viele Spalten, wie tatsächlich Kacheln vorhanden sind.
+Geprüft mit 27 Frontend-Tests, TypeScript-/Vite-Build und
+Browseransichten bei 320 und 1280 px (ohne Überlauf).

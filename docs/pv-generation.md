@@ -21,6 +21,9 @@ Unter **Messungen → PV-Erzeugung**:
 4. **PV-Messung aktiviert** einschalten und speichern.
 5. Auf dem Dashboard im Energiebereich erscheint die PV-Erzeugung
    in Watt mit einer eigenen Messqualität (LIVE, OFFLINE, KEINE DATEN).
+   Bei nicht konfigurierter oder deaktivierter Quelle wird die Kachel
+   vollständig ausgeblendet; eine konfigurierte Offline-Quelle bleibt
+   mit entsprechendem Status sichtbar.
 
 Bei 32-Bit-Datentypen werden vom Gerät automatisch **zwei
 aufeinanderfolgende Register** gelesen, obwohl nur **eine Startadresse**
