@@ -16,6 +16,11 @@ DEFAULT_CONFIG = {
     },
     "location": {"address": "", "lat": None, "lon": None},
     "exporters": [],
+    "forecast": {
+        "enabled": False,
+        "driver": "open_meteo",
+        "settings": {"mode": "free", "api_key": "", "refresh_minutes": 60},
+    },
     "datalogger": {
         "enabled": True,
         "interval_seconds": 10,

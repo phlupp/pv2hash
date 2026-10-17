@@ -1,0 +1,93 @@
+"""Open-Meteo forecast driver: one GTI curve for each generator orientation."""
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime
+import math
+
+import httpx
+
+from . import Generator, estimate_power_w, utc_iso
+
+
+class OpenMeteoDriver:
+    driver_id = "open_meteo"
+    name = "Open-Meteo"
+    FREE_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
+    CUSTOMER_ENDPOINT = "https://customer-api.open-meteo.com/v1/forecast"
+
+    @staticmethod
+    def config_fields() -> list[dict]:
+        return [
+            {"name": "mode", "label": "Zugang", "type": "select",
+             "options": [
+                 {"value": "free", "label": "Kostenlos (kein API-Key)"},
+                 {"value": "customer", "label": "Kunden-API (API-Key)"},
+             ]},
+            {"name": "api_key", "label": "API-Key (nur Kunden-API)",
+             "type": "password", "optional": True,
+             "visible_when": {"name": "mode", "value": "customer"}},
+            {"name": "refresh_minutes", "label": "Aktualisierung (Minuten)",
+             "type": "number", "min": 15, "max": 360},
+        ]
+
+    def __init__(self, *, mode: str = "free", api_key: str = ""):
+        if mode not in ("free", "customer"):
+            raise ValueError("Open-Meteo Zugangsart ungültig.")
+        if mode == "customer" and not api_key:
+            raise ValueError("Open-Meteo Kunden-API benötigt einen Schlüssel.")
+        self.mode = mode
+        self._api_key = api_key
+        self.endpoint = self.CUSTOMER_ENDPOINT if mode == "customer" else self.FREE_ENDPOINT
+
+    async def fetch(self, latitude: float, longitude: float, generators: list[Generator]) -> tuple[str, dict[str, dict[str, float]]]:
+        """Return individual surface forecasts indexed by real UTC instants."""
+        if not generators:
+            raise ValueError("Mindestens eine PV-Generatorfläche ist erforderlich.")
+        if not math.isfinite(latitude) or not math.isfinite(longitude) or not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+            raise ValueError("Ungültige Standortkoordinaten.")
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            results = await asyncio.gather(*(self._fetch_one(client, latitude, longitude, gen) for gen in generators))
+        zones = {zone for zone, _ in results}
+        if len(zones) != 1:
+            raise ValueError("Inkonsistente Zeitzone des Wetteranbieters.")
+        return zones.pop(), {
+            gen.inverter_id + "/" + gen.generator_id: points
+            for gen, (_, points) in zip(generators, results)
+        }
+
+    async def _fetch_one(self, client: httpx.AsyncClient, lat: float, lon: float, gen: Generator) -> tuple[str, dict[str, float]]:
+        params = {
+            "latitude": lat, "longitude": lon,
+            "hourly": "global_tilted_irradiance_instant",
+            "tilt": gen.tilt, "azimuth": gen.azimuth,
+            "timezone": "auto", "timeformat": "unixtime",
+            "forecast_days": 3,
+        }
+        if self.mode == "customer":
+            params["apikey"] = self._api_key
+        # Never log full request URLs: they contain credentials on the paid tier.
+        try:
+            response = await client.get(self.endpoint, params=params)
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RuntimeError("Open-Meteo-Abfrage fehlgeschlagen (Netzwerk/API).") from None
+        if not isinstance(payload, dict) or "hourly" not in payload:
+            raise RuntimeError("Open-Meteo lieferte keine Stundenprognose.")
+        hourly = payload["hourly"]
+        times = hourly.get("time") or []
+        radiation = hourly.get("global_tilted_irradiance_instant") or []
+        if not times or len(times) != len(radiation):
+            raise RuntimeError("Open-Meteo lieferte unvollständige Einstrahlungsdaten.")
+        try:
+            timezone = str(payload["timezone"])
+            points = {
+                utc_iso(datetime.fromtimestamp(int(ts), tz=UTC)): estimate_power_w(gen, float(irr))
+                for ts, irr in zip(times, radiation) if irr is not None
+            }
+        except (KeyError, TypeError, ValueError, OverflowError):
+            raise RuntimeError("Open-Meteo-Datenformat ungültig.") from None
+        if not points:
+            raise RuntimeError("Keine verwertbaren Open-Meteo-Prognosepunkte.")
+        return timezone, points

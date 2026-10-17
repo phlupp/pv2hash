@@ -1051,3 +1051,17 @@ DataLogger/Exporter erhalten ausschließlich Gesamtleistung und
 Gesamtqualität; ihre Schemafelder aus v6 bleiben unverändert.
 Einzelheiten, Timeout-Logik, GUI und Rollback-Migration:
 `docs/pv-generation.md`.
+
+### Experimenteller Prognose-Prototyp (GUI 2.0.1-forecast.1)
+
+Als **separater Draft-Branch** unabhängig vom unmittelbar nächsten
+PV2Hash-Release besteht eine erste echte Prognoseseite mit Tagesnavigation,
+grauer gestrichelter Vorhersage und gelber Ist-Messreihe. Open-Meteo
+ist als treiberbasierter Forecast-Anbieter integriert; je Wechselrichter
+sind mehrere Generatorflächen mit kWp, Neigung, Azimut und Verlusten
+möglich. Prognosepunkte sind **ab dem Erreichen ihres Zeitstempels
+unveränderlich**, nur zukünftige Punkte werden neu berechnet.
+
+Technische Beschreibung, Datenbank-Schema, Aktualisierung und Grenzen:
+`docs/forecast-prototype.md`. Keine Mining-Regelungsanbindung und
+keine Aktivierung ohne bewusstes Konfigurieren der Anlage.

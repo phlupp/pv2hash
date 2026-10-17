@@ -26,6 +26,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from pv2hash.config.store import CONFIG_PATH, load_config, save_config
+from pv2hash.forecast.store import ForecastStore
+from pv2hash.forecast.service import (
+    settings_model as forecast_settings_model,
+    apply_settings as apply_forecast_settings,
+    update as update_forecast,
+    actual_day as forecast_actual_day,
+)
 from pv2hash.build_identity import read_build_identity
 from pv2hash.identity import load_instance_identity
 from pv2hash.datalogger import DataLogger, normalize_datalogger_config
@@ -2849,6 +2856,30 @@ async def pv_measurement_loop() -> None:
         await asyncio.sleep(max(1, adapter.poll_interval_ms / 1000))
 
 
+forecast_store = ForecastStore()
+
+
+async def forecast_background_loop() -> None:
+    """Disabled by default. Poll only when a forecast is configured and enabled."""
+    while True:
+        await asyncio.sleep(60)
+        config = state.config
+        fc = config.get("forecast") or {}
+        if not fc.get("enabled"):
+            continue
+        try:
+            minutes = int((fc.get("settings") or {}).get("refresh_minutes", 60))
+            last = forecast_store.metadata().get("last_success")
+            recent = last and (
+                datetime.now(UTC) - datetime.fromisoformat(last.replace("Z", "+00:00"))
+            ).total_seconds() < max(15, minutes) * 60
+            if recent:
+                continue
+            await update_forecast(config, forecast_store)
+        except Exception:
+            logger.warning("Prognoseaktualisierung fehlgeschlagen (Details auf der Prognoseseite).")
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
     logger.info("Application startup complete")
@@ -2857,6 +2888,7 @@ async def startup_event() -> None:
     asyncio.create_task(update_checker.run_background_loop())
     asyncio.create_task(data_logger.run())
     asyncio.create_task(export_manager.run())
+    asyncio.create_task(forecast_background_loop())
 
 
 def reload_runtime() -> None:
@@ -3777,6 +3809,49 @@ async def api_exporter_types():
 @app.get("/api/exporters/status")
 async def api_exporters_status():
     return JSONResponse(content=jsonable_encoder({"status": "ok", "exporters": export_manager.status()}))
+
+
+@app.get("/api/forecast/settings")
+async def api_forecast_settings():
+    return JSONResponse(content=jsonable_encoder({
+        "status": "ok", "config": forecast_settings_model(state.config),
+        "history": forecast_store.metadata(),
+    }))
+
+
+@app.post("/api/forecast/settings")
+async def api_save_forecast_settings(request: Request):
+    try:
+        next_config = apply_forecast_settings(state.config, await request.json())
+        save_config(next_config)
+        # Forecast settings do not restart the mining controller, network
+        # sources, miners, or sockets. The existing services stay intact.
+        state.config = load_config()
+        return JSONResponse(content=jsonable_encoder({
+            "status": "ok", "config": forecast_settings_model(state.config),
+        }))
+    except (ValueError, TypeError, KeyError) as exc:
+        return JSONResponse({"status":"error", "message":str(exc)}, status_code=400)
+
+
+@app.post("/api/forecast/refresh")
+async def api_forecast_refresh():
+    try:
+        result = await update_forecast(state.config, forecast_store)
+        return JSONResponse({"status":"ok", **result})
+    except (ValueError, TypeError, RuntimeError, OSError) as exc:
+        return JSONResponse({"status":"error", "message":str(exc)}, status_code=400)
+
+
+@app.get("/api/forecast/day")
+async def api_forecast_day(date: str | None = None):
+    try:
+        result = forecast_store.day(date)
+    except (ValueError, OverflowError) as exc:
+        return JSONResponse({"status":"error","message":str(exc)},status_code=400)
+    result["actual"] = forecast_actual_day(result["start"], result["end"])
+    result["status"] = "ok"
+    return JSONResponse(content=jsonable_encoder(result))
 
 
 @app.get("/api/datalogger/status")

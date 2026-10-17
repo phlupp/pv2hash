@@ -15,6 +15,7 @@ import { getStatus, getVersion } from './api';
 import { version as guiVersion } from '../package.json';
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
 const DataLogger = lazy(() => import('./pages/DataLogger').then(module => ({ default: module.DataLogger })));
+const ForecastPage = lazy(() => import('./pages/ForecastPage').then(module => ({ default: module.ForecastPage })));
 const Measurements = lazy(() => import('./pages/Measurements').then(module => ({ default: module.Measurements })));
 const Miners = lazy(() => import('./pages/Miners').then(module => ({ default: module.Miners })));
 const Sockets = lazy(() => import('./pages/Sockets').then(module => ({ default: module.Sockets })));
@@ -29,7 +30,7 @@ const navGroups = [
   { label: 'Energie', items: [
     { path: '/messungen', label: 'Messungen', Icon: IconActivity, description: 'Quellen und Batteriesensoren' },
     { path: '/datalogger', label: 'Data Logger', Icon: IconChartBar, description: 'Historische Messwerte und Regler-Events' },
-    { path: '/prognose', label: 'Prognose', Icon: IconCloud, description: 'Wetter- und PV-Prognosen', future: true },
+    { path: '/prognose', label: 'Prognose', Icon: IconCloud, description: 'Wetter- und PV-Prognosen' },
   ] },
   { label: 'Mining', items: [
     { path: '/miner', label: 'Miner', Icon: IconCpu, description: 'Miner verwalten' },
@@ -179,7 +180,7 @@ export function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/messungen" element={<Measurements />} />
           <Route path="/datalogger" element={<DataLogger />} />
-          <Route path="/prognose" element={<Placeholder title="Prognose" description="Vorbereitung der Wetter- und PV-Ertragsprognosen." future />} />
+          <Route path="/prognose" element={<ForecastPage />} />
           <Route path="/miner" element={<Miners />} />
           <Route path="/sockets" element={<Sockets />} />
           <Route path="/optimierung" element={<Placeholder title="Optimierung" description="Performance-Kennlinien und effiziente Minerprofile." future />} />
