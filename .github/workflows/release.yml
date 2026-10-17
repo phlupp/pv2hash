@@ -96,6 +96,12 @@ jobs:
           PY
           (cd frontend && npm version "$GUI_VERSION" --no-git-tag-version --allow-same-version)
 
+      - name: Validate curated release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/release_notes.py "$TAG" "docs/releases/$TAG.md"
+
       - name: Build and test release (including React GUI)
         shell: bash
         run: |
@@ -110,10 +116,13 @@ jobs:
           ARCHIVE="$DIST_DIR/pv2hash-$VERSION_SLUG.tar.gz"
           test -s "$ARCHIVE"
           test -s "$DIST_DIR/manifest.json"
+          test -s "$DIST_DIR/RELEASE_NOTES.md"
+          cmp "docs/releases/$TAG.md" "$DIST_DIR/RELEASE_NOTES.md"
           test -s "$DIST_DIR/SHA256SUMS"
           (cd "$DIST_DIR" && sha256sum -c SHA256SUMS)
           tar -tzf "$ARCHIVE" | grep -q "^pv2hash-$VERSION_SLUG/pv2hash/gui/index.html$"
           tar -tzf "$ARCHIVE" | grep -q "^pv2hash-$VERSION_SLUG/pv2hash/gui/assets/"
+          tar -tzf "$ARCHIVE" | grep -q "^pv2hash-$VERSION_SLUG/RELEASE_NOTES.md$"
 
       - name: Prepare public bootstrap installer asset
         shell: bash
@@ -146,7 +155,8 @@ jobs:
             "$DIST_DIR/pv2hash-$VERSION_SLUG.tar.gz" \
             "$DIST_DIR/manifest.json" \
             "$DIST_DIR/SHA256SUMS" \
+            "$DIST_DIR/RELEASE_NOTES.md" \
             "$DIST_DIR/install.sh" \
             --title "PV2Hash $TAG · Core $CORE_VERSION · GUI $GUI_VERSION" \
-            --notes "Release $TAG · Core $CORE_VERSION · GUI $GUI_VERSION" \
+            --notes-file "$DIST_DIR/RELEASE_NOTES.md" \
             --latest

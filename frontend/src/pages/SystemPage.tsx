@@ -8,6 +8,7 @@ import {notifications} from '@mantine/notifications';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {configJson} from '../configuration/api';
 import {UpdateOverlay,type UpdateRunner} from '../update/UpdateOverlay';
+import {ReleaseNotes} from '../update/ReleaseNotes';
 import {version as guiVersion} from '../../package.json';
 
 type SystemRow={label:string;value:string|number|null};
@@ -87,7 +88,7 @@ function UpdateCard({card,busy,onRefresh,onStart,onLog}:{card:SystemCardModel;bu
         <Collapse expanded={open}>
           <Text fw={600} size="sm">{details.name||'Release'}</Text>
           <Text size="xs" c="dimmed">{details.asset_name||'—'} · {details.asset_size_text||'—'}</Text>
-          <Text size="xs" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{details.body||'Keine Release Notes.'}</Text>
+          <ReleaseNotes markdown={details.body||''}/>
         </Collapse>
       </div>}
       <div>

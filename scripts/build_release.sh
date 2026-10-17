@@ -51,6 +51,17 @@ ARCHIVE_NAME="pv2hash-${VERSION_SLUG}.tar.gz"
 ARCHIVE_PATH="${DIST_ROOT}/${ARCHIVE_NAME}"
 MANIFEST_PATH="${DIST_ROOT}/manifest.json"
 SHA256_PATH="${DIST_ROOT}/SHA256SUMS"
+RELEASE_NOTES_SOURCE="docs/releases/${TAG}.md"
+RELEASE_NOTES_PATH="${DIST_ROOT}/RELEASE_NOTES.md"
+if [[ -f "${RELEASE_NOTES_SOURCE}" ]]; then
+    python3 scripts/release_notes.py "${TAG}" "${RELEASE_NOTES_SOURCE}"
+elif [[ "${PV2HASH_ALLOW_DEV_GUI:-0}" == "1" ]]; then
+    echo "INTERNAL TEST ONLY: no curated release notes for ${TAG}."
+else
+    echo "Fehler: Release Notes fehlen: ${RELEASE_NOTES_SOURCE}" >&2
+    exit 1
+fi
+
 
 command -v npm >/dev/null || { echo "Node/npm is required to build the GUI" >&2; exit 1; }
 echo "Building PV2Hash Core ${CORE_VERSION}, GUI ${GUI_VERSION}, release ${TAG}"
@@ -74,6 +85,12 @@ STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "${STAGE_DIR}"' EXIT
 mkdir -p "${STAGE_DIR}/pv2hash/gui"
 cp -a "${NODE_DIR}/dist/." "${STAGE_DIR}/pv2hash/gui/"
+if [[ -f "${RELEASE_NOTES_SOURCE}" ]]; then
+    cp "${RELEASE_NOTES_SOURCE}" "${STAGE_DIR}/RELEASE_NOTES.md"
+else
+    printf '# PV2Hash %s (INTERNER TEST)\n\n## Verbesserungen\n\n- Test-Build ohne Veröffentlichung.\n' "${TAG}" > "${STAGE_DIR}/RELEASE_NOTES.md"
+fi
+
 TAG="${TAG}" CORE_VERSION="${CORE_VERSION}" GUI_VERSION="${GUI_VERSION}" \
   python3 - <<'PY_INFO' > "${STAGE_DIR}/pv2hash/build_info.json"
 import json
@@ -87,7 +104,8 @@ PY_INFO
 
 
 mkdir -p "${DIST_ROOT}"
-rm -f "${ARCHIVE_PATH}" "${MANIFEST_PATH}" "${SHA256_PATH}"
+rm -f "${ARCHIVE_PATH}" "${MANIFEST_PATH}" "${SHA256_PATH}" "${RELEASE_NOTES_PATH}"
+cp "${STAGE_DIR}/RELEASE_NOTES.md" "${RELEASE_NOTES_PATH}"
 
 tar \
     --exclude-vcs \
@@ -110,7 +128,7 @@ tar \
     requirements.txt \
     README.md \
     LICENSE \
-    -C "${STAGE_DIR}" pv2hash/gui pv2hash/build_info.json
+    -C "${STAGE_DIR}" pv2hash/gui pv2hash/build_info.json RELEASE_NOTES.md
 
 ARCHIVE_SHA256="$(sha256sum "${ARCHIVE_PATH}" | awk '{print $1}')"
 TAG="${TAG}" VERSION_SLUG="${VERSION_SLUG}" \
@@ -138,7 +156,7 @@ PY
 
 (
     cd "${DIST_ROOT}"
-    sha256sum "${ARCHIVE_NAME}" manifest.json > SHA256SUMS
+    sha256sum "${ARCHIVE_NAME}" manifest.json RELEASE_NOTES.md > SHA256SUMS
 )
 
 echo "Release archive: ${ARCHIVE_PATH}"

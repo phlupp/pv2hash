@@ -871,3 +871,46 @@ nach GUI `2.0.0-dev.14` und Phase 0.9; weiterhin Draft-PR #25.
 Die automatisierten Transaktionstests haben noch keinen
 vollständigen realen Produktiv-Raspberry-Pi-Updatevorgang
 ersetzt. Dies bleibt Teil der kontrollierten Freigabe.
+
+
+## Redaktionelle Release Notes (Phase 0.11)
+
+- Zu jeder öffentlichen Release-ID gehört eine **verpflichtende**
+  Markdown-Datei `docs/releases/<TAG>.md`. Der Titel muss
+  `# PV2Hash <TAG>` sein. Stichpunkte unter
+  `Neue Funktionen`, `Fehlerbehebungen` und/oder
+  `Verbesserungen`, optional Hinweise zur Umstellung.
+- Ein Validator (`scripts/release_notes.py`) stoppt Builds
+  bei fehlenden Dateien, falschen Release-IDs, leeren
+  Kategorien oder Platzhaltern.
+- `scripts/build_release.sh` packt denselben Inhalt unter
+  `RELEASE_NOTES.md` in den Release-Tarball, stellt ihn
+  als gleichnamiges Asset bereit und prüft seinen Hash
+  in `SHA256SUMS`. Der Installer prüft weiterhin das
+  Archiv/Manifest; nicht separat heruntergeladene Notes
+  können dank `sha256sum --ignore-missing` den
+  Installationsablauf nicht blockieren.
+- Die Release-Action veröffentlicht **keine generische
+  Standard-Notiz mehr**, sondern den geprüften Text
+  via `gh release create --notes-file`.
+- Die Systemkarte verwendet weiterhin die Notes aus der
+  Updatecheck-API, rendert Markdown-Überschriften und
+  Aufzählungen jedoch jetzt als Mantine-Komponenten. Kein
+  ungefiltertes HTML / `dangerouslySetInnerHTML`.
+- Erster Entwurf `docs/releases/v0.9.5.md`:
+  GUI 2.0, Update-Manager, Core-/GUI-Versionierung,
+  konkrete AxeOS-/Tasmota-Korrekturen und Migration.
+  Der Text bleibt bis zur Freigabe editierbar.
+- Tests in `tests/test_release_notes.py` und
+  `frontend/tests/release-notes.test.mjs` prüfen
+  gültige Entwürfe, fehlende/falsche Texte,
+  Platzhalter und die lesbare Frontend-Struktur.
+  Dokumentation in `docs/releases/README.md`.
+
+**Keine Veröffentlichung und kein Tag erzeugt.**
+
+Release-Notes-Integration: GUI **2.0.0-dev.15** (keine öffentliche Veröffentlichung).
+Der E2E-Pakettest bestätigt identische Notes in Quelldatei,
+Release-Asset und Archiv sowie gültige SHA256SUMS. Ein Paket
+ohne passende Notes wird vor dem Build abgelehnt.
+Regression: **67 Backend-Tests, 25 Frontend-Tests**, Vite-Build erfolgreich.
