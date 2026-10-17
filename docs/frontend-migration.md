@@ -553,3 +553,89 @@ Socket-GUI-API-Erweiterung auf `testvm01`.
   `/home/chatgpt/pv2hash-core-before-sockets-ui.py`
   plus Entfernen des Testmoduls `socket_gui.py` und
   Dienst-Neustart. Keine Änderungen am produktiven Hashpi.
+
+
+## Einstellungen und System in GUI 2.0 (Phase 0.8)
+
+Stand: **GUI 2.0.0-dev.13** auf `testvm01`, Core-Basis 0.9.4
+mit den bereits in Phase 0.6/0.7 entwickelten Core-Erweiterungen.
+**Keine neuen Backend-/Regleränderungen** für diese Phase.
+
+### Einstellungen
+
+- Route `/ui-next/einstellungen`, Datei `frontend/src/pages/Settings.tsx`.
+  Sämtliche Abschnitte kommen aus `GET /api/settings/model`:
+  Instanz, Standort, Regelung, Messwertausfall und DataLogger.
+- Keine duplizierten Feldlisten in React:
+  `frontend/src/configuration/ConfigFields.tsx` rendert die vom Core
+  gelieferten generischen Felder (Text, Zahl, Auswahl, Checkbox, Passwort,
+  URL), angegebene Breiten und Zusatztexte auf Mantine-Basis.
+  Zentrale Formularvalidierung in `configuration/types.ts`.
+- Änderungen bleiben lokal im Formular bis zum bewussten Speichern
+  über `POST /api/settings/config`. Sichtbarer Ungespeichert-Badge,
+  Verwerfen-Funktion und Warnung beim Verlassen. Live-/API-Aktualisierungen
+  überschreiben keine nicht gespeicherten Eingaben.
+- `POST /api/location/geocode` bleibt als explizite Aktion erhalten:
+  Adresse auflösen, Koordinaten eintragen, dann separat speichern.
+- Exporter-CRUD in `configuration/Exporters.tsx` mit
+  `GET/POST /api/exporters/config`, `DELETE .../{id}`,
+  `POST .../{id}/test` und `GET /api/exporters/status`.
+  Felder und Layout kommen aus Exporter-Definitionen. Eine
+  Verbindung muss vor dem Aktivieren gespeichert und erfolgreich getestet
+  sein. Vorhandene Tokens werden nur als leere Passwortfelder angezeigt;
+  bei bestehendem Ziel bedeutet leer unverändert.
+- Löschen eines Exportziels benötigt eine Bestätigung.
+
+### System
+
+- Route `/ui-next/system`, Datei `frontend/src/pages/SystemPage.tsx`.
+  Karten werden aus `GET /api/system/model` bereitgestellt:
+  Sicherung & Wiederherstellung, Updates, Instanz, Host, DataLogger
+  und Live-Konsole. Keine Host-Metriken auf dem Dashboard.
+- Konfigurationsdownload über bestehenden
+  `GET /system/config/export`, JSON-Konfigurationsimport über
+  `POST /api/system/config/import`. Datei auswählen und ausdrücklich
+  bestätigen; es erfolgt kein automatischer Upload.
+- Updates über `POST /api/system/update-check` und
+  `POST /api/system/self-update` mit expliziter Bestätigung;
+  Fortschritt/Fehler im Mantine-Modal via
+  `GET /api/system/self-update-status` (1,5-s-Polling bei offenem
+  Overlay). Verfügbarkeit ausschließlich laut Core-`can_start` und
+  `update_available`, **auf testvm01 ist Start deaktiviert**.
+  Manueller Stable-Installationsbefehl und Release-Notizen bleiben
+  als lesbare Informationen erhalten.
+- Runtime neu laden (`POST /api/system/reload`) mit Bestätigung;
+  Log-Level einstellen (`POST /api/system/logging`); Live-Konsole
+  über `GET /api/logs` mit Filter, Autoscroll, Ein-/Ausblenden
+  und Logdatei-Download `GET /api/logs/download`.
+- Laufende Messwerte/Updates/Logs werden im Frontend aktualisiert,
+  ohne die Seite periodisch komplett neu zu rendern oder Formulardaten
+  zu überschreiben. Die Karte für die Live-Konsole bewahrt Filter und
+  Scroll-Modus lokal.
+- Der Vite-Entwicklungsproxy leitet den Sonderpfad
+  `/system/config/export` an den Core weiter. Nach der Integration
+  in die reguläre PV2Hash-Auslieferung ist dies unnötig.
+
+### Prüfung und offene Freigabetests
+
+- `npm run build` erfolgreich; `npm test`:
+  **22 Tests** (inkl. generischer Feldmodelle, Pflichtfelder,
+  Passwortbehandlung und JSON-/HTTP-Fehlerfällen).
+- Browser Desktop/iPhone-/Tabletbreiten (320/390/820/1280 px):
+  beide Seiten ohne horizontale Überbreite, keine JavaScript-Fehler.
+  Alle fünf Einstellungsabschnitte und sechs System-Karten
+  aus echten Core-0.9.4-Modellen geprüft.
+- Nicht gespeicherten Instanznamen bearbeitet, Ungespeichert-Status
+  verifiziert und verworfen; bestehender Exporter geöffnet,
+  gespeichertes API-Token maskiert und Bearbeiten abgebrochen.
+- Vorschau-Download `/system/config/export` nach Proxyanpassung:
+  HTTP 200 / JSON. System-Update auf testvm01 korrekt deaktiviert,
+  Import ohne ausgewählte Datei deaktiviert.
+- **Bewusst nicht ausgeführt:** produktive Konfiguration überschreiben,
+  Geocoding, Exporter-Test gegen fremde Dienste, Log-Level-Änderung,
+  Konfigurationsimport, Runtime-Neuladen oder Self-Update.
+  Schreibpfade und Update-Overlay sind zur weiteren kontrollierten
+  Ende-zu-Ende-Abnahme vor Produktionsfreigabe noch zu prüfen.
+- Bestehende HTML-Seiten `/settings`, `/system` und alle bisher
+  betriebenen Endpunkte bleiben unverändert.
+  Produktiver Hashpi unangetastet.

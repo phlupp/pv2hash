@@ -18,6 +18,8 @@ const DataLogger = lazy(() => import('./pages/DataLogger').then(module => ({ def
 const Measurements = lazy(() => import('./pages/Measurements').then(module => ({ default: module.Measurements })));
 const Miners = lazy(() => import('./pages/Miners').then(module => ({ default: module.Miners })));
 const Sockets = lazy(() => import('./pages/Sockets').then(module => ({ default: module.Sockets })));
+const Settings = lazy(() => import('./pages/Settings').then(module => ({ default: module.Settings })));
+const SystemPage = lazy(() => import('./pages/SystemPage').then(module => ({ default: module.SystemPage })));
 const Placeholder = lazy(() => import('./pages/Placeholder').then((module) => ({ default: module.Placeholder })));
 
 const navGroups = [
@@ -150,8 +152,8 @@ export function App() {
           <Route path="/miner" element={<Miners />} />
           <Route path="/sockets" element={<Sockets />} />
           <Route path="/optimierung" element={<Placeholder title="Optimierung" description="Performance-Kennlinien und effiziente Minerprofile." future />} />
-          <Route path="/einstellungen" element={<Placeholder title="Einstellungen" description="Zentrale Konfiguration der PV2Hash-Instanz." />} />
-          <Route path="/system" element={<Placeholder title="System" description="Systemstatus, Aktualisierung, Logs und Diagnose." />} />
+          <Route path="/einstellungen" element={<Settings />} />
+          <Route path="/system" element={<SystemPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>

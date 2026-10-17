@@ -557,3 +557,22 @@ muss die Live-Antwort vor `JSONResponse` über
 `jsonable_encoder` laufen. Ohne die Konvertierung kommt es
 beim Aufklappen betroffener Miner zu HTTP 500. Siehe
 `docs/frontend-migration.md` (GUI 2.0.0-dev.11).
+
+
+## Einstellungen/System in React (Phase 0.8)
+
+Der auf dem Core bereits vorhandene `settings.model.sections[].fields`
+Vertrag wird in GUI 2.0 mit dem wiederverwendbaren
+`frontend/src/configuration/ConfigFields.tsx` dargestellt.
+Das gleiche Feld-Rendering nutzt die Exporter-Verwaltung über
+`/api/exporters/config`, deren Feldmetadaten aus den
+Exportadapter-Definitionen kommen. Secrets werden nicht im Klartext
+als gespeicherte Werte ausgegeben; leer bedeutet beim Bearbeiten
+eines bestehenden Exportziels unverändert.
+
+Die Systemseite nutzt direkt die vorhandenen
+`GET /api/system/model` Karten und bestehende Endpunkte für
+Update, Backup, Logs und Runtime. Die React-Komponenten halten
+Eingabewerte, Filter und Interaktionszustände unabhängig von
+zyklisch abgefragten Statusdaten. Details und Teststand in
+`docs/frontend-migration.md` Phase 0.8.
