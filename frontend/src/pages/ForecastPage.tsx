@@ -6,6 +6,7 @@ import {
 import { IconChevronDown, IconChevronLeft, IconChevronRight, IconRefresh } from '@tabler/icons-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ForecastChart, type ForecastDay } from '../forecast/ForecastChart';
+import { energyValue, coverageText } from '../forecast/energy';
 import { dayShift, daySelectionAfterMove, forecastDayRefreshInterval } from '../forecast/dayNavigation';
 import { forecastAfterSave, syncedForecastDraft } from '../forecast/saveSync';
 
@@ -216,6 +217,34 @@ export function ForecastPage() {
           </div>
           {day.isError && <Alert color="red">{String(day.error)}</Alert>}
           {current && <>
+            <Group grow align="stretch" gap="sm">
+              {([
+                { key: 'forecast', label: 'Erwartete Tagesenergie', isForecast: true },
+                { key: 'actual', label: showing === today ? 'Bisher erzeugte PV-Energie' : 'Erzeugte PV-Energie', isForecast: false },
+              ] as const).map(item => {
+                const energy = current.energy[item.key];
+                const isToday = showing === today;
+                return <Card key={item.key} withBorder padding="sm" radius="md"
+                  aria-label={item.label}>
+                  <Stack gap={2}>
+                    <Text size="xs" c="dimmed">{item.label}</Text>
+                    <Text fw={700} size="xl" className={'pv-forecast-energy-' + item.key}>
+                      {energyValue(energy.kwh)}
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      {coverageText(energy, item.isForecast, isToday, showing > (today ?? showing))}
+                    </Text>
+                    {!energy.complete && energy.kwh !== null && <Text size="xs" c="dimmed">
+                      Datenabdeckung: {energy.coverage_hours.toLocaleString('de-DE', {
+                        maximumFractionDigits: 1,
+                      })} von {energy.day_hours.toLocaleString('de-DE', {
+                        maximumFractionDigits: 1,
+                      })} Stunden
+                    </Text>}
+                  </Stack>
+                </Card>;
+              })}
+            </Group>
             <ForecastChart data={current}/>
             {!current.forecast.length && <Text size="sm" c="dimmed">
               Für diesen Tag sind noch keine Prognosepunkte gespeichert. Frühere Zeitpunkte werden nicht rückwirkend aufgefüllt.

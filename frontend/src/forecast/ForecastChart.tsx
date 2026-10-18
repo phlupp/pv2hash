@@ -5,6 +5,7 @@ import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers';
 import type { EChartsOption } from 'echarts';
 import { wattsToKw, formatKw, formatKwTick } from './units';
+import type { EnergySummary } from './energy';
 
 echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
@@ -12,6 +13,7 @@ export type ForecastPoint = { ts: string; power_w: number; issued_at?: string };
 export type ForecastDay = {
   day: string; today: string; timezone: string; start: string; end: string;
   forecast: ForecastPoint[]; actual: ForecastPoint[]; status: string;
+  energy: { forecast: EnergySummary; actual: EnergySummary };
 };
 
 export function ForecastChart({ data }: { data: ForecastDay }) {

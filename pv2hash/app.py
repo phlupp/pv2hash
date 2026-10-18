@@ -31,7 +31,7 @@ from pv2hash.forecast.service import (
     settings_model as forecast_settings_model,
     apply_settings as apply_forecast_settings,
     update as update_forecast,
-    actual_day as forecast_actual_day,
+    actual_day_with_energy as forecast_actual_day_with_energy,
 )
 from pv2hash.build_identity import read_build_identity
 from pv2hash.identity import load_instance_identity
@@ -3881,7 +3881,9 @@ async def api_forecast_day(date: str | None = None):
         result = forecast_store.day(date)
     except (ValueError, OverflowError) as exc:
         return JSONResponse({"status":"error","message":str(exc)},status_code=400)
-    result["actual"] = forecast_actual_day(result["start"], result["end"])
+    result["actual"], result["energy"]["actual"] = forecast_actual_day_with_energy(
+        result["start"], result["end"],
+    )
     result["status"] = "ok"
     return JSONResponse(content=jsonable_encoder(result))
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import utc_iso
+from .energy import energy_summary
 
 DB_FILE = Path("data/forecast.sqlite")
 TOTAL = "__total__"
@@ -127,13 +128,19 @@ class ForecastStore:
         with self._connect() as con:
             rows = con.execute("""SELECT valid_at,power_w,issued_at
               FROM forecast_points
-              WHERE valid_at>=? AND valid_at<? AND device_id=?
+              WHERE valid_at>=? AND valid_at<=? AND device_id=?
               ORDER BY valid_at""",(lo,hi,TOTAL)).fetchall()
+        energy = energy_summary(
+            [(datetime.fromisoformat(ts.replace("Z", "+00:00")), float(power))
+             for ts, power, _ in rows],
+            start=start, end=end, max_gap_seconds=90 * 60,
+        )
         return {
             "day": selected.isoformat(), "today": today.isoformat(),
             "timezone": zone_name, "start":lo,"end":hi,
             "forecast": [{"ts":ts,"power_w":power,"issued_at":issued}
-                         for ts,power,issued in rows],
+                         for ts,power,issued in rows if ts < hi],
+            "energy": {"forecast": energy},
         }
 
     def individual_day(self, selected_day: str) -> list[dict]:
