@@ -18,6 +18,12 @@ def setup_logging(log_level: str = "INFO") -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
+    # httpx emits an INFO line for every successful request (Influx export
+    # runs approximately every 10 seconds). Keep transport warnings/errors
+    # visible while avoiding noise in console, file and live GUI logs.
+    # Reapply on each call because the GUI can change the global log level.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
     if root_logger.handlers:
         root_logger.handlers.clear()
 

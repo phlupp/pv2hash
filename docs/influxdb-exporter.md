@@ -46,3 +46,15 @@ python3 -m unittest discover -s tests -p 'test_exporter_portal_metrics.py' -v
 ```
 
 Before publishing, validate the new fields with a dedicated InfluxDB test bucket, test rollback, and release using the existing GitHub Actions release workflow. Only deploy after the new release is published and its checksums verified.
+
+
+## HTTP-Logging
+
+Der InfluxDB-v2-Exporter nutzt `httpx` für regelmäßige Schreibzugriffe.
+Erfolgreiche Übertragungen mit HTTP 204 werden weiterhin unverändert
+ausgeführt, aber die HTTP-Bibliothek schreibt dafür keine wiederkehrenden
+INFO-Zeilen mehr in die PV2Hash-Logs. `pv2hash.logging_ext.setup_logging()`
+setzt den Bibliothekslogger `httpx` bei jedem Logging-Reconfigure auf
+`WARNING`. Dadurch sind Warnungen und Fehler der Bibliothek weiterhin
+sichtbar; die INFO-/DEBUG-Protokollierung von PV2Hash selbst sowie das
+10-Sekunden-Mess- und Exportintervall bleiben unverändert.
