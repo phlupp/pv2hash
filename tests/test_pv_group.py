@@ -66,6 +66,37 @@ class GroupRoundTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.22)
         self.assertIs(group.snapshot, after, "a late thread MUST NOT publish obsolete data")
 
+    async def test_sma_invalid_member_is_excluded_and_sum_is_marked_degraded(self):
+        group = build_pv_source(two_device_config())
+        valid,invalid = [adapter for _,adapter in group.devices]
+        sentinel_error=ValueError('PV-Modbus: ungültiger SMA-NaN-Messwert in Register 30775')
+        with patch.object(valid,"_poll_sync",return_value=620.0), patch.object(
+            invalid,"_poll_sync",side_effect=sentinel_error
+        ):
+            self.assertEqual(await group.read(),620.0)
+        snap=group.snapshot
+        self.assertEqual(snap.quality,"degraded")
+        self.assertEqual((snap.live_count,snap.enabled_count),(1,2))
+        self.assertEqual([d["power_w"] for d in snap.devices],[620.0,None])
+        self.assertIn("SMA-NaN",snap.devices[1]["last_error"])
+        self.assertEqual(group.debug_info["pv_power_w"],620.0)
+
+        # A valid zero from both inverters must restore full LIVE status.
+        with patch.object(valid,"_poll_sync",return_value=0.0),patch.object(
+            invalid,"_poll_sync",return_value=0.0
+        ):
+            self.assertEqual(await group.read(),0.0)
+        self.assertEqual(group.quality,"live")
+        self.assertEqual(group.snapshot.live_count,2)
+
+        # When no source supplies a valid value, never fabricate 0 W.
+        with patch.object(valid,"_poll_sync",side_effect=sentinel_error),patch.object(
+            invalid,"_poll_sync",side_effect=sentinel_error
+        ):
+            self.assertIsNone(await group.read())
+        self.assertEqual(group.quality,"offline")
+        self.assertIsNone(group.power_w)
+
     async def test_all_offline_is_none_not_zero(self):
         group = build_pv_source(two_device_config())
         with patch.object(group.devices[0][1], "_poll_sync", side_effect=OSError("no route")), patch.object(

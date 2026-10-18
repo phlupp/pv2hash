@@ -122,3 +122,53 @@ bis zur regulären Freigabe und dem Update über GitHub.
   Parameterverlust als erstes Gruppenmitglied übernommen.
   GUI-Vorschau Hinzufügen / Einstellungen / Entfernen / Verwerfen
   getestet und nicht persistent gespeichert.
+
+
+## SMA Modbus: ungültige Werte / Nachtbetrieb
+
+Einige SMA-Wechselrichter (z. B. Sunny Boy 1.5) liefern bei nicht
+verfügbarem Messwert für Register 30775 **nicht 0 W**, sondern einen
+SMA-Modbus-NaN-Marker: S32 = `0x80000000` (als Python `int32`:
+`-2147483648`), U32 = `0xFFFFFFFF`, S16 = `0x8000` oder U16 = `0xFFFF`.
+Referenz: [SMA Modbus Technical Information](https://files.sma.de/downloads/SMA-Modbus-TI-en-10.pdf),
+Abschnitt „SMA Data Types“ / NaN-Werte.
+
+Der PV-Modbus-Adapter prüft **den dekodierten Rohwert vor dem Faktor**.
+Bei einem solchen Marker liefert der betroffene Wechselrichter keine
+LIVE-Messung. Seine Diagnose enthält einen expliziten `last_error`
+mit Registername/Adresse/Datentyp; `power_w` bleibt `null`.
+Andere Geräte gehen weiterhin mit ihren gültigen Livewerten in die
+Gesamtsumme ein. Die Gruppe ist bei einem ungültigen Gerät
+`degraded` (gültige **Teilsumme**), bei ausschließlich ungültigen
+Geräten `offline` mit `null` als Leistung. Eine echte gemessene
+`0 W` bleibt dagegen LIVE.
+
+Wichtig: Das ist **keine automatische Umwandlung nach 0 W**.
+So werden weder Datenlogger, InfluxDB noch die Prognose-Auswertung
+durch extrem negative Scheinwerte verfälscht. Das Verhalten ist auf
+PV-Modbus beschränkt; die Modbus-Batteriemessung und Minersteuerung
+werden nicht verändert.
+
+### Bereits gespeicherte historische Fehlerwerte
+
+Die Änderung wirkt nur für künftige Abfragen. Historische
+`history_samples.pv_power_w`-Werte und bereits exportierte InfluxDB-
+Punkte bleiben **unverändert**. Vor einem separaten Reparaturlauf
+müssen betroffene Zeitbereiche und die sicheren Selektionskriterien
+ermittelt und gesichert werden; ein negativer historischer Gesamtwert
+lässt ohne Einzel-WR-Zeitreihen keine verlustfreie Rekonstruktion zu.
+Für betroffene Zeitfenster ist `pv_quality=degraded` und ein
+fehlender (`NULL`) Gesamtwert geeigneter als eine erfundene 0-W-Leistung.
+Datenbereinigung und eventuelle InfluxDB-Korrekturen erfordern einen
+eigenen freigegebenen Wartungsschritt und sind **nicht Bestandteil**
+dieser Treiberänderung.
+
+### Historischer Prognosevergleich bis zur Freigabe einer Bereinigung
+
+`forecast.service.actual_day` verwirft bei der read-only-Auswertung
+außerdem negative PV-Leistungswerte unter `-1.000.000 W` sowie
+nicht-finite Werte. Der historische SMA-NaN-Marker wurde bei der
+Summenbildung eventuell mit einem anderen Wechselrichterwert addiert
+und ist deshalb nicht immer exakt `-2147483648`. Das ist ausdrücklich
+ein Schutzfilter für den **Vergleich mit der Prognose**, keine Änderung
+der SQLite-Datensätze oder der schon exportierten InfluxDB-Messungen.

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import sqlite3
+import math
 
 from . import generators_from_config, forecast_config_fields, utc_iso
 from .open_meteo import OpenMeteoDriver
@@ -160,7 +161,14 @@ def actual_day(start: str, end: str, db_path: Path = Path("data/history.sqlite")
             bucket = epoch // 300 * 300
         except (TypeError,ValueError):
             continue
-        buckets.setdefault(bucket,[]).append(float(power))
+        # Historic PV sums can contain an SMA S32 NaN sentinel plus readings
+        # from other inverters, so the exact marker is no longer preserved.
+        # Discard clearly impossible negative generation, without changing
+        # persisted records or converting missing data into fabricated zero.
+        measured=float(power)
+        if not math.isfinite(measured) or measured < -1_000_000:
+            continue
+        buckets.setdefault(bucket,[]).append(measured)
     return [
         {"ts": utc_iso(datetime.fromtimestamp(t,tz=UTC)),
          "power_w": round(sum(values)/len(values),2)}
