@@ -12,6 +12,7 @@ import math
 from . import generators_from_config, forecast_config_fields, utc_iso
 from .open_meteo import OpenMeteoDriver
 from .store import ForecastStore
+from .energy import energy_summary
 
 DRIVERS = {"open_meteo": OpenMeteoDriver}
 UPDATE_LOCK = asyncio.Lock()
@@ -139,38 +140,66 @@ async def update(config: dict, store: ForecastStore) -> dict:
         return result
 
 
-def actual_day(start: str, end: str, db_path: Path = Path("data/history.sqlite")) -> list[dict]:
-    """Five-minute average of LIVE measured PV (DEGRADED excluded from comparison)."""
-    if not db_path.exists():
-        return []
-    try:
-        with sqlite3.connect(db_path) as con:
-            rows = con.execute(
-                "SELECT ts,pv_power_w,pv_quality FROM history_samples WHERE ts>=? AND ts<? ORDER BY ts",
-                (start.replace("Z","+00:00"),end.replace("Z","+00:00")),
-            ).fetchall()
-    except sqlite3.Error:
-        return []
-    buckets: dict[int,list[float]] = {}
-    for time_str,power,quality in rows:
-        if quality != "live" or power is None:
-            continue
+def actual_day_with_energy(start: str, end: str, db_path: Path = Path("data/history.sqlite")) -> tuple[list[dict], dict]:
+    """Day chart and accurate sampled energy from the same history read.
+
+    Only intervals with two consecutive valid LIVE readings count. A missing,
+    DEGRADED, or SMA-NaN-contaminated sample breaks the integral. This avoids
+    assigning five minutes' production to a five-minute bucket with one sample.
+    """
+    lower = datetime.fromisoformat(start.replace("Z", "+00:00"))
+    upper = datetime.fromisoformat(end.replace("Z", "+00:00"))
+    rows = []
+    if db_path.exists():
         try:
-            instant = datetime.fromisoformat(time_str.replace("Z","+00:00"))
-            epoch = int(instant.timestamp())
-            bucket = epoch // 300 * 300
-        except (TypeError,ValueError):
+            with sqlite3.connect(db_path) as con:
+                rows = con.execute(
+                    "SELECT ts,pv_power_w,pv_quality FROM history_samples WHERE ts>=? AND ts<? ORDER BY ts",
+                    (start.replace("Z", "+00:00"), end.replace("Z", "+00:00")),
+                ).fetchall()
+        except sqlite3.Error:
+            pass
+    buckets: dict[int, list[float]] = {}
+    # Mark broken intervals by splitting into contiguous valid runs. No joins
+    # across partial sources, bad SMA sentinels, or raw history gaps.
+    runs: list[list[tuple[datetime, float]]] = []
+    current_run: list[tuple[datetime, float]] = []
+    for time_str, power, quality in rows:
+        try:
+            instant = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+            measured = float(power) if power is not None else float("nan")
+            valid = (quality == "live" and math.isfinite(measured)
+                     and measured >= -1_000_000)
+        except (TypeError, ValueError, AttributeError):
+            valid = False
+        if not valid:
+            if current_run:
+                runs.append(current_run)
+                current_run = []
             continue
-        # Historic PV sums can contain an SMA S32 NaN sentinel plus readings
-        # from other inverters, so the exact marker is no longer preserved.
-        # Discard clearly impossible negative generation, without changing
-        # persisted records or converting missing data into fabricated zero.
-        measured=float(power)
-        if not math.isfinite(measured) or measured < -1_000_000:
-            continue
-        buckets.setdefault(bucket,[]).append(measured)
-    return [
-        {"ts": utc_iso(datetime.fromtimestamp(t,tz=UTC)),
-         "power_w": round(sum(values)/len(values),2)}
-        for t,values in sorted(buckets.items())
+        epoch = int(instant.timestamp())
+        buckets.setdefault(epoch // 300 * 300, []).append(measured)
+        current_run.append((instant, measured))
+    if current_run:
+        runs.append(current_run)
+    # Never join distinct good runs across invalid/degraded samples.
+    energy_parts = [energy_summary(run, start=lower, end=upper,
+                                   max_gap_seconds=35) for run in runs]
+    day_hours = (upper - lower).total_seconds() / 3600
+    coverage = sum(part["coverage_hours"] for part in energy_parts)
+    total = sum(part["kwh"] for part in energy_parts if part["kwh"] is not None)
+    energy = {"kwh": round(total, 6) if coverage else None,
+              "coverage_hours": round(coverage, 6),
+              "day_hours": round(day_hours, 3),
+              "complete": coverage >= day_hours - 0.05}
+    actual = [
+        {"ts": utc_iso(datetime.fromtimestamp(t, tz=UTC)),
+         "power_w": round(sum(values) / len(values), 2)}
+        for t, values in sorted(buckets.items())
     ]
+    return actual, energy
+
+
+def actual_day(start: str, end: str, db_path: Path = Path("data/history.sqlite")) -> list[dict]:
+    """Backward-compatible read-only chart API for live PV power samples."""
+    return actual_day_with_energy(start, end, db_path)[0]

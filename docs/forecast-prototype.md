@@ -181,3 +181,56 @@ ob das vereinfachte Modell ausreichend plausible Kurven liefert.
 Erst danach über weitergehende Kalibrierung, genauere
 PV-Modelle, optionale Forecast-Revisionen oder eine
 Regelungsnutzung entscheiden. Der Produktivrollout wartet ausdrücklich.
+
+## Tagesenergie in der Prognoseansicht
+
+Über dem Tagesdiagramm werden für den gewählten Standort-Kalendertag
+**Erwartete Tagesenergie** und **(bisher) erzeugte PV-Energie** in kWh
+angezeigt. Beide Werte stammen direkt aus demselben Leseaufruf
+`GET /api/forecast/day` wie die Zeitreihen. Die Buttons
+**Zurück / Heute / Vor** wechseln die beiden Energiewerte gemeinsam
+mit den Kurven; keine zusätzlichen Wetteranbieter-Abfragen nötig.
+
+Die Berechnung integriert zeitlich aufeinanderfolgende Leistungswerte
+nach der Trapezregel in kWh (W · h / 1000). Nur nachgewiesene gültige
+Zeitintervalle zählen:
+
+- **Prognose:** Aus den gespeicherten stündlichen Gesamtprognosen,
+  maximal 90 Minuten Abstand pro Intervall. Für die letzte Stunde
+  kann der Prognosepunkt **genau am folgenden Tagesbeginn** genutzt
+  werden; dieser Punkt erscheint nicht im Diagramm des ausgewählten
+  Tages. Fehlende Prognosepunkte führen zu einer gekennzeichneten
+  **Teilprognose**, nicht zu extrapolierten Stunden.
+- **Ist-Erzeugung:** Aus den tatsächlichen Rohmessungen des lokalen
+  10-Sekunden-DataLoggers, ausschließlich bei `pv_quality="live"`.
+  Maximal 35 Sekunden Abstand werden integriert. Ein Offline-/DEGRADED-
+  Abschnitt, eine Datenlücke oder ein erkennbarer SMA-NaN-Fehler
+  **unterbricht** die Berechnung. Eine gültige `0 W` ist dagegen
+  echte Nullerzeugung. Geringfügig negative gültige Leistung wird
+  nur für die energetische Bilanz auf 0 begrenzt; die Kurve bleibt
+  unverändert.
+- **Fehlende Daten:** Ohne ein einziges vollständig belegtes Intervall
+  liefert die API `kwh: null` und die GUI zeigt `—`, nicht 0 kWh.
+  Bei unvollständigen Tagen erscheinen Hinweis und Datenabdeckung.
+  Eine vollständige Tagesenergie darf nur bei hinreichend vollständiger
+  Zeitabdeckung behauptet werden.
+- **Zeitzonen:** Integration erfolgt über UTC-Zeitstempel innerhalb
+  der bestehenden standortbezogenen Tagesgrenzen; Sommer-/Winterzeit
+  mit 23 bzw. 25 Stunden ist berücksichtigt.
+
+Zusatzobjekt der Tages-API:
+
+```json
+"energy": {
+  "forecast": {"kwh": 18.4, "coverage_hours": 24, "day_hours": 24, "complete": true},
+  "actual": {"kwh": 11.7, "coverage_hours": 13.5, "day_hours": 24, "complete": false}
+}
+```
+
+*Die Zahlen im Beispiel sind illustrativ, keine echten Messwerte.*
+Der Endpoint ist weiterhin rein lesend, legt keine neuen Datenreihen
+an und greift nicht in die Minerregelung ein. Für die Prognose werden
+historische Zeitpunkte nicht nachträglich überschrieben; die bereits
+bekannten Altwerte mit unplausibler negativer PV-Erzeugung sind auch
+von der Ist-Energieberechnung ausgeschlossen. Es werden keine
+bereinigten Ersatzmessungen in SQLite oder InfluxDB geschrieben.
