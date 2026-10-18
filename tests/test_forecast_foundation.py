@@ -157,6 +157,26 @@ class ForecastHistoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             OpenMeteoDriver(mode="customer",api_key="")
 
+    def test_actual_line_excludes_historical_sma_nan_contamination(self):
+        with tempfile.TemporaryDirectory() as temp:
+            db = Path(temp)/"history.sqlite"
+            with sqlite3.connect(db) as con:
+                con.execute("CREATE TABLE history_samples(ts TEXT, pv_power_w REAL, pv_quality TEXT)")
+                con.executemany("INSERT INTO history_samples VALUES(?,?,?)",[
+                    ("2026-10-17T11:00:00+00:00",-2147483648,"live"),
+                    ("2026-10-17T11:01:00+00:00",-2147484364,"live"),
+                    ("2026-10-17T11:02:00+00:00",500,"live"),
+                    ("2026-10-17T11:06:00+00:00",-2147483595,"live"),
+                    ("2026-10-17T11:07:00+00:00",100,"degraded"),
+                    ("2026-10-17T11:08:00+00:00",-10,"live"),
+                ])
+            actual = actual_day("2026-10-17T10:00:00Z","2026-10-17T12:00:00Z",db)
+            self.assertEqual(len(actual),2)
+            self.assertEqual([row["power_w"] for row in actual],[500.0,-10.0])
+            # The read-only preview must not rewrite the stored raw history.
+            with sqlite3.connect(db) as con:
+                self.assertEqual(con.execute("SELECT count(*) FROM history_samples WHERE pv_power_w < -1000000").fetchone()[0],3)
+
     def test_actual_line_excludes_partial_measurements(self):
         with tempfile.TemporaryDirectory() as temp:
             db = Path(temp)/"history.sqlite"

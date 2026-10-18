@@ -80,6 +80,56 @@ class PvModbusTest(unittest.TestCase):
             fn,addr,qty=struct.unpack(">BHH",server.requests[0][7:12])
             self.assertEqual((fn,addr,qty),(4,300,2))
 
+    def test_sma_nan_sentinels_rejected_before_scaling(self):
+        # SMA Modbus-TI: NaN = 0x80000000 for S32, 0xFFFFFFFF for U32,
+        # 0x8000 for S16, 0xFFFF for U16.
+        sentinels = [
+            ("int32", ">i", -(2 ** 31)),
+            ("uint32", ">I", 2 ** 32 - 1),
+            ("int16", ">h", -(2 ** 15)),
+            ("uint16", ">H", 2 ** 16 - 1),
+        ]
+        for dtype, fmt, sentinel in sentinels:
+            with self.subTest(dtype=dtype):
+                # A negative, fractional or otherwise nonunit factor must not
+                # hide an invalid raw register value.
+                with OneShotModbus(struct.pack(fmt,sentinel)) as server:
+                    adapter=build_pv_source(cfg(port=server.port, address=30775,
+                                                dtype=dtype, factor=-0.1))
+                    self.assertIsNone(asyncio.run(adapter.read()))
+                    self.assertEqual(adapter.quality,"offline")
+                    self.assertIsNone(adapter.power_w)
+                    self.assertIn("SMA-NaN",adapter.debug_info["devices"][0]["last_error"])
+                    self.assertEqual(adapter.debug_info["devices"][0]["register_values"],[])
+
+    def test_sma_nan_does_not_reject_normal_negative_ac_power(self):
+        with OneShotModbus(struct.pack(">i",-716)) as server:
+            adapter=build_pv_source(cfg(port=server.port, address=30775,dtype="int32"))
+            self.assertEqual(asyncio.run(adapter.read()),-716.0)
+            self.assertEqual(adapter.quality,"live")
+
+    def test_sma_nan_calculation_register_is_rejected(self):
+        # Calculated modes must refuse partial inputs rather than combining
+        # a NaN from one register with a valid reading from the other.
+        x=cfg(address=30775,dtype="int32")
+        settings=x["pv"]["settings"]
+        settings["power_mode"]="calculated"
+        settings["calculation"]={"registers":[
+            {"id":"ac","name":"AC-Leistung","address":30775,"register_type":"input",
+             "value_type":"int32","endian":"big_endian","factor":1},
+            {"id":"battery","name":"Batterieleistung","address":31393,"register_type":"input",
+             "value_type":"uint32","endian":"big_endian","factor":1},
+        ], "tokens":[{"type":"register","id":"ac"},"-",{"type":"register","id":"battery"}]}
+        with OneShotModbus(struct.pack(">i",-(2**31))) as server:
+            settings["port"]=server.port
+            adapter=build_pv_source(x)
+            self.assertIsNone(asyncio.run(adapter.read()))
+            self.assertEqual(adapter.quality,"offline")
+            error=adapter.debug_info["devices"][0]["last_error"]
+            self.assertIn("AC-Leistung",error)
+            self.assertIn("SMA-NaN",error)
+            self.assertEqual(len(server.requests),1)
+
     def test_device_offline_clears_stale_numeric_value(self):
         adapter=build_pv_source(cfg(port=502))
         with patch.object(adapter.devices[0][1],"_poll_sync",return_value=802.0):

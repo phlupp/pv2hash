@@ -132,6 +132,30 @@ class PvModbusSource(ModbusTcpRegisterReader, EnergySource):
             raise ValueError("PV-Modbus: Formel muss mindestens zwei Register verwenden.")
         self.compiled_expression = compiled
 
+    def _decode_value(
+        self, *, raw_bytes: bytes, cfg: ModbusValueConfig, register_type: str,
+    ) -> float | int | None:
+        """Reject SMA's Modbus NaN sentinels before applying the scaling factor.
+
+        Modbus replies containing these special bit patterns are syntactically
+        valid, but they are *not* live PV generation values. This is deliberately
+        specific to PV measurement: the battery/controller Modbus path is not
+        modified. Both direct power reads and calculated registers use it.
+        """
+        value = super()._decode_value(
+            raw_bytes=raw_bytes, cfg=cfg, register_type=register_type,
+        )
+        unavailable = {
+            "int16": -(2 ** 15), "uint16": 2 ** 16 - 1,
+            "int32": -(2 ** 31), "uint32": 2 ** 32 - 1,
+        }
+        if cfg.value_type in unavailable and value == unavailable[cfg.value_type]:
+            raise ValueError(
+                f"PV-Modbus: ungültiger SMA-NaN-Messwert in Register "
+                f"{cfg.name} ({cfg.address}, {cfg.value_type}); kein Live-Wert"
+            )
+        return value
+
     def _poll_sync(self) -> float:
         if self.power_mode == "calculated":
             return self._poll_reading()[0]
