@@ -39,6 +39,7 @@ class ForecastStore:
     def save_future(
         self, *, now: datetime, provider: str, timezone: str,
         surfaces: dict[str, dict[str, float]],
+        resolution_minutes: int | None = None,
     ) -> dict:
         """One atomic transaction, never write any point <= now.
 
@@ -47,6 +48,8 @@ class ForecastStore:
         the historical freeze. No explicit delete of older future points:
         if a provider returns fewer points, untouched prior forecasts remain.
         """
+        if resolution_minutes is not None and resolution_minutes not in (15, 60):
+            raise ValueError("Prognoseauflösung muss 15 oder 60 Minuten betragen.")
         self.ensure_schema()
         ZoneInfo(timezone)  # reject malformed provider zones
         moment = utc_iso(now)
@@ -54,6 +57,11 @@ class ForecastStore:
             raise ValueError("Keine PV-Generatorprognosen vorhanden.")
         coverage = set.intersection(*(set(values) for values in surfaces.values()))
         future = sorted(ts for ts in coverage if ts > moment)
+        if resolution_minutes is not None and any(
+            int(datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp())
+            % (resolution_minutes * 60) != 0 for ts in future
+        ):
+            raise ValueError("Prognose-Zeitpunkte passen nicht zur gewählten Auflösung.")
         if not future:
             raise ValueError("Keine zukünftigen gemeinsamen Prognosezeitpunkte.")
         issued = utc_iso(now)
@@ -85,6 +93,20 @@ class ForecastStore:
                provider=excluded.provider
                WHERE forecast_points.valid_at > ?""",
                [(*row,cutoff) for row in new_values])
+            if resolution_minutes == 60:
+                # If a user switches 15 -> 60 minutes, old quarter-hour
+                # *future* points must not remain mixed into the hourly chart.
+                # Past and present are immutable, even during a resolution
+                # switch. Keep valid on-grid fallback timestamps untouched.
+                obsolete = [
+                    (ts,) for (ts,) in con.execute(
+                        "SELECT DISTINCT valid_at FROM forecast_points WHERE valid_at > ?",
+                        (cutoff,),
+                    )
+                    if datetime.fromisoformat(ts.replace("Z", "+00:00")).minute != 0
+                ]
+                if obsolete:
+                    con.executemany("DELETE FROM forecast_points WHERE valid_at=?", obsolete)
             con.execute("""INSERT INTO forecast_meta(key,value) VALUES('timezone',?)
                         ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (timezone,))
             con.execute("""INSERT INTO forecast_meta(key,value) VALUES('last_success',?)
@@ -110,7 +132,8 @@ class ForecastStore:
             items = dict(con.execute("SELECT key,value FROM forecast_meta"))
         return items
 
-    def day(self, selected_day: str | None = None) -> dict:
+    def day(self, selected_day: str | None = None, *,
+            resolution_minutes: int | None = None) -> dict:
         self.ensure_schema()
         zone_name = self.metadata().get("timezone", "Europe/Berlin")
         try:
@@ -130,10 +153,26 @@ class ForecastStore:
               FROM forecast_points
               WHERE valid_at>=? AND valid_at<=? AND device_id=?
               ORDER BY valid_at""",(lo,hi,TOTAL)).fetchall()
+        points = [
+            (datetime.fromisoformat(ts.replace("Z", "+00:00")), float(power))
+            for ts, power, _ in rows
+        ]
+        # Past days may have a different point cadence than today's setting;
+        # infer it from actually persisted times to preserve historic energy.
+        # During the current/future day require the explicitly selected cadence
+        # so a missing 15-minute point never becomes an invented half-hour.
+        intervals = [
+            (b[0] - a[0]).total_seconds()
+            for a, b in zip(points, points[1:]) if b[0] > a[0]
+        ]
+        inferred_step = min(intervals, default=3600)
+        expected_step = (
+            resolution_minutes * 60 if selected >= today and
+            resolution_minutes in (15, 60) else inferred_step
+        )
         energy = energy_summary(
-            [(datetime.fromisoformat(ts.replace("Z", "+00:00")), float(power))
-             for ts, power, _ in rows],
-            start=start, end=end, max_gap_seconds=90 * 60,
+            points, start=start, end=end,
+            max_gap_seconds=min(5400, expected_step * 1.5),
         )
         return {
             "day": selected.isoformat(), "today": today.isoformat(),

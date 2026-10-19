@@ -18,7 +18,7 @@ DRIVERS = {"open_meteo": OpenMeteoDriver}
 UPDATE_LOCK = asyncio.Lock()
 FORECAST_DEFAULT = {
     "enabled": False, "driver": "open_meteo",
-    "settings": {"mode": "free", "api_key": "", "refresh_minutes": 60},
+    "settings": {"mode": "free", "api_key": "", "refresh_minutes": 30, "resolution_minutes": 15},
 }
 
 
@@ -35,7 +35,8 @@ def settings_model(config: dict) -> dict:
         "fields": forecast_config_fields(driver),
         "settings": {
             "mode": settings.get("mode", "free"),
-            "refresh_minutes": settings.get("refresh_minutes", 60),
+            "refresh_minutes": settings.get("refresh_minutes", 30),
+            "resolution_minutes": settings.get("resolution_minutes", 15),
             "api_key_configured": bool(settings.get("api_key")),
         },
         "inverters": [
@@ -77,16 +78,27 @@ def apply_settings(config: dict, payload: dict) -> dict:
     mode = str(incoming.get("mode", settings.get("mode", "free")))
     api_key = str(incoming.get("api_key") or settings.get("api_key") or "")
     try:
-        minutes = int(incoming.get("refresh_minutes", settings.get("refresh_minutes", 60)))
-    except (ValueError,TypeError):
-        raise ValueError("Aktualisierung benötigt eine Minutenzahl.") from None
+        minutes = int(incoming.get("refresh_minutes", settings.get("refresh_minutes", 30)))
+    except (ValueError, TypeError):
+        raise ValueError("Abrufintervall benötigt eine Minutenzahl.") from None
     if not 15 <= minutes <= 360:
-        raise ValueError("Aktualisierung muss 15–360 Minuten betragen.")
-    DRIVERS[driver](mode=mode,api_key=api_key)
+        raise ValueError("Abrufintervall muss 15–360 Minuten betragen.")
+    try:
+        resolution = int(str(incoming.get(
+            "resolution_minutes", settings.get("resolution_minutes", 15),
+        )))
+    except (ValueError, TypeError):
+        raise ValueError("Prognoseauflösung muss 15 oder 60 Minuten betragen.") from None
+    if resolution not in (15, 60):
+        raise ValueError("Prognoseauflösung muss 15 oder 60 Minuten betragen.")
+    DRIVERS[driver](mode=mode, api_key=api_key, resolution_minutes=resolution)
     new["forecast"] = {
         "enabled": bool(payload.get("enabled", current.get("enabled", False))),
         "driver": driver,
-        "settings": {"mode": mode, "api_key": api_key, "refresh_minutes": minutes},
+        "settings": {
+            "mode": mode, "api_key": api_key,
+            "refresh_minutes": minutes, "resolution_minutes": resolution,
+        },
     }
     if "inverters" in payload:
         provided = payload["inverters"]
@@ -127,7 +139,10 @@ async def update(config: dict, store: ForecastStore) -> dict:
     if driver_class is None:
         raise ValueError("Unbekannter Prognosetreiber.")
     settings = fc.get("settings") or {}
-    driver = driver_class(mode=settings.get("mode","free"), api_key=settings.get("api_key",""))
+    driver = driver_class(
+        mode=settings.get("mode", "free"), api_key=settings.get("api_key", ""),
+        resolution_minutes=int(settings.get("resolution_minutes", 15)),
+    )
     loc = config.get("location") or {}
     # A single completed provider round enters the store atomically:
     # no partial weather/WR result is ever persisted.
@@ -135,7 +150,8 @@ async def update(config: dict, store: ForecastStore) -> dict:
         zone, individual_surfaces = await driver.fetch(float(loc["lat"]),float(loc["lon"]),group)
         result = store.save_future(
             now=datetime.now(UTC),provider=driver.driver_id,
-            timezone=zone,surfaces=individual_surfaces,
+            timezone=zone, surfaces=individual_surfaces,
+            resolution_minutes=driver.resolution_minutes,
         )
         return result
 

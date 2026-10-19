@@ -27,15 +27,24 @@ class OpenMeteoDriver:
             {"name": "api_key", "label": "API-Key (nur Kunden-API)",
              "type": "password", "optional": True,
              "visible_when": {"name": "mode", "value": "customer"}},
-            {"name": "refresh_minutes", "label": "Aktualisierung (Minuten)",
+            {"name": "resolution_minutes", "label": "Prognoseauflösung",
+             "type": "select", "options": [
+                 {"value": "15", "label": "15 Minuten (96 Werte/Tag)"},
+                 {"value": "60", "label": "60 Minuten (24 Werte/Tag)"},
+             ]},
+            {"name": "refresh_minutes", "label": "Abrufintervall (Minuten)",
              "type": "number", "min": 15, "max": 360},
         ]
 
-    def __init__(self, *, mode: str = "free", api_key: str = ""):
+    def __init__(self, *, mode: str = "free", api_key: str = "",
+                 resolution_minutes: int = 15):
         if mode not in ("free", "customer"):
             raise ValueError("Open-Meteo Zugangsart ungültig.")
         if mode == "customer" and not api_key:
             raise ValueError("Open-Meteo Kunden-API benötigt einen Schlüssel.")
+        if resolution_minutes not in (15, 60):
+            raise ValueError("Open-Meteo-Prognoseauflösung muss 15 oder 60 Minuten betragen.")
+        self.resolution_minutes = resolution_minutes
         self.mode = mode
         self._api_key = api_key
         self.endpoint = self.CUSTOMER_ENDPOINT if mode == "customer" else self.FREE_ENDPOINT
@@ -57,9 +66,12 @@ class OpenMeteoDriver:
         }
 
     async def _fetch_one(self, client: httpx.AsyncClient, lat: float, lon: float, gen: Generator) -> tuple[str, dict[str, float]]:
+        # Use native provider time series. Never invent quarter-hour values by
+        # interpolating an hourly forecast in PV2Hash.
+        series = "minutely_15" if self.resolution_minutes == 15 else "hourly"
         params = {
             "latitude": lat, "longitude": lon,
-            "hourly": "global_tilted_irradiance_instant",
+            series: "global_tilted_irradiance_instant",
             "tilt": gen.tilt, "azimuth": gen.azimuth,
             "timezone": "auto", "timeformat": "unixtime",
             "forecast_days": 3,
@@ -73,17 +85,22 @@ class OpenMeteoDriver:
             payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise RuntimeError("Open-Meteo-Abfrage fehlgeschlagen (Netzwerk/API).") from None
-        if not isinstance(payload, dict) or "hourly" not in payload:
-            raise RuntimeError("Open-Meteo lieferte keine Stundenprognose.")
-        hourly = payload["hourly"]
-        times = hourly.get("time") or []
-        radiation = hourly.get("global_tilted_irradiance_instant") or []
+        if not isinstance(payload, dict) or not isinstance(payload.get(series), dict):
+            raise RuntimeError("Open-Meteo lieferte keine Prognose in der gewählten Auflösung.")
+        series_data = payload[series]
+        times = series_data.get("time") or []
+        radiation = series_data.get("global_tilted_irradiance_instant") or []
         if not times or len(times) != len(radiation):
             raise RuntimeError("Open-Meteo lieferte unvollständige Einstrahlungsdaten.")
         try:
             timezone = str(payload["timezone"])
+            step = self.resolution_minutes * 60
+            if any(not isinstance(t, int) or t % step != 0 for t in times):
+                raise ValueError("Open-Meteo-Zeitpunkte passen nicht zur Prognoseauflösung.")
+            if len(times) != len(set(times)) or times != sorted(times):
+                raise ValueError("Open-Meteo-Zeitpunkte sind nicht eindeutig und aufsteigend.")
             points = {
-                utc_iso(datetime.fromtimestamp(int(ts), tz=UTC)): estimate_power_w(gen, float(irr))
+                utc_iso(datetime.fromtimestamp(ts, tz=UTC)): estimate_power_w(gen, float(irr))
                 for ts, irr in zip(times, radiation) if irr is not None
             }
         except (KeyError, TypeError, ValueError, OverflowError):
