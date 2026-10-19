@@ -11,7 +11,7 @@ import {UpdateOverlay,type UpdateRunner} from '../update/UpdateOverlay';
 import {ReleaseNotes} from '../update/ReleaseNotes';
 import {version as guiVersion} from '../../package.json';
 import {
-  DASHBOARD_AFTER_UPDATE,DASHBOARD_RELOAD_DELAY_MS,
+  DASHBOARD_AFTER_UPDATE,DASHBOARD_RELOAD_DELAY_MS,OVERLAY_CLOSE_DELAY_MS,
   installedUpdateMatches,observedUpdateStart,successfulUpdateMatches,
   type InstalledBuild,type UpdateAttempt,
 } from '../update/dashboardRedirect';
@@ -274,6 +274,7 @@ export function SystemPage(){
     let ready=false;
     let checking=false;
     let navigationTimer:ReturnType<typeof setTimeout>|null=null;
+    let overlayTimer:ReturnType<typeof setTimeout>|null=null;
     const checkInstalledBuild=async()=>{
       if(disposed||ready||checking)return;
       checking=true;
@@ -285,6 +286,11 @@ export function SystemPage(){
         ready=true;
         setDashboardReady(true);
         clearInterval(pollTimer);
+        // Show the success confirmation briefly, then close the overlay
+        // before navigating to the freshly built dashboard.
+        overlayTimer=setTimeout(()=>{
+          if(!disposed)setUpdateOverlay(false);
+        },OVERLAY_CLOSE_DELAY_MS);
         navigationTimer=setTimeout(()=>{
           if(!disposed)window.location.replace(DASHBOARD_AFTER_UPDATE);
         },DASHBOARD_RELOAD_DELAY_MS);
@@ -298,6 +304,7 @@ export function SystemPage(){
       disposed=true;
       clearInterval(pollTimer);
       if(navigationTimer!==null)clearTimeout(navigationTimer);
+      if(overlayTimer!==null)clearTimeout(overlayTimer);
     };
   },[activeUpdate,runner?.status,runner?.started_at,runner?.target_tag,runner?.target_version_full]);
   const cards=system.data?.cards||[];

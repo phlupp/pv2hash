@@ -1,6 +1,7 @@
 /** Browser update completion: only an observed, verified run may refresh the UI. */
 export const DASHBOARD_AFTER_UPDATE = '/ui-next/';
 export const DASHBOARD_RELOAD_DELAY_MS = 3000;
+export const OVERLAY_CLOSE_DELAY_MS = 1500;
 
 export type UpdateRun = {
   status?: string;
@@ -20,6 +21,18 @@ export type UpdateAttempt = {
   target_version_full: string;
 };
 
+/** The installer stores the date-based release ID in its version field,
+ * whereas the API launch response contains the Core SemVer. Only SemVer is
+ * comparable to build-info.core_version; a date release is verified by its
+ * exact immutable build-info.release_id instead.
+ */
+function isDatedRelease(tag: string): boolean {
+  return /^r20\d{2}\.\d{2}\.\d{2}\.[1-9]\d*$/.test(tag);
+}
+function isCoreVersion(value: string): boolean {
+  return /^\d+\.\d+\.\d+$/.test(value);
+}
+
 /** Neither a past success nor an old update log can arm the redirect. */
 export function observedUpdateStart(run?: UpdateRun): UpdateAttempt | null {
   if (!run || !['starting', 'running'].includes(run.status || '')) return null;
@@ -37,7 +50,8 @@ export function successfulUpdateMatches(
 ): boolean {
   return !!attempt && run?.status === 'success' && !run.running &&
     run.started_at === attempt.started_at && run.target_tag === attempt.target_tag &&
-    (!attempt.target_version_full || run.target_version_full === attempt.target_version_full);
+    (isDatedRelease(attempt.target_tag) || !attempt.target_version_full ||
+      run.target_version_full === attempt.target_version_full);
 }
 
 /** The old JS stays loaded until the NEW backend confirms its build identity. */
@@ -47,8 +61,13 @@ export function installedUpdateMatches(
   build?: InstalledBuild,
 ): boolean {
   if (!successfulUpdateMatches(attempt, run) || build?.status !== 'ok' || !attempt) return false;
-  if (attempt.target_version_full && build.core_version !== attempt.target_version_full) return false;
-  // Package tags are independent of Core SemVer and must match verbatim.
-  if (attempt.target_tag.startsWith('r')) return build.release_id === attempt.target_tag;
-  return build.core_version === attempt.target_version_full;
+  // Date-based package IDs are not Core SemVer. The helper may report
+  // target_version_full='rYYYY.MM.DD.N' after the service restarts.
+  if (isDatedRelease(attempt.target_tag)) {
+    if (build.release_id !== attempt.target_tag) return false;
+    return !isCoreVersion(attempt.target_version_full) ||
+      build.core_version === attempt.target_version_full;
+  }
+  // Legacy releases still require the exact installed Core version.
+  return !!attempt.target_version_full && build.core_version === attempt.target_version_full;
 }
