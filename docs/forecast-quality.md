@@ -23,9 +23,11 @@ kein automatischer Batterie-/Miner-Eingriff. Fachvorgaben zum Ladeziel
   nicht gelöscht. Für bereits abgelaufene Prognosen aus Versionen vor dieser
   Implementierung können frühere Revisionen **nicht** nachgebildet werden.
 - Archivvolumen wächst mit Prognose-Intervall, Anzahl der Wechselrichter und
-  dem Abrufhorizont (aktuell drei Tage). Die fachliche Aufbewahrungs- und
-  Verdichtungsstrategie ist vor längerem Dauerbetrieb separat festzulegen;
-  **diese Entwicklungsphase löscht keine Archivrevisionen**.
+  dem Abrufhorizont (aktuell drei Tage). **365 Tage lokale Aufbewahrung**
+  für vollständige Prognoserevisionen werden automatisch eingehalten,
+  Qualitätswerte bleiben dauerhaft. Die Bereinigung erfolgt in kleinen
+  Transaktionen ohne automatisches `VACUUM`.
+  [SQLite-Status, Aufbewahrung und optionaler Influx-Export](sqlite-storage.md).
 
 ## Prognosefehler nach Vorlaufzeit
 

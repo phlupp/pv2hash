@@ -145,6 +145,23 @@ class InfluxDB2Destination:
                     result = line('pv2hash_miner',tags,miner_fields,ts,
                                   text_fields=('runtime_state', 'profile', 'driver'))
                     if result: lines.append(result)
+            elif kind == 'forecast_quality':
+                horizon = int(item['horizon_minutes'])
+                if horizon not in (15,30,60,180):
+                    raise ValueError('Unknown forecast quality horizon')
+                tags = {'instance_id':self.instance, 'instance_name':self.instance_name,
+                        'horizon':str(horizon)+'m'}
+                forecast_w, actual_w, error_w = (
+                    float(item[key]) for key in ('forecast_w','actual_w','error_w')
+                )
+                if not all(math.isfinite(x) for x in (forecast_w,actual_w,error_w)):
+                    raise ValueError('Invalid forecast quality values')
+                fields = {'forecast_w':forecast_w,'actual_w':actual_w,
+                          'error_w':error_w,'abs_error_w':abs(error_w),
+                          'forecast_issued_at':str(item['issued_at'])}
+                result = line('pv2hash_forecast_quality',tags,fields,
+                              item['valid_at'],text_fields=('forecast_issued_at',))
+                if result: lines.append(result)
             elif kind == 'controller_events':
                 tags = {'instance_id':self.instance, 'instance_name':self.instance_name,
                         'miner_id':item.get('miner_id') or item.get('miner_key'),

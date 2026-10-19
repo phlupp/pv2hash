@@ -42,6 +42,8 @@ class ForecastStore:
                 resolution_minutes INTEGER,
                 point_count INTEGER NOT NULL
             )""")
+            con.execute("""CREATE INDEX IF NOT EXISTS forecast_revisions_by_issue
+                ON forecast_revisions(issued_at,revision_id)""")
             con.execute("""CREATE TABLE IF NOT EXISTS forecast_revision_points (
                 revision_id INTEGER NOT NULL,
                 valid_at TEXT NOT NULL,
@@ -54,6 +56,7 @@ class ForecastStore:
                 ON forecast_revision_points(device_id, valid_at, revision_id)""")
             # Permanent error samples survive the short-lived DataLogger history.
             con.execute("""CREATE TABLE IF NOT EXISTS forecast_quality_samples (
+                quality_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 valid_at TEXT NOT NULL,
                 horizon_minutes INTEGER NOT NULL,
                 issued_at TEXT NOT NULL,
@@ -61,7 +64,7 @@ class ForecastStore:
                 actual_w REAL NOT NULL,
                 error_w REAL NOT NULL,
                 evaluated_at TEXT NOT NULL,
-                PRIMARY KEY(valid_at, horizon_minutes)
+                UNIQUE(valid_at, horizon_minutes)
             )""")
             con.execute("""CREATE INDEX IF NOT EXISTS forecast_quality_by_time
                 ON forecast_quality_samples(valid_at)""")
@@ -159,6 +162,45 @@ class ForecastStore:
             con.execute("DELETE FROM forecast_meta WHERE key IN ('last_failure','last_error')")
         return {"future_points": len({r[0] for r in new_values if r[1] == TOTAL}),
                 "inverters": len(by_inverter), "timezone": timezone}
+
+    def prune_revisions(self, *, now: datetime | None = None,
+                        retention_days: int = 365,
+                        batch_revisions: int = 12) -> dict:
+        """Delete issued revisions older than retention, in bounded transactions.
+
+        Only the append-only revision archive is pruned. The live projection,
+        permanent error samples, and raw DataLogger remain untouched.
+        Each small transaction deletes children and parent together. Retried
+        runs are idempotent. SQLite can reuse freelist pages without VACUUM.
+        """
+        if not 1 <= retention_days <= 3650 or not 1 <= batch_revisions <= 100:
+            raise ValueError("Invalid forecast archive retention settings")
+        instant = now or datetime.now(UTC)
+        if instant.tzinfo is None:
+            raise ValueError("Retention now must be timezone-aware")
+        cutoff = utc_iso(instant.astimezone(UTC) - timedelta(days=retention_days))
+        if not self.path.exists():
+            return {"revisions_deleted": 0, "points_deleted": 0, "retention_days": retention_days}
+        self.ensure_schema()
+        count = 0
+        points = 0
+        while True:
+            with self._connect() as con:
+                ids = [row[0] for row in con.execute(
+                    "SELECT revision_id FROM forecast_revisions "
+                    "WHERE issued_at < ? ORDER BY issued_at,revision_id LIMIT ?",
+                    (cutoff, batch_revisions)).fetchall()]
+                if not ids:
+                    break
+                placeholders = ','.join('?' for _ in ids)
+                points += con.execute(
+                    f"SELECT COUNT(*) FROM forecast_revision_points "
+                    f"WHERE revision_id IN ({placeholders})", ids).fetchone()[0]
+                con.execute(f"DELETE FROM forecast_revision_points WHERE revision_id IN ({placeholders})", ids)
+                con.execute(f"DELETE FROM forecast_revisions WHERE revision_id IN ({placeholders})", ids)
+                count += len(ids)
+        return {"revisions_deleted": count, "points_deleted": points,
+                "retention_days": retention_days}
 
     def record_failure(self, message: str) -> None:
         """Persist a safe, user-visible provider failure until the next success."""

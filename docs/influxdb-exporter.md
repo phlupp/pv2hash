@@ -2,6 +2,22 @@
 
 The InfluxDB exporter transmits local DataLogger samples without changing the miner controller or local database schema.
 
+## Optionale Prognosequalitäts-Zeitreihe
+
+Im InfluxDB-2.x-Exporter kann optional **„Prognosequalität zentral exportieren“**
+aktiviert werden (Standard **deaktiviert**). Dadurch entsteht die neue
+Messreihe `pv2hash_forecast_quality` mit den Tags `instance_id`,
+`instance_name`, `horizon` und den Feldern `forecast_w`, `actual_w`,
+`error_w`, `abs_error_w`, `forecast_issued_at`. Die zugrunde liegenden
+15-/30-/60-/180-Minuten-Vergleiche werden aus den lokalen, dauerhaften
+Prognose-Qualitätsdatensätzen mit monotoner `quality_id` exportiert.
+
+Das bestehende Exporter-Cursor-/Retry-Verfahren bleibt erhalten. Frühere
+Ereigniszeitpunkte können durch verspätete Qualitätsauswertungen nachgeliefert
+werden; deshalb wird **nicht nach `valid_at` checkpointed**. Es werden
+keine vollständigen Prognoserevisionen zentral repliziert. Details siehe
+[SQLite-Status, Aufbewahrung und Export](sqlite-storage.md).
+
 ## Measurements
 
 - `pv2hash_system`: numeric DataLogger system fields, tagged with `instance_id` and `instance_name`

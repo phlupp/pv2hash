@@ -39,6 +39,15 @@ type SystemCardModel={
 };
 type SystemModel={instance_name:string;app_version_full:string;cards:SystemCardModel[]};
 type ApiResult={status?:string;message?:string;model?:SystemModel};
+type SQLiteFile={key:string;name:string;present:boolean;bytes:number|null;
+  wal_bytes:number|null;free_bytes:number|null;usable_bytes:number|null;error?:string;
+  revision_count?:number|null;quality_count?:number|null};
+type SQLiteHistory={ts:string;key:string;bytes:number;wal_bytes:number;free_bytes:number;usable_bytes:number};
+type SQLiteStatus={status:string;sampled_files:SQLiteFile[];history:SQLiteHistory[];
+  last_sample_at:string|null;retention_days:number;sample_interval_minutes:number};
+const bytesText=(bytes?:number|null)=>bytes==null?'—':bytes>=1024**3
+  ? (bytes/1024**3).toLocaleString('de-DE',{maximumFractionDigits:2})+' GiB'
+  : (bytes/1024**2).toLocaleString('de-DE',{maximumFractionDigits:1})+' MiB';
 async function get<T>(path:string):Promise<T>{
   return configJson<T & {status?:string;message?:string}>(fetch(path,{cache:'no-store'}));
 }
@@ -160,6 +169,80 @@ function LiveLogs({card,busy,onLogLevel}:{card:SystemCardModel;busy:boolean;onLo
   </Card>;
 }
 
+function SQLiteStatusCard(){
+  const sqlite=useQuery({queryKey:['system','sqlite-status'],
+    queryFn:()=>get<SQLiteStatus>('/api/system/sqlite-status?days=30'),
+    refetchInterval:60_000,refetchIntervalInBackground:false});
+  const [selected,setSelected]=useState('forecast');
+  const response=sqlite.data;
+  const points=(response?.history||[]).filter(p=>p.key===selected).sort((a,b)=>a.ts.localeCompare(b.ts));
+  const first=points[0];const last=points[points.length-1];
+  const low=points.length?Math.min(...points.map(p=>p.bytes)):0;
+  const high=points.length?Math.max(...points.map(p=>p.bytes)):1;
+  const diff=high-low||1;
+  const path=points.map((p,i)=>{
+    const x=points.length===1?250:8+i*484/(points.length-1);
+    const y=105-(p.bytes-low)/diff*83;
+    return (i===0?'M':'L')+x.toFixed(1)+','+y.toFixed(1);
+  }).join(' ');
+  return <Card>
+    <Stack gap="sm">
+      <Group justify="space-between" align="center">
+        <Text fw={650}>SQLite-Datenbanken</Text>
+        <Badge variant="light" color={sqlite.isError?'red':'gray'} size="sm">
+          {sqlite.isError?'Nicht verfügbar':'Speicherstatus'}
+        </Badge>
+      </Group>
+      <Text size="xs" c="dimmed">
+        Lokale Datenbankgrößen und freie, wiederverwendbare Seiten. Die Verlaufswerte werden
+        stündlich erfasst und für 90 Tage vorgehalten.
+      </Text>
+      {sqlite.isError&&<Alert color="orange" title="SQLite-Status nicht verfügbar">{String(sqlite.error)}</Alert>}
+      <SimpleGrid cols={{base:1,sm:3}} spacing="xs">
+        {(response?.sampled_files||[]).map(file=><Card key={file.key} withBorder padding="sm" radius="md">
+          <Text fw={600} size="sm">{file.name}</Text>
+          <Text fw={700} size="lg">{file.error?'Nicht lesbar':file.present?bytesText(file.bytes):'Noch nicht angelegt'}</Text>
+          {file.present&&<>
+            <Text size="xs" c="dimmed">Genutzte Seiten: {bytesText(file.usable_bytes)}</Text>
+            <Text size="xs" c="dimmed">Wiederverwendbare Seiten: {bytesText(file.free_bytes)}</Text>
+            <Text size="xs" c="dimmed">WAL (zusätzlich): {bytesText(file.wal_bytes)}</Text>
+            {file.key==='forecast'&&<>
+              <Text size="xs" c="dimmed">Archivierte Revisionen: {file.revision_count?.toLocaleString('de-DE')??'—'}</Text>
+              <Text size="xs" c="dimmed">Qualitätsvergleiche: {file.quality_count?.toLocaleString('de-DE')??'—'}</Text>
+            </>}
+          </>}
+        </Card>)}
+      </SimpleGrid>
+      <Group justify="space-between" align="end" gap="sm">
+        <Text fw={600} size="sm">Größenentwicklung · 30 Tage</Text>
+        <Select size="xs" aria-label="SQLite-Datenbank für Verlauf"
+          w={185} allowDeselect={false} value={selected} onChange={v=>setSelected(v||'forecast')}
+          data={(response?.sampled_files||[]).map(file=>({value:file.key,label:file.name}))}/>
+      </Group>
+      {points.length>1?<>
+        <svg viewBox="0 0 500 115" width="100%" height="135" preserveAspectRatio="none"
+          role="img" aria-label={'Größenentwicklung von '+selected+' über '+points.length+' Tageswerte'}>
+          <line x1="8" y1="105" x2="492" y2="105" stroke="currentColor" opacity="0.2"/>
+          <line x1="8" y1="22" x2="492" y2="22" stroke="currentColor" opacity="0.1"/>
+          <path d={path} stroke="var(--mantine-color-teal-5)" strokeWidth="2.5"
+            strokeLinejoin="round" strokeLinecap="round" fill="none"/>
+        </svg>
+        <Group justify="space-between" gap="xs">
+          <Text size="xs" c="dimmed">{new Date(first.ts).toLocaleDateString('de-DE')} · {bytesText(first.bytes)}</Text>
+          <Text size="xs" fw={600}>Änderung {last.bytes>=first.bytes?'+':'−'}{bytesText(Math.abs(last.bytes-first.bytes))}</Text>
+          <Text size="xs" c="dimmed">{new Date(last.ts).toLocaleDateString('de-DE')} · {bytesText(last.bytes)}</Text>
+        </Group>
+      </>:<Text size="xs" c="dimmed">Noch nicht genügend Messpunkte für einen Verlauf. Ab dem zweiten Messtag wird die Entwicklung sichtbar.</Text>}
+      <Group justify="space-between" gap="xs">
+        <Text size="xs" c="dimmed">Prognosearchiv: {response?.retention_days||365} Tage Aufbewahrung</Text>
+        <Text size="xs" c="dimmed">Letzte Größenmessung: {formatTime(response?.last_sample_at||undefined)}</Text>
+      </Group>
+      <Text size="xs" c="dimmed">Gelöschte Archivdaten geben SQLite-Seiten zur Wiederverwendung frei;
+        die Dateigröße muss dadurch nicht sofort sinken.</Text>
+    </Stack>
+  </Card>;
+}
+
 export function SystemPage(){
   const client=useQueryClient();
   const system=useQuery({queryKey:['system','model'],queryFn:()=>get<SystemModel>('/api/system/model'),refetchInterval:5000,refetchIntervalInBackground:false});
@@ -268,6 +351,7 @@ export function SystemPage(){
           onClick={()=>setPreviewOverlay(true)}>Update-Manager als Simulation ansehen</Button>
       </Group>}
     </Stack>)}
+    <SQLiteStatusCard/>
     {cards.filter(c=>c.type!=='update').map(card=>card.type==='backup'?<Card key={card.id}>
       <Stack gap="sm">
         <Text fw={650}>{card.title}</Text><Text c="dimmed" size="xs">{card.description}</Text>

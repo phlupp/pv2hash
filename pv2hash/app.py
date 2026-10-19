@@ -283,7 +283,8 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
 
 
 
-export_manager = ExportManager(ExportSource(data_logger._db_path, _build_runtime_snapshot_payload), lambda: state.config)
+export_manager = ExportManager(ExportSource(data_logger._db_path, _build_runtime_snapshot_payload,
+    forecast_db_path=Path("data/forecast.sqlite")), lambda: state.config)
 export_manager.register('influxdb2', lambda cfg: InfluxDB2Destination({
     **cfg,
     'instance_id': instance_identity.id,
@@ -2886,6 +2887,30 @@ async def pv_measurement_loop() -> None:
 
 forecast_store = ForecastStore()
 
+from pv2hash.forecast.sqlite_status import SQLiteStatus
+sqlite_status = SQLiteStatus({
+    'forecast': (forecast_store.path, 'PV-Prognose'),
+    'history': (data_logger._db_path, 'Data Logger'),
+    'exporters': (export_manager.state_path, 'Exporter'),
+})
+
+
+async def sqlite_maintenance_background_loop() -> None:
+    """Never touch control loop. Retain 365d revisions and record size hourly."""
+    while True:
+        try:
+            result = await asyncio.to_thread(forecast_store.prune_revisions)
+            if result['revisions_deleted']:
+                logger.info('Forecast archive retention: deleted %s revisions / %s points',
+                            result['revisions_deleted'],result['points_deleted'])
+        except Exception:
+            logger.exception('Forecast archive retention unsuccessful; retry next hour')
+        try:
+            await asyncio.to_thread(sqlite_status.capture)
+        except Exception:
+            logger.exception('SQLite size sample unsuccessful; retry next hour')
+        await asyncio.sleep(3600)
+
 
 async def forecast_quality_background_loop() -> None:
     """Evaluate settled forecasts in a worker thread, never on control loop."""
@@ -2937,6 +2962,7 @@ async def startup_event() -> None:
     asyncio.create_task(export_manager.run())
     asyncio.create_task(forecast_background_loop())
     asyncio.create_task(forecast_quality_background_loop())
+    asyncio.create_task(sqlite_maintenance_background_loop())
 
 
 def reload_runtime() -> None:
@@ -4151,6 +4177,15 @@ async def api_system_config_import(request: Request):
 @app.get("/api/system/model")
 async def api_system_model():
     return JSONResponse(content=jsonable_encoder(_build_system_model()))
+
+
+@app.get("/api/system/sqlite-status")
+async def api_system_sqlite_status(days: int = 30):
+    try:
+        return JSONResponse(content=jsonable_encoder(
+            await asyncio.to_thread(sqlite_status.report, days=days)))
+    except ValueError as exc:
+        return JSONResponse({'status':'error','message':str(exc)},status_code=400)
 
 
 @app.get("/api/system/update-model")
