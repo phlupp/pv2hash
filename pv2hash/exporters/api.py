@@ -13,11 +13,28 @@ from pv2hash.exporters.configuration import normalize
 from pv2hash.exporters.influxdb2 import InfluxDB2Destination
 
 
-def fingerprint(entry):
-    # Bind test approval to actual credentials and connection settings.
-    settings = entry.get('settings', {})
-    payload = {k:v for k,v in settings.items() if k != 'batch_size'}
-    return hashlib.sha256(json.dumps([entry.get('type'),payload], sort_keys=True).encode()).hexdigest()
+def _fingerprint(entry, *, legacy: bool = False) -> str:
+    """Hash only settings that affect the verified remote connection.
+
+    The old fingerprint also included the forecast export toggle. Accept the
+    old digest for an *unchanged* saved entry so already tested connections
+    stay valid across upgrades; reissue the new digest on the next save.
+    """
+    settings = entry.get('settings', {}) or {}
+    ignored = {'batch_size'} if legacy else {'batch_size', 'forecast_quality_enabled'}
+    payload = {k: v for k, v in settings.items() if k not in ignored}
+    return hashlib.sha256(json.dumps([entry.get('type'), payload], sort_keys=True).encode()).hexdigest()
+
+
+def fingerprint(entry) -> str:
+    return _fingerprint(entry)
+
+
+def _has_verified_connection(entry) -> bool:
+    if not entry or not entry.get('tested_at') or not entry.get('tested_fingerprint'):
+        return False
+    digest = entry['tested_fingerprint']
+    return digest in (fingerprint(entry), _fingerprint(entry, legacy=True))
 
 
 def install(app, state, save_config, manager):
@@ -28,7 +45,7 @@ def install(app, state, save_config, manager):
             definition = DEFINITIONS.get(item['type'])
             item['schema'] = definition.render(entry.get('settings', {})) if definition else None
             item['configured'] = bool(entry.get('settings', {}).get('token'))
-            item['test_ok'] = bool(entry.get('tested_fingerprint') == fingerprint(entry) and entry.get('tested_at'))
+            item['test_ok'] = _has_verified_connection(entry)
             item['tested_at'] = entry.get('tested_at') if item['test_ok'] else None
             result.append(item)
         return result
@@ -58,11 +75,14 @@ def install(app, state, save_config, manager):
             entry = {'id': eid if old else str(uuid4()), 'type': kind, 'name': name,
                      'enabled': False, 'settings': settings,
                      'batch_size': settings.get('batch_size', 120)}
-            if old and old.get('tested_fingerprint') == fingerprint(entry):
-                entry['tested_fingerprint'] = old['tested_fingerprint']
-                entry['tested_at'] = old.get('tested_at')
+            # A checked, unchanged connection remains valid when only an
+            # export option changes. Migrate old (pre-fix) fingerprints on
+            # save, without bypassing validation of URL/org/bucket/token.
+            if old and _has_verified_connection(old) and fingerprint(old) == fingerprint(entry):
+                entry['tested_fingerprint'] = fingerprint(entry)
+                entry['tested_at'] = old['tested_at']
             requested_enabled = bool(payload.get('enabled', False))
-            if requested_enabled and entry.get('tested_fingerprint') != fingerprint(entry):
+            if requested_enabled and not _has_verified_connection(entry):
                 raise ValueError('Vor dem Aktivieren muss die gespeicherte Verbindung erfolgreich getestet werden.')
             entry['enabled'] = requested_enabled
             if old:

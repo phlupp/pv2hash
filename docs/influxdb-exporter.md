@@ -12,6 +12,12 @@ Messreihe `pv2hash_forecast_quality` mit den Tags `instance_id`,
 15-/30-/60-/180-Minuten-Vergleiche werden aus den lokalen, dauerhaften
 Prognose-Qualitätsdatensätzen mit monotoner `quality_id` exportiert.
 
+Der zugehörige Schalter verändert keine URL, Organisation, Bucket oder
+Authentifizierung. Eine bereits bestätigte Verbindung bleibt deshalb beim
+reinen Ein-/Ausschalten des Prognose-Exports gültig; ältere gespeicherte
+Verbindungstests werden beim nächsten Speichern kompatibel übernommen.
+Verbindungsrelevante Änderungen erfordern weiterhin einen neuen Test.
+
 Das bestehende Exporter-Cursor-/Retry-Verfahren bleibt erhalten. Frühere
 Ereigniszeitpunkte können durch verspätete Qualitätsauswertungen nachgeliefert
 werden; deshalb wird **nicht nach `valid_at` checkpointed**. Es werden
