@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Alert, Badge, Button, Card, Collapse, Divider, Group, NumberInput, PasswordInput,
-  Select, Stack, Switch, Text, TextInput, Title,
+  Select, SimpleGrid, Stack, Switch, Text, TextInput, Title,
 } from '@mantine/core';
 import { IconChevronDown, IconChevronLeft, IconChevronRight, IconRefresh } from '@tabler/icons-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -26,6 +26,12 @@ type Config = {
 type ConfigResponse = { status: string; config: Config; history: {
   last_success?: string; last_failure?: string; last_error?: string;
 } };
+type QualityResponse = {
+  status: string; days: number; revision_count: number;
+  last_issued_at: string | null;
+  metrics: { horizon_minutes: number; samples: number;
+    mae_w: number | null; bias_w: number | null; rmse_w: number | null }[];
+};
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { cache: 'no-store', ...init });
@@ -60,6 +66,12 @@ export function ForecastPage() {
     refetchInterval: query => forecastDayRefreshInterval(
       selectedDay, query.state.data as ForecastDay | undefined,
     ),
+    refetchIntervalInBackground: false,
+  });
+  const quality = useQuery({
+    queryKey: ['forecast-quality', 7],
+    queryFn: () => api<QualityResponse>('/api/forecast/quality?days=7'),
+    refetchInterval: 300_000,
     refetchIntervalInBackground: false,
   });
   const config = useQuery({
@@ -254,6 +266,37 @@ export function ForecastPage() {
               {current.forecast.length} Prognosepunkte · {current.actual.length} Ist-Messpunkte · Zeitzone {current.timezone}
               {day.isFetching ? ' · Aktualisiere …' : ''}
             </Text>
+          </>}
+        </Stack>
+      </Card>
+      <Card withBorder padding="md">
+        <Stack gap="xs">
+          <Group justify="space-between" align="center">
+            <Text fw={650} size="sm">Prognosequalität · letzte 7 Tage</Text>
+            <Badge variant="light" color="gray">Nur Auswertung</Badge>
+          </Group>
+          <Text c="dimmed" size="xs">
+            Mittlerer absoluter Leistungsfehler (MAE), jeweils mit dem tatsächlich
+            vorher verfügbaren Prognosestand. Fehlende Messwerte werden ausgeschlossen.
+          </Text>
+          {quality.isError && <Text c="dimmed" size="xs">Auswertung derzeit nicht verfügbar.</Text>}
+          {quality.data && <>
+            <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
+              {quality.data.metrics.map(metric => <Card withBorder padding="xs" key={metric.horizon_minutes}>
+                <Text c="dimmed" size="xs">{metric.horizon_minutes} Min. voraus</Text>
+                <Text fw={700} size="md">
+                  {metric.mae_w === null ? '—' : metric.mae_w.toLocaleString('de-DE', {
+                    maximumFractionDigits: 0,
+                  }) + ' W'}
+                </Text>
+                <Text c="dimmed" size="xs">{metric.samples} Vergleiche</Text>
+              </Card>)}
+            </SimpleGrid>
+            {quality.data.revision_count === 0 && <Text c="dimmed" size="xs">
+              Noch keine archivierten Prognoserevisionen – die Auswertung wächst mit den künftigen Abrufen.
+            </Text>}
+            {quality.data.revision_count > 0 && quality.data.metrics.every(x => x.samples === 0) &&
+              <Text c="dimmed" size="xs">Noch keine passenden, gültigen Ist-Messungen vorhanden.</Text>}
           </>}
         </Stack>
       </Card>

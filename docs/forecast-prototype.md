@@ -9,6 +9,14 @@ nach `main` gemergt, veröffentlicht oder auf einem produktiven Hashpi
 installiert. Ursprung der Architektur ist der frühere Prototyp
 `feat/forecast-foundation`.
 
+## Weiterentwicklung: Prognosequalität und Shadow-Planer
+
+[Phase A – Revisionen und Prognosequalität / Phase B – Dateninventar](forecast-quality.md)
+archiviert künftig jede erfolgreich gespeicherte Vorhersagerevision und wertet
+vergangene Prognosen gegen gültige PV-Messungen aus. Die spätere Batterie-
+planung bleibt ohne Steuerzugriff; fachliche Ladeziel-Vorgaben befinden sich
+bis zur separaten Freigabe in PR #42.
+
 ## Fachliches Modell
 
 - **Prognoseseite:** vollständiger Standort-Kalendertag von 00:00 bis

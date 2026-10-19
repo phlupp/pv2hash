@@ -1,6 +1,6 @@
 """Convert adjacent, valid power samples into energy without filling gaps.
 
-Forecast data are instantaneous hourly W values; live plant data are 10-second
+Forecast data are instantaneous 15- or 60-minute W values; live plant data are 10-second
 samples. Never bridge gaps or convert missing/partial production to zero.
 """
 from __future__ import annotations
