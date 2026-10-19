@@ -1,9 +1,13 @@
-# PV-Prognose – isolierter Architekturprototyp
+# PV-Prognose – Architektur und Entwicklung
 
-**Status:** Experiment / separater Draft-Branch `feat/forecast-foundation`.
-Basiert auf dem post-0.9.5 Draft-PR #28, gehört **nicht automatisch**
-zum unmittelbar nächsten PV2Hash-Release. Auf produktiven Hashpis
-nicht aktiviert und nicht installiert.
+**Stand 2026-10-19:** Die PV-Prognose ist seit den Releases vom
+18.10.2026 Bestandteil von PV2Hash (zuletzt `r2026.10.18.2`).
+Die hier beschriebene **15-Minuten-Auflösung / 30-Minuten-Standardabrufe**
+wird ausschließlich auf `testvm01` im Branch
+`feat/forecast-resolution-15m` entwickelt. Sie ist **noch nicht**
+nach `main` gemergt, veröffentlicht oder auf einem produktiven Hashpi
+installiert. Ursprung der Architektur ist der frühere Prototyp
+`feat/forecast-foundation`.
 
 ## Fachliches Modell
 
@@ -97,7 +101,7 @@ Bedingung für API-Key. Die React-GUI rendert diese Felder generisch.
   im Settings-GET niemals ausgegeben.
 - Pro Generatorfläche wird `global_tilted_irradiance_instant`
   mit eigener Neigung/Ausrichtung abgerufen. Zeitformat
-  `unixtime`, `timezone=auto`; zunächst 3 Tage, stündlich.
+  `unixtime`, `timezone=auto`; drei Tage, wahlweise 15 oder 60 Minuten.
 - Alle aktiven Generatorflächen müssen dieselben UTC-Zeitpunkte
   liefern, bevor ein Gesamtwert berechnet wird. Je Zeitpunkt
   werden erst Generatoren zu WR, dann WR zu Gesamt prognostiziert.
@@ -154,7 +158,7 @@ Der Anbieteradapter maskiert Schlüssel und sensible Requests bereits
 vor diesem Schritt. Fehler erzeugen keine Prognosepunkte und verändern
 keine historische Kurve. Die Anzeige verschwindet erst nach Erfolg.
 
-## Teststatus
+## Teststatus des ursprünglichen Prototyps (historisch)
 
 - Acht dedizierte Prognosetests für unveränderliche Vergangenheit,
   aktualisierbare Zukunft, pro-WR-Aggregation, mehrere Generatorflächen,
@@ -234,3 +238,70 @@ historische Zeitpunkte nicht nachträglich überschrieben; die bereits
 bekannten Altwerte mit unplausibler negativer PV-Erzeugung sind auch
 von der Ist-Energieberechnung ausgeschlossen. Es werden keine
 bereinigten Ersatzmessungen in SQLite oder InfluxDB geschrieben.
+
+
+## Prognoseauflösung und Abrufintervall getrennt (Folgeentwicklung)
+
+Die Open-Meteo-Einstellungen besitzen nun zwei **unabhängige** Felder:
+
+- **Prognoseauflösung:** 15 oder 60 Minuten (Standard **15 Minuten**).
+  Bei 15 Minuten fordert der Treiber `minutely_15=global_tilted_irradiance_instant`
+  an; bei 60 Minuten das bisherige `hourly`-Feld. Beide verwenden
+  `timeformat=unixtime`, standortbezogene `tilt`/`azimuth`-Parameter
+  je Generatorfläche und echte UTC-Zeitpunkte. PV2Hash interpoliert
+  **keine** künstlichen Zwischenwerte. Ob ein Wettermodell intern
+  15-Minuten-Werte liefert oder der Anbieter diese verfeinert, hängt
+  vom gewählten Regionalmodell ab; feinere Zeitpunkte allein sind
+  kein Beweis für höhere Prognosegenauigkeit.
+- **Abrufintervall (Minuten):** standardmäßig **30 Minuten** für
+  neue Installationen; einstellbar 15–360. Es begrenzt ausschließlich,
+  wie oft PV2Hash neue Wetterprognosen anfordert. Die Prognoseansicht
+  fragt weiterhin die gespeicherten Daten alle 30 Sekunden ab, ohne
+  dadurch neue Wetteranfragen auszulösen.
+
+**Bestehende Konfigurationen:** Bereits ausdrücklich gespeicherte
+`refresh_minutes`-Werte (z. B. 60) bleiben erhalten; die neue
+`resolution_minutes`-Einstellung verwendet bei bisher fehlendem Feld
+15 Minuten. Wer auch die Abrufe auf 30 Minuten umstellen möchte,
+setzt **Abrufintervall (Minuten)** im Prognoseformular auf 30 und
+speichert. Es findet keine stillschweigende Überschreibung bestehender
+Intervalle statt. API-Anbieter-Schlüssel werden weiterhin nicht
+zurückgegeben oder geloggt.
+
+**Speichervertrag:** Das bisherige `forecast_points`-Schema und die
+Werte in W bleiben unverändert. Ein vollständiger Anbieterabruf wird
+weiterhin atomar pro Generatorfläche, Wechselrichter und Gesamtergebnis
+abgelegt. Ausschließlich **zukünftige** Zeitpunkte werden aktualisiert;
+ältere Werte bleiben zur Qualitätsevaluierung unverändert. Bei einem
+Wechsel von 15 auf 60 Minuten werden nach einem *erfolgreichen*
+Anbieterabruf nur die bereits gespeicherten **zukünftigen**
+Viertelstundenpunkte außerhalb des neuen Stundenrasters entfernt.
+Vergangene 15-Minuten-Werte bleiben erhalten. Fehlende Werte werden
+nicht interpoliert. Die kWh-Integration erkennt die Auflösung der
+historisch gespeicherten Punkte, und für den aktuellen/zukünftigen
+Tag beachtet sie die gewählte Auflösung, damit Datenlücken nicht
+als Vollständigkeit gelten. Die standortbezogene Tageszählung
+berücksichtigt 23-/25-Stunden-Tage bei der Zeitumstellung.
+
+**Tests auf `testvm01`:** Simulierte HTTP-Antworten für beide API-Felder,
+Konfigurationsspeicherung/-validierung und Rückwärtskompatibilität;
+atomare Speicherung, Zukunftsbereinigung ohne Vergangenheitsänderung,
+Energieberechnung mit Lücken und Sommer-/Winterzeit. Ein echter,
+lesender Open-Meteo-Test mit neutralen Koordinaten in Deutschland lieferte
+288 Punkte in 15-Minuten- und 72 Punkte in 60-Minuten-Auflösung für
+je drei Tage. Es wurden dabei keine persönlichen Standortdaten oder
+API-Schlüssel verwendet. Die Minerregelung wird nicht verändert.
+
+### Aktueller Teststatus – 15-Minuten-Erweiterung (2026-10-19)
+
+- Vollständige Python-Regressionssuite: **149 Tests bestanden**.
+- Frontend: **55 Tests bestanden**, TypeScript/Vite-Build erfolgreich.
+- Echte Open-Meteo-Leseabfragen mit neutralen Koordinaten: **288 ×
+  15-Minuten-Werte bzw. 72 × Stundenwerte in drei Tagen**.
+- Ende-zu-Ende-Test mit zwei synthetischen Generatorflächen an zwei
+  Wechselrichtern, echter API-Antwort und **temporärer SQLite-Datei**:
+  für morgen 96 Gesamtprognosepunkte und vollständige kWh-Integration.
+  Temporäre Dateien werden wieder entfernt; weder aktive Testinstanz-
+  Daten noch produktive Hashpi-Konfiguration wurden verändert.
+- Umschalten 15 ↔ 60, Datenlücken, UTC-Zeitstempel, 23-/25-Stunden-
+  Tage, historische Unveränderlichkeit und Validierungsfehler getestet.

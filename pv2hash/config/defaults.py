@@ -19,7 +19,7 @@ DEFAULT_CONFIG = {
     "forecast": {
         "enabled": False,
         "driver": "open_meteo",
-        "settings": {"mode": "free", "api_key": "", "refresh_minutes": 60},
+        "settings": {"mode": "free", "api_key": "", "refresh_minutes": 30, "resolution_minutes": 15},
     },
     "datalogger": {
         "enabled": True,

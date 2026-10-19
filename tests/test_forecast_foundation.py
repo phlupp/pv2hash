@@ -205,7 +205,7 @@ class ForecastProviderTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_open_meteo_adapter_reads_unixtime_and_orientation(self):
         gen = generators_from_config(config())[0]
-        request_time = int((datetime.now(UTC)+timedelta(hours=2)).timestamp())
+        request_time = int((datetime.now(UTC).replace(minute=0,second=0,microsecond=0)+timedelta(hours=2)).timestamp())
         class Response:
             def raise_for_status(self): pass
             def json(self):
@@ -219,7 +219,7 @@ class ForecastProviderTests(unittest.IsolatedAsyncioTestCase):
                 self.last_endpoint = endpoint
                 return Response()
         fake=FakeClient()
-        driver=OpenMeteoDriver()
+        driver=OpenMeteoDriver(resolution_minutes=60)
         zone, points = await driver._fetch_one(fake,51,9,gen)
         self.assertEqual(zone,"Europe/Berlin")
         self.assertEqual(list(points.values()),[2150.0])
@@ -230,7 +230,7 @@ class ForecastProviderTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_all_provider_results_stored_in_single_completed_round(self):
         now = datetime.now(UTC)
-        future = utc_iso(now+timedelta(hours=3))
+        future = utc_iso(now.replace(minute=0, second=0, microsecond=0)+timedelta(hours=3))
         data = config()
         with tempfile.TemporaryDirectory() as temp:
             store=ForecastStore(Path(temp)/"forecast.sqlite")

@@ -3878,7 +3878,11 @@ async def api_forecast_refresh():
 @app.get("/api/forecast/day")
 async def api_forecast_day(date: str | None = None):
     try:
-        result = forecast_store.day(date)
+        result = forecast_store.day(
+            date, resolution_minutes=int(
+                (state.config.get("forecast") or {}).get("settings", {}).get("resolution_minutes", 15)
+            ),
+        )
     except (ValueError, OverflowError) as exc:
         return JSONResponse({"status":"error","message":str(exc)},status_code=400)
     result["actual"], result["energy"]["actual"] = forecast_actual_day_with_energy(

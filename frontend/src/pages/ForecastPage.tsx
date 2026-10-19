@@ -7,6 +7,7 @@ import { IconChevronDown, IconChevronLeft, IconChevronRight, IconRefresh } from 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ForecastChart, type ForecastDay } from '../forecast/ForecastChart';
 import { energyValue, coverageText } from '../forecast/energy';
+import { forecastSelectValue } from '../forecast/settingValues';
 import { dayShift, daySelectionAfterMove, forecastDayRefreshInterval } from '../forecast/dayNavigation';
 import { forecastAfterSave, syncedForecastDraft } from '../forecast/saveSync';
 
@@ -18,7 +19,7 @@ type Config = {
   fields: { name: string; label: string; type: string;
     options?: { value: string; label: string }[];
     min?: number; max?: number; visible_when?: { name: string; value: string } }[];
-  settings: { mode: string; refresh_minutes: number; api_key_configured: boolean; api_key?: string;
+  settings: { mode: string; refresh_minutes: number; resolution_minutes: number; api_key_configured: boolean; api_key?: string;
     [key: string]: string | number | boolean | undefined };
   inverters: Inverter[]; location_ready: boolean;
 };
@@ -287,7 +288,8 @@ export function ForecastPage() {
                     data={field.options || []}
                     value={String(draft.settings[field.name] ?? '')}
                     onChange={value => change(d => {
-                      d.settings[field.name] = value ?? ''; return d;
+                      d.settings[field.name] = forecastSelectValue(field.name, value);
+                      return d;
                     })}/>
                 ) : field.type === 'password' ? (
                   <PasswordInput key={field.name} label={field.label}
