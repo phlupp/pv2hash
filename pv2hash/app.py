@@ -7,6 +7,7 @@ import re
 import os
 import platform
 import shutil
+import sqlite3
 import socket
 import sys
 from copy import deepcopy
@@ -282,7 +283,8 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
 
 
 
-export_manager = ExportManager(ExportSource(data_logger._db_path, _build_runtime_snapshot_payload), lambda: state.config)
+export_manager = ExportManager(ExportSource(data_logger._db_path, _build_runtime_snapshot_payload,
+    forecast_db_path=Path("data/forecast.sqlite")), lambda: state.config)
 export_manager.register('influxdb2', lambda cfg: InfluxDB2Destination({
     **cfg,
     'instance_id': instance_identity.id,
@@ -2885,6 +2887,45 @@ async def pv_measurement_loop() -> None:
 
 forecast_store = ForecastStore()
 
+from pv2hash.forecast.sqlite_status import SQLiteStatus
+sqlite_status = SQLiteStatus({
+    'forecast': (forecast_store.path, 'PV-Prognose'),
+    'history': (data_logger._db_path, 'Data Logger'),
+    'exporters': (export_manager.state_path, 'Exporter'),
+})
+
+
+async def sqlite_maintenance_background_loop() -> None:
+    """Never touch control loop. Retain 365d revisions and record size hourly."""
+    while True:
+        try:
+            result = await asyncio.to_thread(forecast_store.prune_revisions)
+            if result['revisions_deleted']:
+                logger.info('Forecast archive retention: deleted %s revisions / %s points',
+                            result['revisions_deleted'],result['points_deleted'])
+        except Exception:
+            logger.exception('Forecast archive retention unsuccessful; retry next hour')
+        try:
+            await asyncio.to_thread(sqlite_status.capture)
+        except Exception:
+            logger.exception('SQLite size sample unsuccessful; retry next hour')
+        await asyncio.sleep(3600)
+
+
+async def forecast_quality_background_loop() -> None:
+    """Evaluate settled forecasts in a worker thread, never on control loop."""
+    from pv2hash.forecast.quality import evaluate_recent
+    while True:
+        await asyncio.sleep(300)
+        try:
+            # DataLogger retains at most 7 days; first start catches up up to
+            # 48h. The quality table persists samples beyond that retention.
+            await asyncio.to_thread(evaluate_recent, forecast_store)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            logger.warning("Forecast quality evaluation unavailable: %s", exc)
+        except Exception:
+            logger.exception("Unexpected forecast quality evaluation failure")
+
 
 async def forecast_background_loop() -> None:
     """Disabled by default. Poll only when a forecast is configured and enabled."""
@@ -2920,6 +2961,8 @@ async def startup_event() -> None:
     asyncio.create_task(data_logger.run())
     asyncio.create_task(export_manager.run())
     asyncio.create_task(forecast_background_loop())
+    asyncio.create_task(forecast_quality_background_loop())
+    asyncio.create_task(sqlite_maintenance_background_loop())
 
 
 def reload_runtime() -> None:
@@ -3892,6 +3935,27 @@ async def api_forecast_day(date: str | None = None):
     return JSONResponse(content=jsonable_encoder(result))
 
 
+@app.get("/api/forecast/quality")
+async def api_forecast_quality(days: int = 7):
+    """Forecast error samples only; no actions on miners or battery."""
+    from pv2hash.forecast.quality import quality_report
+    try:
+        return JSONResponse(content=jsonable_encoder({
+            "status": "ok", **quality_report(forecast_store, days=days),
+        }))
+    except ValueError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+
+
+@app.get("/api/energy-planner/inputs")
+async def api_energy_planner_inputs():
+    """Non-operational data inventory for planned future Shadow Mode."""
+    from pv2hash.forecast.planner_inputs import inspect_inputs
+    result = inspect_inputs(_build_runtime_snapshot_payload(),
+                            services.get_battery_source_debug_info())
+    return JSONResponse(content=jsonable_encoder(result))
+
+
 @app.get("/api/datalogger/status")
 async def api_datalogger_status():
     return JSONResponse(content=jsonable_encoder({"status": "ok", "datalogger": data_logger.status()}))
@@ -4113,6 +4177,15 @@ async def api_system_config_import(request: Request):
 @app.get("/api/system/model")
 async def api_system_model():
     return JSONResponse(content=jsonable_encoder(_build_system_model()))
+
+
+@app.get("/api/system/sqlite-status")
+async def api_system_sqlite_status(days: int = 30):
+    try:
+        return JSONResponse(content=jsonable_encoder(
+            await asyncio.to_thread(sqlite_status.report, days=days)))
+    except ValueError as exc:
+        return JSONResponse({'status':'error','message':str(exc)},status_code=400)
 
 
 @app.get("/api/system/update-model")

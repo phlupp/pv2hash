@@ -46,6 +46,13 @@ class ExportManager:
               consecutive_failures INTEGER NOT NULL DEFAULT 0,
               retry_after TEXT, PRIMARY KEY(exporter_id, stream))''')
 
+    @staticmethod
+    def _streams(cfg: dict) -> tuple[str, ...]:
+        streams = ('samples','controller_events','pool_state','pool_events')
+        if cfg.get('settings', {}).get('forecast_quality_enabled', False) is True:
+            return (*streams,'forecast_quality')
+        return streams
+
     def _configured(self) -> list[dict[str, Any]]:
         exporters = self.config_provider().get('exporters', [])
         return exporters if isinstance(exporters, list) else []
@@ -69,8 +76,7 @@ class ExportManager:
             key = str(cfg.get('id') or '')
             if not key:
                 continue
-            streams = {name: self._state(key, name) for name in
-                       ('samples', 'controller_events', 'pool_state', 'pool_events')}
+            streams = {name: self._state(key, name) for name in self._streams(cfg)}
             cursor = streams['samples']['cursor']
             backlog_seconds = None
             if latest_sample and cursor:
@@ -100,10 +106,10 @@ class ExportManager:
             try:
                 adapter = self.adapters[cfg['type']](cfg)
             except Exception as exc:
-                for stream in ('samples', 'controller_events', 'pool_state', 'pool_events'):
+                for stream in self._streams(cfg):
                     self._failure(key, stream, exc)
                 continue
-            for stream in ('samples', 'controller_events', 'pool_state', 'pool_events'):
+            for stream in self._streams(cfg):
                 state = self._state(key, stream)
                 now = datetime.now(timezone.utc)
                 if state['retry_after'] and datetime.fromisoformat(state['retry_after']) > now:
@@ -124,6 +130,9 @@ class ExportManager:
                     elif stream == 'pool_events':
                         batch = self.source.pool_events(
                             after_id=int(state['cursor'] or 0), limit=limit)
+                    elif stream == 'forecast_quality':
+                        batch = self.source.forecast_quality(
+                            after_id=int(state['cursor'] or 0),limit=limit)
                     else:
                         batch = self.source.pool_state()
 

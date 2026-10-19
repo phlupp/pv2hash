@@ -8,9 +8,11 @@ from fastapi.encoders import jsonable_encoder
 class ExportSource:
     schema_version = 1
 
-    def __init__(self, db_path: str | Path, snapshot_provider: Callable[[], dict[str, Any]]):
+    def __init__(self, db_path: str | Path, snapshot_provider: Callable[[], dict[str, Any]],
+                 *, forecast_db_path: str | Path | None = None):
         self.db_path = Path(db_path)
         self.snapshot_provider = snapshot_provider
+        self.forecast_db_path = Path(forecast_db_path) if forecast_db_path else None
 
     def snapshot(self) -> dict[str, Any]:
         return {"schema_version": self.schema_version, "kind": "snapshot",
@@ -35,6 +37,25 @@ class ExportSource:
         for row in rows:
             row["miners"] = grouped.get(row["ts"], [])
         return self._batch("samples", rows, after, "ts")
+
+    def forecast_quality(self, *, after_id: int = 0, limit: int = 120) -> dict[str, Any]:
+        """Export in insert order, not by valid_at: late samples are expected."""
+        limit = max(1, min(int(limit), 1000))
+        path = self.forecast_db_path
+        if path is None or not path.exists():
+            return self._batch('forecast_quality', [], after_id, 'quality_id')
+        with sqlite3.connect(path) as db:
+            db.row_factory = sqlite3.Row
+            try:
+                rows = [dict(row) for row in db.execute("""SELECT quality_id,
+                    valid_at,horizon_minutes,issued_at,forecast_w,actual_w,error_w
+                    FROM forecast_quality_samples WHERE quality_id > ?
+                    ORDER BY quality_id LIMIT ?""",(after_id,limit))]
+            except sqlite3.OperationalError as exc:
+                if 'no such table: forecast_quality_samples' not in str(exc):
+                    raise
+                rows=[]
+        return self._batch('forecast_quality',rows,after_id,'quality_id')
 
     def controller_events(self, *, after_id: int = 0, limit: int = 120) -> dict[str, Any]:
         """Read controller event log; cursor is exclusive monotonically increasing ID."""

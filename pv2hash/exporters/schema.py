@@ -35,6 +35,7 @@ class InfluxDBDefinition(ExporterDefinition):
             DriverField("timeout_seconds", "Timeout", "number", default=10, min=1, max=120, step=1, advanced=True, layout={"width":"third"}),
             DriverField("batch_size", "Batchgröße", "number", default=120, min=1, max=1000, step=1, advanced=True, layout={"width":"third"}),
             DriverField("precision", "Zeitauflösung", "select", default="ns", choices=(DriverFieldChoice("ns","Nanosekunden"), DriverFieldChoice("ms","Millisekunden")), advanced=True, layout={"width":"third"}),
+            DriverField("forecast_quality_enabled", "Prognosequalität zentral exportieren", "checkbox", default=False, advanced=True, layout={"width":"full"}),
         ]
 
 DEFINITIONS = {InfluxDBDefinition.TYPE: InfluxDBDefinition}
