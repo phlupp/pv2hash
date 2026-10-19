@@ -2,8 +2,8 @@
 
 **Status:** Entwicklung auf `testvm01`, bislang keine Produktivregelung und
 kein automatischer Batterie-/Miner-Eingriff. Fachvorgaben zum Ladeziel
-100 % SOC bis Sonnenuntergang minus zwei Stunden sind separat in PR #42
-(`docs/energy-planner.md`) zur Freigabe dokumentiert; dieser PR merged #42 nicht.
+100 % SOC bis Sonnenuntergang minus zwei Stunden sind im gemergten Fachkonzept
+[`docs/energy-planner.md`](energy-planner.md) dokumentiert.
 
 ## A – Unveränderliche Prognose-Revisionen
 

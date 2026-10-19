@@ -1,21 +1,15 @@
 # PV-Prognose – Architektur und Entwicklung
 
-**Stand 2026-10-19:** Die PV-Prognose ist seit den Releases vom
-18.10.2026 Bestandteil von PV2Hash (zuletzt `r2026.10.18.2`).
-Die hier beschriebene **15-Minuten-Auflösung / 30-Minuten-Standardabrufe**
-wird ausschließlich auf `testvm01` im Branch
-`feat/forecast-resolution-15m` entwickelt. Sie ist **noch nicht**
-nach `main` gemergt, veröffentlicht oder auf einem produktiven Hashpi
-installiert. Ursprung der Architektur ist der frühere Prototyp
+**Stand 2026-10-19:** Die PV-Prognose ist produktiver Bestandteil
+von PV2Hash; zuletzt wurde `r2026.10.19.1` mit wählbarer 15-/60-Minuten-
+Auflösung veröffentlicht. Ursprung der Architektur ist der Prototyp
 `feat/forecast-foundation`.
 
-## Weiterentwicklung: Prognosequalität und Shadow-Planer
-
-[Phase A – Revisionen und Prognosequalität / Phase B – Dateninventar](forecast-quality.md)
-archiviert künftig jede erfolgreich gespeicherte Vorhersagerevision und wertet
-vergangene Prognosen gegen gültige PV-Messungen aus. Die spätere Batterie-
-planung bleibt ohne Steuerzugriff; fachliche Ladeziel-Vorgaben befinden sich
-bis zur separaten Freigabe in PR #42.
+**Weiterführende Konzepte:** [Batterie-Ladeziel und Shadow Mode](energy-planner.md)
+und [Prognoserevisionen, Qualitätsauswertung und Dateninventar](forecast-quality.md).
+Die Prognosequalität wird ausschließlich informativ ausgewertet; der
+Batterie-/Mining-Planer ist noch nicht implementiert und greift nicht
+in die bestehende Minerregelung ein.
 
 ## Fachliches Modell
 
