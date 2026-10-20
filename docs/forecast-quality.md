@@ -5,6 +5,11 @@ kein automatischer Batterie-/Miner-Eingriff. Fachvorgaben zum Ladeziel
 100 % SOC bis Sonnenuntergang minus zwei Stunden sind im gemergten Fachkonzept
 [`docs/energy-planner.md`](energy-planner.md) dokumentiert.
 
+Das getrennte Konzept für eine **lernende, ausschließlich parallel berechnete
+PV-Shadow-Prognose** (Konfigurationsdiagnose, saisonale Verschattung,
+dritte Diagrammkurve und fairer Qualitätsvergleich) steht in
+[forecast-shadow-learning.md](forecast-shadow-learning.md).
+
 ## A – Unveränderliche Prognose-Revisionen
 
 - `data/forecast.sqlite` bleibt der Prognose-Datenspeicher. Die bestehende
