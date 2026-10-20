@@ -32,16 +32,28 @@ During startup delay the miner receives a temporary runtime state of `waiting_fo
 
 When the controller requests profile `off`:
 
-1. PV2Hash applies `off` to the miner first.
-2. The socket off timer starts if it is not already running.
-3. If the miner remains in `off` for `power_off_after_off_seconds`, the socket is switched off.
-4. If the controller later requests a non-`off` profile, the off timer is reset.
+1. If the assigned socket can be read and is **already off**, PV2Hash
+   adopts `socket_off` immediately without contacting the unpowered miner.
+2. Otherwise, PV2Hash applies `off` to the miner first.
+3. The socket off timer starts if it is not already running.
+4. If the miner remains in `off` for `power_off_after_off_seconds`, the socket is switched off.
+5. If the controller later requests a non-`off` profile, the off timer is reset.
 
 The minimum socket-off delay is 600 seconds. The default is 3600 seconds.
 
 ## Repeated off calls
 
 After the socket has been switched off by the workflow, PV2Hash does not keep calling the miner API with profile `off` every control cycle. The miner is treated as intentionally powered off until the controller requests a non-`off` profile again.
+
+**Recovery after restart/update:** The in-memory workflow timer is not
+persisted. On the next `off` decision, PV2Hash checks the assigned socket
+again. If the socket is reachable and reports **off**, it recovers the
+`socket_off` state without restarting the one-hour countdown or attempting
+to reach the unpowered WhatsMiner. If the socket reports **on**, the normal
+off timer is used; if its state is unavailable, PV2Hash does not assume it
+is safely switched off. A later `on` request still observes the configured
+miner startup delay. The dashboard `is_running` flag is true only for a
+reachable miner with runtime state `running`.
 
 ## Runtime snapshot
 

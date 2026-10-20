@@ -941,7 +941,7 @@ def _build_dashboard_miner_rows() -> list[dict]:
         runtime_state_normalized = str(
             getattr(runtime_miner, "runtime_state", "unknown") or "unknown"
         ).lower()
-        is_running = runtime_state_normalized not in {"paused", "stopped", "off", "idle", "unknown", "unreachable"}
+        is_running = runtime_state_normalized == "running" and bool(getattr(runtime_miner, "reachable", False))
 
         host = getattr(runtime_miner, "host", None) or str(miner_cfg.get("host", "") or "")
         name = getattr(runtime_miner, "name", None) or str(miner_cfg.get("name", "") or "")

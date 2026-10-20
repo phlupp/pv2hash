@@ -316,6 +316,16 @@ async def _handle_profile_with_socket(
         _mark_socket_powered_off(miner)
         return None
 
+    # After a process restart the in-memory workflow state is empty, even if
+    # Tasmota had already switched off the socket an hour earlier. Reconcile
+    # the real, reachable socket state BEFORE contacting the unpowered miner
+    # or starting a second power-off timer.
+    if _assigned_socket_is_off(app_mod, socket_cfg, state):
+        _reset_off_timer(state)
+        state.update({"state": "socket_off", "message": "Steckdose ist aus.", "last_error": ""})
+        _mark_miner_poll_skipped_for_socket_off(miner)
+        return None
+
     result = await original_set_profile(profile)
     _reset_startup(state)
 
