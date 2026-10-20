@@ -116,6 +116,42 @@ class SocketRestartRecoveryTest(unittest.TestCase):
         asyncio.run(apply("off"))
         self.assertEqual(calls, ["off", "off"], "No more miner calls once off")
 
+    def test_restart_during_off_delay_cancels_timer_and_resets_next_delay(self):
+        socket, miner, calls, apply = self.make_env(is_on=True)
+
+        # Normal stop: miner is paused, but its socket is still powered.
+        asyncio.run(apply("off"))
+        state = workflow._workflow_state("m-test")
+        self.assertEqual(state["state"], "off_timer")
+        self.assertEqual(socket.switches, [])
+
+        # Mimic 59 min 55 sec into the one-hour delay.
+        state["off_since_monotonic"] = time.monotonic() - 3595
+        state["power_off_due_monotonic"] = time.monotonic() + 5
+        old_deadline = state["power_off_due_monotonic"]
+
+        # PV surplus resumes before the power cut: cancel the old timer.
+        asyncio.run(apply("p1"))
+        self.assertEqual(miner.info.profile, "p1")
+        self.assertEqual(state["state"], "running")
+        self.assertNotIn("off_since_monotonic", state)
+        self.assertNotIn("power_off_due_monotonic", state)
+        self.assertNotIn("power_off_due_at", state)
+        self.assertNotIn("off_since", state)
+        self.assertEqual(socket.switches, [])
+        self.assertEqual(calls, ["off", "p1"])
+
+        # Even after the previous deadline, no pending power cut can fire.
+        # A subsequent stop must get an entirely new one-hour grace period.
+        asyncio.run(apply("off"))
+        second_deadline = state["power_off_due_monotonic"]
+        self.assertEqual(state["state"], "off_timer")
+        self.assertGreater(second_deadline, time.monotonic() + 3500)
+        self.assertGreater(second_deadline - old_deadline, 3500)
+        asyncio.run(apply("off"))
+        self.assertEqual(socket.switches, [])
+        self.assertEqual(calls, ["off", "p1", "off", "off"])
+
     def test_turned_on_again_still_honors_startup_delay(self):
         socket, _, calls, apply = self.make_env(is_on=False)
         asyncio.run(apply("off"))
