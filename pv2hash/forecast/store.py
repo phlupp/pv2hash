@@ -79,6 +79,7 @@ class ForecastStore:
         surfaces: dict[str, dict[str, float]],
         resolution_minutes: int | None = None,
         shadow_config_hash: str | None = None,
+        shadow_config_summary: dict | None = None,
     ) -> dict:
         """One atomic transaction, never write any point <= now.
 
@@ -164,6 +165,7 @@ class ForecastStore:
                         timezone=timezone, config_hash=shadow_config_hash,
                         values=new_values, cutoff=cutoff,
                         resolution_minutes=resolution_minutes,
+                        config_summary=shadow_config_summary,
                     )
             con.execute("""INSERT INTO forecast_meta(key,value) VALUES('timezone',?)
                         ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (timezone,))

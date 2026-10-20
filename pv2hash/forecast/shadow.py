@@ -78,7 +78,9 @@ def ensure_schema(con) -> None:
         baseline_revision_id INTEGER NOT NULL,
         model_id INTEGER NOT NULL
     )""")
-    con.execute("""CREATE TABLE IF NOT EXISTS forecast_shadow_quality_samples (
+    # A real AUTOINCREMENT cursor is essential: quality arrives after the
+    # predicted target, possibly out of order, and VACUUM may renumber rowid.
+    quality_columns = """quality_id INTEGER PRIMARY KEY AUTOINCREMENT,
         valid_at TEXT NOT NULL,
         horizon_minutes INTEGER NOT NULL,
         issued_at TEXT NOT NULL,
@@ -89,8 +91,26 @@ def ensure_schema(con) -> None:
         shadow_w REAL NOT NULL,
         actual_w REAL NOT NULL,
         evaluated_at TEXT NOT NULL,
-        PRIMARY KEY(valid_at,horizon_minutes)
+        UNIQUE(valid_at,horizon_minutes)"""
+    con.execute(f"""CREATE TABLE IF NOT EXISTS forecast_shadow_quality_samples (
+        {quality_columns}
     )""")
+    columns = {row[1] for row in con.execute("PRAGMA table_info(forecast_shadow_quality_samples)")}
+    if columns and "quality_id" not in columns:
+        # Upgrade the unpublished first Shadow prototype without losing
+        # previously evaluated measurements. Transaction owned by caller.
+        con.execute(f"""CREATE TABLE forecast_shadow_quality_samples_v2 (
+            {quality_columns}
+        )""")
+        fields = ("valid_at,horizon_minutes,issued_at,baseline_revision_id,"
+                  "model_id,config_hash,baseline_w,shadow_w,actual_w,evaluated_at")
+        con.execute(f"""INSERT INTO forecast_shadow_quality_samples_v2 ({fields})
+            SELECT {fields} FROM forecast_shadow_quality_samples ORDER BY rowid""")
+        con.execute("DROP TABLE forecast_shadow_quality_samples")
+        con.execute("ALTER TABLE forecast_shadow_quality_samples_v2 RENAME TO forecast_shadow_quality_samples")
+    model_columns = {row[1] for row in con.execute("PRAGMA table_info(forecast_shadow_models)")}
+    if "plant_summary" not in model_columns:
+        con.execute("ALTER TABLE forecast_shadow_models ADD COLUMN plant_summary TEXT NOT NULL DEFAULT '{}'")
     con.execute("""CREATE INDEX IF NOT EXISTS forecast_shadow_quality_by_config
         ON forecast_shadow_quality_samples(config_hash,valid_at)""")
 
@@ -154,6 +174,31 @@ def fit_model(rows: list[tuple], *, issued_at: datetime, timezone: str) -> dict:
             "day_median_mad": round(spread, 4)}
 
 
+def plant_summary(generators: list) -> dict:
+    """Non-identifying physical aggregates, no location or device identities.
+
+    PV2Hash azimuth convention: south=0°, east=-90°, west=+90°.
+    """
+    if not generators:
+        return {}
+    capacity = sum(float(g.kwp) for g in generators)
+    bands = {"east": 0.0, "south": 0.0, "west": 0.0, "north": 0.0}
+    for g in generators:
+        angle = float(g.azimuth)
+        bucket = ("south" if -45 <= angle < 45 else
+                  "east" if -135 <= angle < -45 else
+                  "west" if 45 <= angle < 135 else "north")
+        bands[bucket] += float(g.kwp)
+    return {
+        "capacity_kwp": round(capacity, 3),
+        "generator_count": len(generators),
+        "inverter_count": len({g.inverter_id for g in generators}),
+        "tilt_weighted_deg": round(sum(g.tilt * g.kwp for g in generators) / capacity, 2),
+        "loss_weighted_pct": round(sum(g.loss_percent * g.kwp for g in generators) / capacity, 2),
+        **{name + "_kwp": round(value, 3) for name, value in bands.items()},
+    }
+
+
 def _prepare_model(con, *, issued: str, timezone: str, config_hash: str) -> dict:
     history_start = utc_iso(datetime.fromisoformat(issued.replace("Z", "+00:00")) - timedelta(days=30))
     rows = con.execute("""SELECT valid_at,horizon_minutes,baseline_w,actual_w
@@ -167,7 +212,8 @@ def _prepare_model(con, *, issued: str, timezone: str, config_hash: str) -> dict
 
 def publish(con, *, revision_id: int, issued: str, timezone: str,
             config_hash: str, values: list[tuple], cutoff: str,
-            resolution_minutes: int | None) -> None:
+            resolution_minutes: int | None,
+            config_summary: dict | None = None) -> None:
     """Called within the original baseline forecast transaction."""
     model = _prepare_model(con, issued=issued, timezone=timezone, config_hash=config_hash)
     diagnostics = {k: value for k, value in model.items()
@@ -175,11 +221,12 @@ def publish(con, *, revision_id: int, issued: str, timezone: str,
                                 "window_start", "window_end")}
     model_id = con.execute("""INSERT INTO forecast_shadow_models
         (calculated_at,model_version,config_hash,status,factor,sample_count,
-         day_count,window_start,window_end,diagnostics)
-        VALUES(?,?,?,?,?,?,?,?,?,?)""",
+         day_count,window_start,window_end,diagnostics,plant_summary)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
         (issued, MODEL_VERSION, config_hash, model["status"], model["factor"],
          model["sample_count"], model["day_count"],
-         model["window_start"], model["window_end"], json.dumps(diagnostics))).lastrowid
+         model["window_start"], model["window_end"], json.dumps(diagnostics),
+         json.dumps(config_summary or {}, sort_keys=True))).lastrowid
     con.execute("""INSERT INTO forecast_shadow_revisions
         (revision_id,model_id,config_hash,issued_at) VALUES(?,?,?,?)""",
         (revision_id, model_id, config_hash, issued))
@@ -321,4 +368,5 @@ def prune_archived_pairs(con, *, revision_ids: list[int], cutoff: str) -> None:
                     revision_ids)
     con.execute("""DELETE FROM forecast_shadow_models WHERE calculated_at<?
         AND model_id NOT IN (SELECT model_id FROM forecast_shadow_revisions)
-        AND model_id NOT IN (SELECT model_id FROM forecast_shadow_points)""",(cutoff,))
+        AND model_id NOT IN (SELECT model_id FROM forecast_shadow_points)
+        AND model_id NOT IN (SELECT model_id FROM forecast_shadow_quality_samples)""",(cutoff,))

@@ -57,6 +57,51 @@ class ExportSource:
                 rows=[]
         return self._batch('forecast_quality',rows,after_id,'quality_id')
 
+    def forecast_shadow_quality(self, *, after_id: int = 0, limit: int = 120) -> dict[str, Any]:
+        """Append-only, paired LIVE comparisons, with monotonic export cursor.
+
+        Never export speculative or retrospectively reconstructed forecasts.
+        No source writes or network operations; independent of local learning.
+        """
+        limit = max(1, min(int(limit), 1000))
+        path = self.forecast_db_path
+        if path is None or not path.exists():
+            return self._batch('forecast_shadow_quality', [], after_id, 'quality_id')
+        with sqlite3.connect(path) as db:
+            db.row_factory = sqlite3.Row
+            try:
+                rows = [dict(row) for row in db.execute("""SELECT q.quality_id,
+                    q.valid_at,q.horizon_minutes,q.issued_at,
+                    q.baseline_revision_id,q.config_hash,q.baseline_w,q.shadow_w,
+                    q.actual_w,q.evaluated_at,
+                    m.model_version,m.status AS model_status,m.factor AS model_factor,
+                    m.sample_count AS training_samples,m.day_count AS training_days,
+                    m.plant_summary
+                    FROM forecast_shadow_quality_samples AS q
+                    LEFT JOIN forecast_shadow_models AS m ON m.model_id=q.model_id
+                    WHERE q.quality_id>? ORDER BY q.quality_id LIMIT ?""",
+                    (after_id, limit))]
+            except sqlite3.OperationalError as exc:
+                if 'no such table:' not in str(exc):
+                    raise
+                rows = []
+        import json
+        # Non-identifying, allowlisted aggregate plant characteristics only.
+        summary_fields = ("capacity_kwp","generator_count","inverter_count",
+                          "tilt_weighted_deg","loss_weighted_pct",
+                          "east_kwp","south_kwp","west_kwp","north_kwp")
+        for row in rows:
+            try:
+                summary = json.loads(row.pop('plant_summary') or '{}')
+                if not isinstance(summary, dict):
+                    summary = {}
+            except (TypeError, ValueError):
+                summary = {}
+            row.update({k:summary[k] for k in summary_fields
+                        if k in summary and isinstance(summary[k],(int,float))
+                        and not isinstance(summary[k],bool)})
+        return self._batch('forecast_shadow_quality', rows, after_id, 'quality_id')
+
     def controller_events(self, *, after_id: int = 0, limit: int = 120) -> dict[str, Any]:
         """Read controller event log; cursor is exclusive monotonically increasing ID."""
         limit = max(1, min(int(limit), 1000))

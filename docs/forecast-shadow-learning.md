@@ -228,3 +228,75 @@ Freeze. Backend/Frontend-Regression und Browser-Sichtprüfung auf
 Die Grenzwerte sind konservative Start-Hypothesen, **keine**
 statistisch validierte Prognoseverbesserung im realen Betrieb.
 Der reale MAE-Vergleich benötigt mehrere neue Tage tatsächlicher Shadow-Ausgaben.
+
+## 10. Zentraler, optionaler Shadow-Qualitätsexport (Entwicklungsbranch)
+
+**Lokale Unabhängigkeit:** PV2Hash berechnet, speichert und lernt vollständig
+lokal. InfluxDB/Grafana sind nicht erforderlich und **niemals** Quelle
+für die Live-Regelung, die Shadow-Prognose oder das lokale Training.
+Wetterdaten-Abrufe beim externen Anbieter sind unabhängig davon.
+
+**Exporter:** Zusätzlicher Opt-in-Stream
+\`forecast_shadow_quality\` in der bereits bestehenden InfluxDB-2.x-
+Exporterarchitektur. Der Standardschalter
+\`forecast_shadow_quality_enabled\` ist **aus**, auch nach Updates.
+Der bisherige \`forecast_quality\`-Stream ist unabhängig und unverändert.
+Konfigurationsänderungen an den Stream-Schaltern erfordern keinen neuen
+Verbindungstest, wenn Server/Bucket/Token gleich geblieben sind.
+Bestehende geprüfte Verbindungen behalten ihren Gültigkeitsnachweis.
+
+**Lokal -> zentral:** Die append-only Tabelle
+\`forecast_shadow_quality_samples\` erhält eine stabile,
+\`AUTOINCREMENT\`-Spalte \`quality_id\`. Eine transaktionale Migration
+übernimmt Werte aus der ersten Shadow-Prototyp-Tabelle ohne diesen
+Schlüssel. Nur bereits paarweise gegen **denselben LIVE-Istwert**
+bewertete Basis- und Shadow-Prognosen werden gelesen. Die Exportquelle
+verändert weder Revisionen noch Trainingsdaten.
+Für jeden Exporter existiert ein eigener, dauerhaft gespeicherter
+numerischer Cursor, der **erst nach erfolgreicher HTTP-204-Bestätigung**
+weitergeschrieben wird. Ausfälle werden mit den vorhandenen
+Wiederholungs-/Backoff-Regeln verarbeitet; doppelte Übertragung bleibt
+wegen stabiler Serienidentität idempotent. Spät eintreffende
+Qualitätswerte werden durch \`quality_id\` und nicht durch \`valid_at\`
+erfasst, auch nach \`VACUUM\`.
+
+**InfluxDB-Messung:** \`pv2hash_forecast_shadow_quality\`.
+Tags sind ausschließlich \`instance_id\`, \`instance_name\`,
+\`horizon\` (15m/30m/60m/180m); Zeitstempel ist die UTC-Zielzeit.
+Pro Instanz/Zielzeit/Vorlauf entsteht exakt **ein** vergleichbares Paar.
+Als numerische Felder werden Basis-/Shadow-/Istleistung, Fehler,
+absolute Fehler, absolute Fehlerverbesserung in Watt,
+Baseline-Revision-ID, Lernfaktor, Trainingspunkt-/Tagezahl
+und aggregierte Anlagenkennzahlen exportiert.
+Textfelder enthalten Ausgabe- und Auswertungszeit,
+Konfigurations-Fingerprint (Hash), Modellversion und Lernstatus.
+Der Fingerprint ist ein **Feld**, niemals ein hochkardinales Tag.
+MAE/Bias/RMSE werden zentral aus den Fehlerwerten nach gleicher
+Filterung und gleichen Zeithorizonten berechnet (nicht über
+voraggregierte Standort-MAE gemittelt).
+
+**Standortübergreifender Vergleich:** Die zusätzliche
+\`plant_summary\` aus der tatsächlichen Prognosekonfiguration
+umfasst Gesamt-kWp, Generator-/Wechselrichterzahl,
+leistungsgewichtete Neigung/Verlustannahme und kWp der
+Orientierungsbänder Nord/Ost/Süd/West. Sie enthält **keine**
+exakten Koordinaten, WR-/Generatornamen, lokalen Geräte-IDs
+oder Zugangsdaten. Keine Rohrevisionszeitreihen werden im
+Standardexport übertragen. Anlageneigenschaften werden als
+Modell-Snapshot gespeichert, sodass spätere Umkonfigurationen
+die ursprünglichen Metadaten nicht nachträglich verändern.
+
+**Aufbewahrung:** 365 Tage vollständige lokale
+Basis-/Shadow-Revisionsarchive; Qualitätsproben bleiben aktuell
+ohne automatische Löschung und damit mindestens für den
+angestrebten 24-Monate-Lern-/Vergleichshorizont verfügbar.
+Modell-Snapshots, auf die noch Qualitätsproben verweisen,
+bleiben ebenfalls erhalten. Das operative kurzfristige
+Kalibrierfenster beträgt zunächst weiterhin 30 Tage.
+Aufbewahrung/Retention des zentralen Dev-Buckets ist eine
+separate InfluxDB-Einstellung; die lokale Retention hängt
+nicht davon ab.
+
+**Einsatz:** Nur auf \`testvm01\` und mit dessen eigenem
+\`pv2hash-dev\`-Bucket testbar. Produktive Exporter/Buckets
+nicht verändern. Release/Produktivrollout erst nach Freigabe.

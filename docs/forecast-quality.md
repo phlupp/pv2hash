@@ -118,3 +118,14 @@ noch alte Qualitätsproben um.** Der zusätzliche Endpoint
 `GET /api/forecast/quality/shadow` vergleicht nur tatsächlich im Voraus
 ausgegebene und über dieselbe gültige Ist-Messung paarbare Revisionen.
 Ohne solche Paare gibt es **keinen** behaupteten Shadow-MAE.
+
+### Optionaler Shadow-Influx-Export
+
+Der neue, standardmäßig deaktivierte
+\`forecast_shadow_quality\`-Stream exportiert ausschließlich dauerhaft
+gespeicherte, as-issued gepaarte Basis-/Shadow-/LIVE-Vergleiche nach
+\`pv2hash_forecast_shadow_quality\`. Unabhängiger Cursor je Ziel,
+Ack/Retry und Zeitstempel der **Prognose-Zielzeit** sind in
+[\`forecast-shadow-learning.md\`](forecast-shadow-learning.md)
+dokumentiert. Der bisherige \`forecast_quality\`-Stream bleibt identisch.
+Rohrevisionsarchive werden nicht automatisch nach InfluxDB übertragen.

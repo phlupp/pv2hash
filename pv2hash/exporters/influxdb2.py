@@ -167,6 +167,48 @@ class InfluxDB2Destination:
                 result = line('pv2hash_forecast_quality',tags,fields,
                               item['valid_at'],text_fields=('forecast_issued_at',))
                 if result: lines.append(result)
+            elif kind == 'forecast_shadow_quality':
+                # One immutable pair per (instance, horizon, UTC target).
+                # Keep unique model/config values as FIELDS, never as tags:
+                # individual revision IDs would explode series cardinality.
+                horizon = int(item['horizon_minutes'])
+                if horizon not in (15, 30, 60, 180):
+                    raise ValueError('Unknown shadow quality horizon')
+                baseline, shadow, actual = (
+                    float(item[key]) for key in ('baseline_w', 'shadow_w', 'actual_w'))
+                if not all(math.isfinite(x) and x >= 0 for x in (baseline, shadow, actual)):
+                    raise ValueError('Invalid shadow quality power values')
+                base_error = baseline - actual
+                shadow_error = shadow - actual
+                fields = {
+                    'baseline_w': baseline, 'shadow_w': shadow, 'actual_w': actual,
+                    'baseline_error_w': base_error, 'shadow_error_w': shadow_error,
+                    'baseline_abs_error_w': abs(base_error),
+                    'shadow_abs_error_w': abs(shadow_error),
+                    'mae_improvement_w': abs(base_error) - abs(shadow_error),
+                    'baseline_revision_id': int(item['baseline_revision_id']),
+                    'issued_at': str(item['issued_at']),
+                    'evaluated_at': str(item['evaluated_at']),
+                    'config_hash': str(item['config_hash']),
+                }
+                if item.get('model_version'):
+                    fields['model_version'] = str(item['model_version'])
+                if item.get('model_status'):
+                    fields['model_status'] = str(item['model_status'])
+                for k in ('model_factor','training_samples','training_days',
+                          'capacity_kwp','generator_count','inverter_count',
+                          'tilt_weighted_deg','loss_weighted_pct',
+                          'east_kwp','south_kwp','west_kwp','north_kwp'):
+                    value = item.get(k)
+                    if isinstance(value,(int,float)) and not isinstance(value,bool) and math.isfinite(value):
+                        fields[k] = value
+                tags = {'instance_id': self.instance, 'instance_name': self.instance_name,
+                        'horizon': str(horizon)+'m'}
+                result = line('pv2hash_forecast_shadow_quality',tags,fields,
+                              item['valid_at'],
+                              text_fields=('issued_at','evaluated_at','config_hash',
+                                           'model_version','model_status'))
+                if result: lines.append(result)
             elif kind == 'controller_events':
                 tags = {'instance_id':self.instance, 'instance_name':self.instance_name,
                         'miner_id':item.get('miner_id') or item.get('miner_key'),

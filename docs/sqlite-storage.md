@@ -103,3 +103,16 @@ wie Basisrevisionen. Die kleine Projektions-/Tageshistorie und permanente
 Qualitätsstichproben bleiben für historische Analyse bestehen. Größe und
 WAL sind in der bestehenden Dateigrößenansicht sichtbar; individuelle
 Shadow-Tabellenzähler sind eine mögliche spätere UI-Erweiterung.
+
+### Export-Cursor für Shadow-Qualitätsproben
+
+Die Shadow-Qualität hat eine stabile numerische
+\`quality_id INTEGER PRIMARY KEY AUTOINCREMENT\`. Die bestehende
+Shadow-Prototyp-Tabelle ohne \`quality_id\` wird transaktional
+unter Erhalt vorhandener Proben migriert. Spät bewertete
+Messungen werden mit einem monotonic Cursor exportiert;
+dieser liegt wie alle Export-Zustände in \`exporters.sqlite\`.
+Die Systemseiten-Übersicht bleibt unverändert; die
+\`forecast.sqlite\`-Dateigröße enthält bereits sämtliche
+Shadow-Tabellen. Mehrjahres-Qualitätsdaten und von ihnen
+referenzierte Modell-Snapshots bleiben lokal erhalten.

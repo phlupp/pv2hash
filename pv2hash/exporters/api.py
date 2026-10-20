@@ -21,7 +21,17 @@ def _fingerprint(entry, *, legacy: bool = False) -> str:
     stay valid across upgrades; reissue the new digest on the next save.
     """
     settings = entry.get('settings', {}) or {}
-    ignored = {'batch_size'} if legacy else {'batch_size', 'forecast_quality_enabled'}
+    ignored = ({'batch_size'} if legacy else
+               {'batch_size', 'forecast_quality_enabled',
+                'forecast_shadow_quality_enabled'})
+    payload = {k: v for k, v in settings.items() if k not in ignored}
+    return hashlib.sha256(json.dumps([entry.get('type'), payload], sort_keys=True).encode()).hexdigest()
+
+
+def _pre_shadow_fingerprint(entry) -> str:
+    """Preserve valid connection tests from releases preceding Shadow exports."""
+    settings = entry.get('settings', {}) or {}
+    ignored = {'batch_size', 'forecast_quality_enabled'}
     payload = {k: v for k, v in settings.items() if k not in ignored}
     return hashlib.sha256(json.dumps([entry.get('type'), payload], sort_keys=True).encode()).hexdigest()
 
@@ -34,7 +44,8 @@ def _has_verified_connection(entry) -> bool:
     if not entry or not entry.get('tested_at') or not entry.get('tested_fingerprint'):
         return False
     digest = entry['tested_fingerprint']
-    return digest in (fingerprint(entry), _fingerprint(entry, legacy=True))
+    return digest in (fingerprint(entry), _pre_shadow_fingerprint(entry),
+                      _fingerprint(entry, legacy=True))
 
 
 def install(app, state, save_config, manager):
