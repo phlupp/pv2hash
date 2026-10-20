@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import utc_iso
 from .energy import energy_summary
+from . import shadow
 
 DB_FILE = Path("data/forecast.sqlite")
 TOTAL = "__total__"
@@ -71,11 +72,13 @@ class ForecastStore:
             con.execute("""CREATE TABLE IF NOT EXISTS forecast_meta (
                 key TEXT PRIMARY KEY, value TEXT NOT NULL
             )""")
+            shadow.ensure_schema(con)
 
     def save_future(
         self, *, now: datetime, provider: str, timezone: str,
         surfaces: dict[str, dict[str, float]],
         resolution_minutes: int | None = None,
+        shadow_config_hash: str | None = None,
     ) -> dict:
         """One atomic transaction, never write any point <= now.
 
@@ -155,6 +158,13 @@ class ForecastStore:
                     (revision_id, valid_at, device_id, power_w) VALUES (?, ?, ?, ?)""",
                     [(cursor.lastrowid, ts, name, power)
                      for ts, name, power, _, _ in new_values])
+                if shadow_config_hash:
+                    shadow.publish(
+                        con, revision_id=cursor.lastrowid, issued=issued,
+                        timezone=timezone, config_hash=shadow_config_hash,
+                        values=new_values, cutoff=cutoff,
+                        resolution_minutes=resolution_minutes,
+                    )
             con.execute("""INSERT INTO forecast_meta(key,value) VALUES('timezone',?)
                         ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (timezone,))
             con.execute("""INSERT INTO forecast_meta(key,value) VALUES('last_success',?)
@@ -196,6 +206,8 @@ class ForecastStore:
                 points += con.execute(
                     f"SELECT COUNT(*) FROM forecast_revision_points "
                     f"WHERE revision_id IN ({placeholders})", ids).fetchone()[0]
+                # Prune paired shadow revisions in the same bounded transaction.
+                shadow.prune_archived_pairs(con, revision_ids=ids, cutoff=cutoff)
                 con.execute(f"DELETE FROM forecast_revision_points WHERE revision_id IN ({placeholders})", ids)
                 con.execute(f"DELETE FROM forecast_revisions WHERE revision_id IN ({placeholders})", ids)
                 count += len(ids)
@@ -240,6 +252,7 @@ class ForecastStore:
               FROM forecast_points
               WHERE valid_at>=? AND valid_at<=? AND device_id=?
               ORDER BY valid_at""",(lo,hi,TOTAL)).fetchall()
+            shadow_points, shadow_status = shadow.read_day(con, lo, hi)
         points = [
             (datetime.fromisoformat(ts.replace("Z", "+00:00")), float(power))
             for ts, power, _ in rows
@@ -266,6 +279,7 @@ class ForecastStore:
             "timezone": zone_name, "start":lo,"end":hi,
             "forecast": [{"ts":ts,"power_w":power,"issued_at":issued}
                          for ts,power,issued in rows if ts < hi],
+            "shadow": shadow_points, "shadow_status": shadow_status,
             "energy": {"forecast": energy},
         }
 

@@ -106,3 +106,15 @@ fehlende/ungültige LIVE-Messungen, zeitlich richtige Vorlaufhorizonte,
 Neustart/mehrfachen Evaluationslauf, dauerhafte Kennzahlen und den
 read-only Datenvertrag. Die Testdatenbanken liegen in temporären
 Verzeichnissen auf `testvm01`; keine Änderung produktiver DBs.
+
+
+## Lernende PV-Shadow-Prognose (Phase 1 – testvm01)
+
+Der ergänzende Stand und Datenvertrag ist in
+[`forecast-shadow-learning.md`](forecast-shadow-learning.md#9-entwicklungsstand-stufe-1--testvm01-feature-branch-20102026)
+dokumentiert. Neue Basisrevisionen können atomar eine separat versionierte
+Shadow-Revision erhalten. **Diese Änderung schreibt weder alte Basisrevisionen
+noch alte Qualitätsproben um.** Der zusätzliche Endpoint
+`GET /api/forecast/quality/shadow` vergleicht nur tatsächlich im Voraus
+ausgegebene und über dieselbe gültige Ist-Messung paarbare Revisionen.
+Ohne solche Paare gibt es **keinen** behaupteten Shadow-MAE.

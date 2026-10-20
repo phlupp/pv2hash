@@ -55,6 +55,7 @@ export function ForecastPage() {
   const client = useQueryClient();
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
+  const [showShadow, setShowShadow] = useState(true);
   const [draft, setDraft] = useState<Config | null>(null);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -258,12 +259,36 @@ export function ForecastPage() {
                 </Card>;
               })}
             </Group>
-            <ForecastChart data={current}/>
+            <Group justify="space-between" align="center" gap="xs">
+              <Group gap="xs">
+                <Badge color="violet" variant="light">Shadow Mode · nur Beobachtung</Badge>
+                <Text size="xs" c="dimmed">
+                  {current.shadow_status?.status === 'not_available'
+                    ? 'Für diesen Tag keine Shadow-Ausgaben gespeichert'
+                    : current.shadow_status?.status === 'calibrated'
+                    ? 'Konservativ kalibriert'
+                    : current.shadow_status?.status === 'unstable'
+                      ? 'Lernt noch · Messwerte uneinheitlich'
+                      : 'Lernt noch · keine belastbare Korrektur'}
+                  {current.shadow_status && current.shadow_status.status !== 'not_available'
+                    ? ' · ' + current.shadow_status.sample_count + ' Messpunkte / '
+                      + current.shadow_status.day_count + ' Tage'
+                    : ''}
+                </Text>
+              </Group>
+              <Switch color="violet" size="sm" label="Shadow-Kurve"
+                checked={showShadow} disabled={!current.shadow?.length}
+                onChange={e => setShowShadow(e.currentTarget.checked)}/>
+            </Group>
+            {current.shadow_status?.configuration_hint && <Alert color="orange">
+              {current.shadow_status.configuration_hint}
+            </Alert>}
+            <ForecastChart data={current} showShadow={showShadow}/>
             {!current.forecast.length && <Text size="sm" c="dimmed">
               Für diesen Tag sind noch keine Prognosepunkte gespeichert. Frühere Zeitpunkte werden nicht rückwirkend aufgefüllt.
             </Text>}
             <Text size="xs" c="dimmed">
-              {current.forecast.length} Prognosepunkte · {current.actual.length} Ist-Messpunkte · Zeitzone {current.timezone}
+              {current.forecast.length} Basisprognosepunkte · {current.shadow?.length ?? 0} Shadow-Punkte · {current.actual.length} Ist-Messpunkte · Zeitzone {current.timezone}
               {day.isFetching ? ' · Aktualisiere …' : ''}
             </Text>
           </>}
