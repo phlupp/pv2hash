@@ -12,6 +12,7 @@ from pv2hash.logging_ext.setup import get_logger
 from pv2hash.miners.base import DriverAction, DriverField, MinerAdapter
 from pv2hash.models.miner import MinerInfo, MinerPool, MinerProfile, MinerProfiles
 from pv2hash.miners.pool_identity import pool_endpoint
+from pv2hash.miners.telemetry import effective_hashrate_ghs
 from pv2hash.vendor.braiins_api_stubs_path import ensure_braiins_stubs_on_path
 
 ensure_braiins_stubs_on_path()
@@ -193,6 +194,7 @@ class BraiinsMiner(MinerAdapter):
             if profile == "off" or desired_w <= 0:
                 self.info.power_w = 0.0
                 self.info.runtime_state = "paused"
+                self.info.current_hashrate_ghs = 0.0
             else:
                 self.info.power_w = desired_w
                 if self.info.runtime_state in {"paused", "stopped", "unknown"}:
@@ -246,10 +248,13 @@ class BraiinsMiner(MinerAdapter):
         if action_name == "pause_mining":
             self.info.runtime_state = "paused"
             self.info.power_w = 0.0
+            self.info.current_hashrate_ghs = 0.0
         elif action_name in {"resume_mining", "start_miner"}:
             self.info.runtime_state = "starting"
+            self.info.current_hashrate_ghs = None
         elif action_name == "reboot_system":
             self.info.runtime_state = "rebooting"
+            self.info.current_hashrate_ghs = None
 
         self.info.last_error = None
         self.info.last_seen = datetime.now(UTC)
@@ -673,6 +678,9 @@ class BraiinsMiner(MinerAdapter):
             current_target_w=current_target_w,
         )
         self.info.runtime_state = runtime_state
+        self.info.current_hashrate_ghs = effective_hashrate_ghs(
+            self.info.current_hashrate_ghs, runtime_state, reachable=self.info.reachable
+        )
 
         self.info.is_active = bool(
             self.info.enabled
@@ -931,14 +939,12 @@ class BraiinsMiner(MinerAdapter):
         if isinstance(real_hashrate, dict):
             candidates.extend(
                 [
-                    real_hashrate.get("last_1m"),
-                    real_hashrate.get("last_5m"),
                     real_hashrate.get("last_5s"),
-                    real_hashrate.get("since_restart"),
+                    real_hashrate.get("last_1m"),
                 ]
             )
-        candidates.append(miner_stats.get("nominal_hashrate"))
-
+        # Long-lived averages and nominal capacity are diagnostic values,
+        # not substitutes for a current mining rate.
         for candidate in candidates:
             value = BraiinsMiner._extract_hashrate_value_ghs(candidate)
             if value is not None and value >= 0:

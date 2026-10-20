@@ -52,6 +52,7 @@ from pv2hash.logging_ext.setup import (
 from pv2hash.runtime import AppState
 from pv2hash.miners.base import DriverAction, DriverField, DriverFieldChoice, MinerAdapter
 from pv2hash.miners.braiins import BraiinsMiner
+from pv2hash.miners.telemetry import effective_hashrate_ghs
 from pv2hash.miners.axeos import AxeOsMiner
 from pv2hash.miners.simulator import SimulatorMiner
 from pv2hash.miners.whatsminer_api3 import WhatsminerApi3Miner
@@ -188,7 +189,11 @@ def _build_runtime_snapshot_payload() -> dict[str, Any]:
             "reachable": bool(runtime_miner.reachable) if runtime_miner else False,
             "profile": str(runtime_miner.profile or "off") if runtime_miner else "off",
             "power_w": float(runtime_miner.power_w) if runtime_miner else 0.0,
-            "hashrate_ghs": getattr(runtime_miner, "current_hashrate_ghs", None) if runtime_miner else None,
+            "hashrate_ghs": effective_hashrate_ghs(
+                getattr(runtime_miner, "current_hashrate_ghs", None),
+                getattr(runtime_miner, "runtime_state", None),
+                reachable=bool(getattr(runtime_miner, "reachable", False)),
+            ) if runtime_miner else None,
             "temp_c": getattr(runtime_miner, "temp_c", None) if runtime_miner else None,
             "temp_asic_min_c": getattr(runtime_miner, "temp_asic_min_c", None) if runtime_miner else None,
             "temp_asic_max_c": getattr(runtime_miner, "temp_asic_max_c", None) if runtime_miner else None,
@@ -945,7 +950,11 @@ def _build_dashboard_miner_rows() -> list[dict]:
         if runtime_miner is not None:
             profile = str(runtime_miner.profile or "off")
             power_text = f"{float(runtime_miner.power_w):.0f} W"
-            hashrate_text = _format_hashrate_text(getattr(runtime_miner, "current_hashrate_ghs", None))
+            hashrate_text = _format_hashrate_text(effective_hashrate_ghs(
+                getattr(runtime_miner, "current_hashrate_ghs", None),
+                getattr(runtime_miner, "runtime_state", None),
+                reachable=bool(runtime_miner.reachable),
+            ))
             reachable = bool(runtime_miner.reachable)
         else:
             profile = "off"
