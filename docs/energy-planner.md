@@ -5,6 +5,12 @@ Entwicklung und Erprobung ausschließlich auf `testvm01`; die produktive
 Miner-/Batterieregelung bleibt unverändert. Die PV-Prognose dient vorerst
 nur als Informations- und Datengrundlage.
 
+**Zwei getrennte Shadow-Modelle:** Die geplante
+[lernende PV-Shadow-Prognose](forecast-shadow-learning.md) soll eine
+bessere PV-Leistungskurve vorhersagen und bleibt selbst read-only;
+der hier beschriebene Energieplaner soll später Batterie-/Mining-Abläufe
+simulieren. Keines der beiden Modelle steuert ohne gesonderte Freigabe Miner.
+
 ## Verbindliche fachliche Grundeinstellung
 
 | Parameter | Vorgabe | Änderbarkeit |
