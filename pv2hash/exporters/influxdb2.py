@@ -6,6 +6,7 @@ import math
 import httpx
 
 from pv2hash.build_identity import read_build_identity
+from pv2hash.miners.telemetry import effective_hashrate_ghs
 
 
 def esc_tag(value):
@@ -142,6 +143,10 @@ class InfluxDB2Destination:
                             'miner_name':miner.get('name') or self.miner_names.get(str(miner.get('miner_id') or ''))}
                     miner_fields = dict(miner)
                     miner_fields['mining_active'] = int(_running(miner))
+                    miner_fields['hashrate_ghs'] = effective_hashrate_ghs(
+                        miner.get('hashrate_ghs'), miner.get('runtime_state'),
+                        reachable=bool(miner.get('reachable', True)),
+                    )
                     result = line('pv2hash_miner',tags,miner_fields,ts,
                                   text_fields=('runtime_state', 'profile', 'driver'))
                     if result: lines.append(result)

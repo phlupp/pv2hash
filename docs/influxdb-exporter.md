@@ -47,6 +47,23 @@ Added `pv2hash_mining` fields for each sample:
 
 Added `pv2hash_miner` field `mining_active` (integer 0/1), plus allowlisted string fields `runtime_state`, `profile`, and `driver`. Existing fields remain unchanged.
 
+Live and newly recorded per-miner hashrate values are now state-aware:
+`paused`, `stopped`, `off`, `idle` and `socket_off` yield **0 GH/s**.
+Unreachable, starting, faulted, or unknown miners report **no current
+hashrate** (null/absent field); only confirmed `running` miners can
+contribute a positive rate. This prevents the Braiins OS+ diagnostic
+`since_restart` and `nominal_hashrate` statistics from being interpreted
+as current production. The frontend total likewise counts only reachable,
+running miners with valid current rates. No miner profile, power setting or
+controller logic is changed.
+
+This applies to newly captured/exported points and protects re-exported
+per-miner records from a stale positive value. Historical SQLite samples,
+already-exported InfluxDB values and pre-existing `history_samples` totals
+are **not retroactively rewritten**. Existing chart history can still contain
+incorrect rates from before this fix. A separately reviewed historical
+correction would be required to revise those data.
+
 A dedicated `pv2hash_mining` measurement is used for new totals. This avoids changing existing `pv2hash_system` field types when a miner switches from paused to running. All watt and hashrate totals remain floats even when the number is zero.
 
 Additional allowlisted text fields in `pv2hash_system`: `source_quality` and `battery_quality`. In `pv2hash_controller_event`: `event_type`, `old_profile`, `requested_profile`, `new_profile`, `policy_mode`, and `distribution_mode`. Arbitrary free text (messages, credentials, decisions, host addresses) is **not** exported.

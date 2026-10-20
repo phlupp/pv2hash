@@ -7,7 +7,10 @@ import type { DashboardSectionDefinition, DashboardContext } from '../types';
 function MiningSection({ context }: { context: DashboardContext }) {
   const data = context.live;
   const telemetryMiners = context.telemetry?.miners ?? [];
-  const reported = telemetryMiners.filter(m => typeof m.current_hashrate_ghs === 'number' && Number.isFinite(m.current_hashrate_ghs));
+  const reported = telemetryMiners.filter(m => m.reachable !== false &&
+    m.runtime_state?.trim().toLowerCase() === 'running' &&
+    typeof m.current_hashrate_ghs === 'number' &&
+    Number.isFinite(m.current_hashrate_ghs) && m.current_hashrate_ghs >= 0);
   const totalThs = reported.reduce((sum, m) => sum + (m.current_hashrate_ghs ?? 0), 0) / 1000;
   const hashrateText = reported.length > 0 ? `${totalThs.toLocaleString('de-DE', { maximumFractionDigits: 2 })} TH/s` : '—';
   return (
@@ -15,7 +18,7 @@ function MiningSection({ context }: { context: DashboardContext }) {
       <Group gap={7}><IconCpu size={18} /><Text fw={650}>Mining</Text></Group>
       <SimpleGrid cols={{ base: 2, md: 2 }} spacing="xs">
         <Metric label="Miner-Leistung" value={data?.cards.miners?.power ?? '—'} detail={data?.cards.miners?.meta ?? 'Miner werden geladen'} />
-        <Metric label="Gesamt-Hashrate" value={hashrateText} detail={reported.length ? `${reported.length} Miner mit Hashrate-Wert` : 'Keine Hashrate-Messwerte vorhanden'} />
+        <Metric label="Gesamt-Hashrate" value={hashrateText} detail={reported.length ? `${reported.length} aktive Miner mit Hashrate-Wert` : 'Keine Hashrate-Messwerte vorhanden'} />
       </SimpleGrid>
       <Card padding={0}>
         <ScrollArea type="auto" scrollbars="x" offsetScrollbars="x">
