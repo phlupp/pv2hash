@@ -5,8 +5,9 @@ von PV2Hash; zuletzt wurde `r2026.10.19.1` mit wählbarer 15-/60-Minuten-
 Auflösung veröffentlicht. Ursprung der Architektur ist der Prototyp
 `feat/forecast-foundation`.
 
-**Weiterführende Konzepte:** [Batterie-Ladeziel und Shadow Mode](energy-planner.md)
-und [Prognoserevisionen, Qualitätsauswertung und Dateninventar](forecast-quality.md).
+**Weiterführende Konzepte:** [Batterie-Ladeziel und Energieplaner im Shadow Mode](energy-planner.md),
+[Prognoserevisionen und Qualitätsauswertung](forecast-quality.md) sowie
+[lernende PV-Prognose im Shadow Mode mit lila Kurve](forecast-shadow-learning.md).
 Die Prognosequalität wird ausschließlich informativ ausgewertet; der
 Batterie-/Mining-Planer ist noch nicht implementiert und greift nicht
 in die bestehende Minerregelung ein.
