@@ -115,3 +115,188 @@ Zentraler InfluxDB-Exporter sendet gegenwärtig nur **Qualitätswerte des Basism
 - Genaue Datenbanktabellen, Versions-/Migrationsstrategie, Aufbewahrungsfrist des Shadow-Archivs.
 - Definition „Tageslicht“ und geeignete Robustheitsmethoden für kleine Leistungen an Sonnenauf- und -untergang.
 - Zentraler Shadow-Qualitätsexport und Aufbau eines **eigenen internen Grafana-Prognoseanalyse-Dashboards** nach validierter Datenbasis.
+
+
+## 9. Entwicklungsstand Stufe 1 – testvm01, Feature-Branch (20.10.2026)
+
+**Implementierungsstatus:** Stufe 1 im Branch `feat/forecast-shadow-learning-phase1`
+ausschließlich auf `testvm01`; kein Merge/Release und keine Freigabe für
+produktive Regelung. Der spätere Batterie-Energieplaner ist nicht Bestandteil
+dieses Changesets. Die Datenbankmigration ist additiv, die bisherige Baseline-API
+bleibt rückwärtskompatibel.
+
+### Messtechnik und Granularität
+
+`PvGenerationGroup.snapshot.devices` hält pro Modbus-Wechselrichter
+**kurzlebige Live-Werte** (Leistung, Qualität, Zeitstempel) bereit. Im
+beständigen `history_samples` steht derzeit jedoch **nur die Standortsumme**
+(`pv_power_w`, `pv_quality`). Das vorhandene Qualitätsarchiv bewertet
+ebenfalls nur `__total__`. Einzelne Generatorflächen besitzen keine
+unabhängigen DC-Messungen. **Stufe 1 trainiert darum ausschließlich auf
+Standortebene**, obwohl die Basisrechnung mehrere Generatorflächen pro WR
+abbildet. Für per-WR-Kalibrierung benötigt eine spätere Stufe einen getrennten
+qualitätsgesicherten History-/Revisionsvertrag; pro-Generator-Kalibrierung
+benötigt belegbare Einzelmessungen.
+
+### Eigenständiger Speichervertrag
+
+Erweiterung innerhalb der vorhandenen `data/forecast.sqlite`:
+
+| Tabelle | Inhalt / Unveränderlichkeit |
+|---|---|
+| `forecast_shadow_models` | Pro erfolgreichem Anbieterabruf eine versionierte Modellrechnung samt Fingerprint, Faktor, Stichproben, Tagen, Diagnose und Trainingszeitraum. |
+| `forecast_shadow_revisions` | 1:1-Verbindung zum **tatsächlich ausgegebenen** Baseline-`revision_id`; Modell-ID, Anlagen-Fingerprint und Ausgabezeit. |
+| `forecast_shadow_revision_points` | Append-only Shadow-Prognose je (Revision, UTC-Zielzeit, `__total__`), in Watt. |
+| `forecast_shadow_points` | Schnelle Projektionskurve je UTC-Zielzeit. Nur zukünftige Punkte werden aktualisiert; historische Punkte bleiben eingefroren. |
+| `forecast_shadow_quality_samples` | Dauerhafter paarweiser Vergleich je (UTC-Zielzeit, Vorlaufzeit) samt Basis-, Shadow- und **demselben** geprüften Istwert. Append-only. |
+
+Shadow- und Basisrevisionen werden **atomar in derselben SQLite-Transaktion**
+erstellt. Bei Anbieterfehler entsteht keine neue Revision; eine reine
+Anzeigeabfrage erzeugt keine Prognose. Für 15→60-Minuten-Auflösungswechsel
+werden veraltete zukünftige Viertelstundenpunkte analog zur Baseline entfernt,
+**niemals historische**. Revisionen beider Modelle werden zusammen nach
+365 Tagen in begrenzten Batches gelöscht; persistierte Tageskurven und
+bereits ausgewertete Qualitätsproben bleiben – entsprechend der bestehenden
+Basisarchitektur – erhalten. Modell-Snapshots werden gelöscht, wenn sie
+außerhalb der Archivfrist liegen und nicht mehr referenziert sind.
+Es werden **keine Rohprognoserevisionen nach InfluxDB exportiert**.
+Erhöhter Speicherbedarf: zusätzlich je Abruf eine Modell-/Revision-Zeile
+und pro zukünftiger Zielzeit **ein** Shadow-Gesamtpunkt plus Projektionspunkt;
+nicht pro Generatorfläche. Bei 15-Minuten-Prognosen, drei Tagen Horizont
+und Abruf alle 30 Minuten sind das im Maximalfall ungefähr 288 neue
+Shadow-Archivpunkte je Abruf, ca. 13.824 pro Tag, vor Aufbewahrungsbereinigung.
+WAL und Dateigröße werden über die vorhandene SQLite-Speicherübersicht erfasst.
+
+### Erklärbares Verfahren `site-median-v1`
+
+- Ausschließlich **früher bewertete, gepaarte** Shadow-Qualitätsproben derselben
+  Konfiguration werden für das nächste Modell ausgewertet; **keine vorherigen
+  unversionierten Qualitätsdaten**. Der SHA-256-Fingerprint enthält aktive
+  Generatorparameter, Standort, Anbieter und Auflösung, aber keine Zugangsdaten.
+  Änderte Parameter führen zu einer neuen Lernhistorie.
+- Trainingsfenster: maximal **30 zurückliegende Tage**, Zielzeit strikt vor
+  Ausgabezeit, Qualitätsbewertung spätestens zum Ausgabezeitpunkt;
+  die ursprüngliche Qualitätsauswertung erzwingt LIVE-Ist, passende
+  Vorlaufzeiten und ±60 Sekunden Messnähe.
+- Nur Tageslicht-Leistungen der Basisprognose ab **500 W**, Ist ≥0 W;
+  je Zielzeit nur eine Probe (Priorität 60/30/180/15 Minuten).
+  Verhältnisse Ist/Basis außerhalb **0,5–1,5** werden als starke Ausreißer
+  ausgeschlossen; mindestens **24 geeignete Punkte** über **3 lokale Tage**
+  mit je mindestens **4 Punkten** nötig.
+- Lernfaktor: Median der täglichen Verhältnis-Mediane, maximal
+  **±15 %** gegenüber Basis; liegt der Median der absoluten Tagesabweichungen
+  vom Tagesmedian über **0,12**, wird wegen uneinheitlicher Tage nicht gelernt.
+  Ohne genügende/verlässliche Daten Faktor **1,0** mit Status
+  `learning` oder `unstable`. Der historische Faktor wird pro Revision
+  eingefroren. **Keine automatischen Konfigurationsänderungen.**
+- Bei stabilen Abweichungen von ≥6 % gibt es lediglich einen **vorsichtigen
+  Konfigurationshinweis**, ohne eine konkrete Ursache zu behaupten. Sonnen-
+  azimut/-höhe, Verschattung und per-WR-Faktoren sind **noch nicht gelernt**.
+  Für jeden Prognosepunkt gilt im ersten Modell:
+  `Shadow_W = max(0, Basis_W × Faktor)` (auf zwei Stellen gerundet).
+
+### API, Anzeige und fairer Vergleich
+
+- `GET /api/forecast/day`: bisherige `forecast`, `actual`, `energy`
+  unverändert; neu optional `shadow` (UTC, W, Ausgabezeit) und
+  `shadow_status` (`not_available/learning/unstable/calibrated`,
+  Faktor, Stichproben-/Tagezahl, Versionskennung, optionaler
+  Konfigurationshinweis).
+- Tagesdiagramm: Basis grau gestrichelt, Ist gelb, **Shadow lila gestrichelt**,
+  gemeinsame kW-Achse und lokale Zeitdarstellung. Shadow lässt sich
+  im UI ein-/ausblenden; fehlende alte Shadow-Daten werden nicht erfunden.
+- `GET /api/forecast/quality/shadow?days=7` (1–90 Tage):
+  gemeinsame Paarungen je 15/30/60/180 Minuten,
+  **gleicher** bereits gespeicherter LIVE-Istwert, Vorhersagen nach ihrer
+  damaligen Ausgabezeit und Revisions-ID zusammengeführt; Auswertung
+  `all` und `daylight` (Basis oder Ist ≥500 W). Je Modell
+  N, MAE, Bias (Prognose−Ist), RMSE in W sowie
+  `mae_improvement_w = Basis_MAE − Shadow_MAE`.
+  Nicht vorhandene Paare bleiben `null`, nicht künstlich 0 W.
+  Basis-/Shadow-Ausgaben werden nicht nachträglich neu berechnet.
+- Bestehende `/api/forecast/quality`, bestehende Basisqualität und
+  bestehender Influx-Exporter bleiben **unverändert**. Ein künftiger
+  Shadow-Qualitätsexport benötigt eine gesonderte Opt-in-Entscheidung.
+
+### Testabdeckung und Vorbehalte
+
+Temporäre SQLite-DBs: Szenarien mit stabilem Bias, einzelnen Peaks,
+uneinheitlichen Tagen, geänderter Konfiguration, fehlendem Training,
+im Vorlauf archivierten Paaren, idempotenter Qualität und historischem
+Freeze. Backend/Frontend-Regression und Browser-Sichtprüfung auf
+`testvm01`, **keine** produktiven Hashpis oder Datenbanken.
+Die Grenzwerte sind konservative Start-Hypothesen, **keine**
+statistisch validierte Prognoseverbesserung im realen Betrieb.
+Der reale MAE-Vergleich benötigt mehrere neue Tage tatsächlicher Shadow-Ausgaben.
+
+## 10. Zentraler, optionaler Shadow-Qualitätsexport (Entwicklungsbranch)
+
+**Lokale Unabhängigkeit:** PV2Hash berechnet, speichert und lernt vollständig
+lokal. InfluxDB/Grafana sind nicht erforderlich und **niemals** Quelle
+für die Live-Regelung, die Shadow-Prognose oder das lokale Training.
+Wetterdaten-Abrufe beim externen Anbieter sind unabhängig davon.
+
+**Exporter:** Zusätzlicher Opt-in-Stream
+\`forecast_shadow_quality\` in der bereits bestehenden InfluxDB-2.x-
+Exporterarchitektur. Der Standardschalter
+\`forecast_shadow_quality_enabled\` ist **aus**, auch nach Updates.
+Der bisherige \`forecast_quality\`-Stream ist unabhängig und unverändert.
+Konfigurationsänderungen an den Stream-Schaltern erfordern keinen neuen
+Verbindungstest, wenn Server/Bucket/Token gleich geblieben sind.
+Bestehende geprüfte Verbindungen behalten ihren Gültigkeitsnachweis.
+
+**Lokal -> zentral:** Die append-only Tabelle
+\`forecast_shadow_quality_samples\` erhält eine stabile,
+\`AUTOINCREMENT\`-Spalte \`quality_id\`. Eine transaktionale Migration
+übernimmt Werte aus der ersten Shadow-Prototyp-Tabelle ohne diesen
+Schlüssel. Nur bereits paarweise gegen **denselben LIVE-Istwert**
+bewertete Basis- und Shadow-Prognosen werden gelesen. Die Exportquelle
+verändert weder Revisionen noch Trainingsdaten.
+Für jeden Exporter existiert ein eigener, dauerhaft gespeicherter
+numerischer Cursor, der **erst nach erfolgreicher HTTP-204-Bestätigung**
+weitergeschrieben wird. Ausfälle werden mit den vorhandenen
+Wiederholungs-/Backoff-Regeln verarbeitet; doppelte Übertragung bleibt
+wegen stabiler Serienidentität idempotent. Spät eintreffende
+Qualitätswerte werden durch \`quality_id\` und nicht durch \`valid_at\`
+erfasst, auch nach \`VACUUM\`.
+
+**InfluxDB-Messung:** \`pv2hash_forecast_shadow_quality\`.
+Tags sind ausschließlich \`instance_id\`, \`instance_name\`,
+\`horizon\` (15m/30m/60m/180m); Zeitstempel ist die UTC-Zielzeit.
+Pro Instanz/Zielzeit/Vorlauf entsteht exakt **ein** vergleichbares Paar.
+Als numerische Felder werden Basis-/Shadow-/Istleistung, Fehler,
+absolute Fehler, absolute Fehlerverbesserung in Watt,
+Baseline-Revision-ID, Lernfaktor, Trainingspunkt-/Tagezahl
+und aggregierte Anlagenkennzahlen exportiert.
+Textfelder enthalten Ausgabe- und Auswertungszeit,
+Konfigurations-Fingerprint (Hash), Modellversion und Lernstatus.
+Der Fingerprint ist ein **Feld**, niemals ein hochkardinales Tag.
+MAE/Bias/RMSE werden zentral aus den Fehlerwerten nach gleicher
+Filterung und gleichen Zeithorizonten berechnet (nicht über
+voraggregierte Standort-MAE gemittelt).
+
+**Standortübergreifender Vergleich:** Die zusätzliche
+\`plant_summary\` aus der tatsächlichen Prognosekonfiguration
+umfasst Gesamt-kWp, Generator-/Wechselrichterzahl,
+leistungsgewichtete Neigung/Verlustannahme und kWp der
+Orientierungsbänder Nord/Ost/Süd/West. Sie enthält **keine**
+exakten Koordinaten, WR-/Generatornamen, lokalen Geräte-IDs
+oder Zugangsdaten. Keine Rohrevisionszeitreihen werden im
+Standardexport übertragen. Anlageneigenschaften werden als
+Modell-Snapshot gespeichert, sodass spätere Umkonfigurationen
+die ursprünglichen Metadaten nicht nachträglich verändern.
+
+**Aufbewahrung:** 365 Tage vollständige lokale
+Basis-/Shadow-Revisionsarchive; Qualitätsproben bleiben aktuell
+ohne automatische Löschung und damit mindestens für den
+angestrebten 24-Monate-Lern-/Vergleichshorizont verfügbar.
+Modell-Snapshots, auf die noch Qualitätsproben verweisen,
+bleiben ebenfalls erhalten. Das operative kurzfristige
+Kalibrierfenster beträgt zunächst weiterhin 30 Tage.
+Aufbewahrung/Retention des zentralen Dev-Buckets ist eine
+separate InfluxDB-Einstellung; die lokale Retention hängt
+nicht davon ab.
+
+**Einsatz:** Nur auf \`testvm01\` und mit dessen eigenem
+\`pv2hash-dev\`-Bucket testbar. Produktive Exporter/Buckets
+nicht verändern. Release/Produktivrollout erst nach Freigabe.

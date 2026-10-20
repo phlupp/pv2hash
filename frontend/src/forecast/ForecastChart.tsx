@@ -13,10 +13,18 @@ export type ForecastPoint = { ts: string; power_w: number; issued_at?: string };
 export type ForecastDay = {
   day: string; today: string; timezone: string; start: string; end: string;
   forecast: ForecastPoint[]; actual: ForecastPoint[]; status: string;
+  shadow?: ForecastPoint[];
+  shadow_status?: {
+    status: 'not_available' | 'learning' | 'unstable' | 'calibrated';
+    factor: number; sample_count: number; day_count: number;
+    model_version: string; configuration_hint: string | null;
+  };
   energy: { forecast: EnergySummary; actual: EnergySummary };
 };
 
-export function ForecastChart({ data }: { data: ForecastDay }) {
+export function ForecastChart({ data, showShadow = true }: {
+  data: ForecastDay; showShadow?: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!ref.current) return;
@@ -69,11 +77,14 @@ export function ForecastChart({ data }: { data: ForecastDay }) {
       series: [
         line('Prognose', data.forecast, '#a3a8b2', true),
         line('Ist-Erzeugung', data.actual, '#E8C047'),
+        ...(showShadow && (data.shadow?.length ?? 0) > 0
+          ? [line('PV2Hash Shadow', data.shadow ?? [], '#a855f7', true)] : []),
       ],
     };
     graph?.setOption(option, { notMerge: true });
-  }, [data]);
+  }, [data, showShadow]);
 
-  return <div ref={ref} role="img" aria-label="PV-Prognose grau gestrichelt und gemessene PV-Erzeugung gelb, ganzer Kalendertag"
+  return <div ref={ref} role="img"
+    aria-label="PV-Prognose grau gestrichelt, Ist-Erzeugung gelb, PV2Hash Shadow optional lila gestrichelt; ganzer Kalendertag"
     style={{ width: '100%', height: 340, minHeight: 270 }} />;
 }

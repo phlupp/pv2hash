@@ -90,3 +90,29 @@ unterliegt wie bisher den gesicherten Verbindungstests.
 Vor Aktivierung im Produktivbetrieb empfiehlt sich ein Test mit einem
 separaten InfluxDB-Testbucket und gültigem Token. Die bestehenden Messreihen
 und Datenbank-Pfade bleiben kompatibel.
+
+
+## Optionale Shadow-Prognose (Entwicklung auf testvm01, 20.10.2026)
+
+Der neue, in `forecast-shadow-learning.md` beschriebene Modellbereich
+besteht aus vier zusätzlichen Archiv-/Projektions- und Qualitätstabellen
+plus Modell-Snapshots. Alle liegen in derselben `forecast.sqlite`; sie
+werden nicht in die Minerdatenbank oder nach InfluxDB repliziert.
+Shadow-Revisionspunkte besitzen dieselbe **365-Tage**-Aufbewahrungsgrenze
+wie Basisrevisionen. Die kleine Projektions-/Tageshistorie und permanente
+Qualitätsstichproben bleiben für historische Analyse bestehen. Größe und
+WAL sind in der bestehenden Dateigrößenansicht sichtbar; individuelle
+Shadow-Tabellenzähler sind eine mögliche spätere UI-Erweiterung.
+
+### Export-Cursor für Shadow-Qualitätsproben
+
+Die Shadow-Qualität hat eine stabile numerische
+\`quality_id INTEGER PRIMARY KEY AUTOINCREMENT\`. Die bestehende
+Shadow-Prototyp-Tabelle ohne \`quality_id\` wird transaktional
+unter Erhalt vorhandener Proben migriert. Spät bewertete
+Messungen werden mit einem monotonic Cursor exportiert;
+dieser liegt wie alle Export-Zustände in \`exporters.sqlite\`.
+Die Systemseiten-Übersicht bleibt unverändert; die
+\`forecast.sqlite\`-Dateigröße enthält bereits sämtliche
+Shadow-Tabellen. Mehrjahres-Qualitätsdaten und von ihnen
+referenzierte Modell-Snapshots bleiben lokal erhalten.

@@ -13,6 +13,7 @@ from . import generators_from_config, forecast_config_fields, utc_iso
 from .open_meteo import OpenMeteoDriver
 from .store import ForecastStore
 from .energy import energy_summary
+from .shadow import signature as shadow_signature, plant_summary
 
 DRIVERS = {"open_meteo": OpenMeteoDriver}
 UPDATE_LOCK = asyncio.Lock()
@@ -152,6 +153,9 @@ async def update(config: dict, store: ForecastStore) -> dict:
             now=datetime.now(UTC),provider=driver.driver_id,
             timezone=zone, surfaces=individual_surfaces,
             resolution_minutes=driver.resolution_minutes,
+            shadow_config_hash=shadow_signature(
+                group, loc, driver.driver_id, driver.resolution_minutes),
+            shadow_config_summary=plant_summary(group),
         )
         return result
 

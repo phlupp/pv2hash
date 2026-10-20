@@ -36,6 +36,9 @@ class InfluxDBDefinition(ExporterDefinition):
             DriverField("batch_size", "Batchgröße", "number", default=120, min=1, max=1000, step=1, advanced=True, layout={"width":"third"}),
             DriverField("precision", "Zeitauflösung", "select", default="ns", choices=(DriverFieldChoice("ns","Nanosekunden"), DriverFieldChoice("ms","Millisekunden")), advanced=True, layout={"width":"third"}),
             DriverField("forecast_quality_enabled", "Prognosequalität zentral exportieren", "checkbox", default=False, advanced=True, layout={"width":"full"}),
+            DriverField("forecast_shadow_quality_enabled",
+                        "PV-Shadow-Vergleiche zentral exportieren (nur gepaarte LIVE-Messungen)",
+                        "checkbox", default=False, advanced=True, layout={"width":"full"}),
         ]
 
 DEFINITIONS = {InfluxDBDefinition.TYPE: InfluxDBDefinition}

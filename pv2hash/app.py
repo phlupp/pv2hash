@@ -2930,6 +2930,8 @@ async def forecast_quality_background_loop() -> None:
             # DataLogger retains at most 7 days; first start catches up up to
             # 48h. The quality table persists samples beyond that retention.
             await asyncio.to_thread(evaluate_recent, forecast_store)
+            from pv2hash.forecast.shadow import evaluate_pairs
+            await asyncio.to_thread(evaluate_pairs, forecast_store)
         except (ValueError, OSError, sqlite3.Error) as exc:
             logger.warning("Forecast quality evaluation unavailable: %s", exc)
         except Exception:
@@ -3951,6 +3953,18 @@ async def api_forecast_quality(days: int = 7):
     try:
         return JSONResponse(content=jsonable_encoder({
             "status": "ok", **quality_report(forecast_store, days=days),
+        }))
+    except ValueError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+
+
+@app.get("/api/forecast/quality/shadow")
+async def api_forecast_shadow_quality(days: int = 7):
+    """Paired forecast comparison; cannot issue any control commands."""
+    from pv2hash.forecast.shadow import quality_comparison
+    try:
+        return JSONResponse(content=jsonable_encoder({
+            "status": "ok", **quality_comparison(forecast_store, days=days),
         }))
     except ValueError as exc:
         return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)

@@ -50,7 +50,9 @@ class ExportManager:
     def _streams(cfg: dict) -> tuple[str, ...]:
         streams = ('samples','controller_events','pool_state','pool_events')
         if cfg.get('settings', {}).get('forecast_quality_enabled', False) is True:
-            return (*streams,'forecast_quality')
+            streams = (*streams, 'forecast_quality')
+        if cfg.get('settings', {}).get('forecast_shadow_quality_enabled', False) is True:
+            streams = (*streams, 'forecast_shadow_quality')
         return streams
 
     def _configured(self) -> list[dict[str, Any]]:
@@ -132,6 +134,9 @@ class ExportManager:
                             after_id=int(state['cursor'] or 0), limit=limit)
                     elif stream == 'forecast_quality':
                         batch = self.source.forecast_quality(
+                            after_id=int(state['cursor'] or 0),limit=limit)
+                    elif stream == 'forecast_shadow_quality':
+                        batch = self.source.forecast_shadow_quality(
                             after_id=int(state['cursor'] or 0),limit=limit)
                     else:
                         batch = self.source.pool_state()
