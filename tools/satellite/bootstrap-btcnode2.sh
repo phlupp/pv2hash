@@ -10,7 +10,7 @@ IFACE='wg-btcnode2'
 ADDRESS='10.99.0.51/32'
 ENDPOINT='gw.phlupp.net:51820'
 GW_KEY='i7RSqgfZi88gZFFzR6BZkR8OOeHFA8hWrjWuUYR3KFw='
-# ONLY the public gateway and the MCP management host.
+# Initial split-tunnel: only gateway and designated future management host.
 ALLOWED='10.99.0.1/32, 10.20.0.250/32'
 ROOT='/etc/wireguard'
 CONF="${ROOT}/${IFACE}.conf"
@@ -24,7 +24,7 @@ PHLUPP_KEYS=(
 )
 
 fail() { printf 'FEHLER: %s\n' "$*" >&2; exit 1; }
-log() { printf '[Pueppi] %s\n' "$*"; }
+log() { printf '[btcnode2] %s\n' "$*"; }
 (( EUID == 0 )) || fail 'Start mit sudo erforderlich.'
 [[ -r /etc/os-release && -d /run/systemd/system ]] || fail 'Nur Linux mit systemd und /etc/os-release unterstuetzt.'
 # shellcheck disable=SC1091
@@ -73,7 +73,7 @@ else
   chmod 0600 "$LOG"
 fi
 exec > >(tee -a "$LOG") 2>&1
-trap 'printf "[Pueppi] Abbruch (Exit %s), Diagnoseprotokoll %s\n" "$?" "$LOG" >&2' ERR
+trap 'printf "[btcnode2] Abbruch (Exit %s), Diagnoseprotokoll %s\n" "$?" "$LOG" >&2' ERR
 log "Starte btcnode2-Einrichtung auf $(hostname). Lokale Default-Route bleibt unveraendert."
 DEFAULT_BEFORE="$(ip -4 route show default)"
 [[ -n "$DEFAULT_BEFORE" ]] || fail 'Keine lokale IPv4-Default-Route.'
@@ -125,9 +125,9 @@ add_key() {
 
 ensure_user phlupp
 for k in "${PHLUPP_KEYS[@]}"; do add_key phlupp "$k"; done
-# Existing policy: phlupp has full, passwordless sudo; chatgpt does not.
+# Admin SSH only: phlupp gets NOPASSWD sudo. MCP access is configured later.
 sudo_file='/etc/sudoers.d/91-btcnode2-phlupp'
-sudo_tmp="$(mktemp /etc/sudoers.d/.pv2hash-pueppi.XXXXXX)"
+sudo_tmp="$(mktemp /etc/sudoers.d/.btcnode2.XXXXXX)"
 printf '# Managed by btcnode2 bootstrap v1\nphlupp ALL=(ALL:ALL) NOPASSWD: ALL\n' > "$sudo_tmp"
 chmod 0440 "$sudo_tmp"
 visudo -cf "$sudo_tmp" >/dev/null || fail 'sudoers-Validierung fehlgeschlagen.'
