@@ -300,3 +300,22 @@ nicht davon ab.
 **Einsatz:** Nur auf \`testvm01\` und mit dessen eigenem
 \`pv2hash-dev\`-Bucket testbar. Produktive Exporter/Buckets
 nicht verändern. Release/Produktivrollout erst nach Freigabe.
+
+
+### Exporter-Hotfix: negative LIVE-PV-Offsets (24.10.2026)
+
+Der lokale Qualitätsbewerter akzeptiert endliche, leicht negative Ist-PV-Werte
+(z. B. −21 W und −26 W nach Sonnenuntergang). Sie bleiben im historischen
+Vergleich unverändert erhalten, werden aber von der Kalibrierung gemäß
+`fit_model` (Ist ≥0 W) ausgeschlossen. Bis zum Hotfix hatte allein der
+Shadow-Influx-Exporter alle negativen Istwerte pauschal abgelehnt. Ein einzelner
+Datensatz blockierte dadurch den gesamten append-only Export-Cursor.
+
+Der Export prüft weiterhin **alle drei Werte auf Endlichkeit** und
+**Baseline/Shadow auf Nichtnegativität**, lässt aber beim tatsächlichen LIVE-Wert
+negative Mess-Offsets ohne Clamping zu. So bleiben die archivierten
+Originalwerte und Fehler konsistent, ohne die Prognose oder
+Regelung zu beeinflussen. Der vorhandene Export-Backoff/Cursor wird
+beibehalten. Beim nächsten erfolgreichen Retry sollten die aufgestauten,
+weiterhin lokal gespeicherten Vergleichspaare automatisch nachgeliefert werden.
+Die Freigabe/Installation dieses Hotfixes erfolgt getrennt.
