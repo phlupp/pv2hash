@@ -176,7 +176,12 @@ class InfluxDB2Destination:
                     raise ValueError('Unknown shadow quality horizon')
                 baseline, shadow, actual = (
                     float(item[key]) for key in ('baseline_w', 'shadow_w', 'actual_w'))
-                if not all(math.isfinite(x) and x >= 0 for x in (baseline, shadow, actual)):
+                # PV total measurements can carry small negative offsets at dusk.
+                # Keep the raw signed LIVE value exactly as evaluated locally;
+                # clamping would silently change the paired quality comparison.
+                # Model training already excludes negative PV actuals separately.
+                if (not all(math.isfinite(x) for x in (baseline, shadow, actual))
+                        or baseline < 0 or shadow < 0):
                     raise ValueError('Invalid shadow quality power values')
                 base_error = baseline - actual
                 shadow_error = shadow - actual
