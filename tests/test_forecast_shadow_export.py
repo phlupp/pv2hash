@@ -161,6 +161,52 @@ class ShadowExportTests(unittest.TestCase):
         self.assertNotIn('latitude',sent)
         self.assertNotIn('longitude',sent)
 
+    def test_negative_live_pv_offset_does_not_block_shadow_export_cursor(self):
+        # Regression: real Hashpis reported -21 W / -26 W near sunset.
+        # The original paired actual must survive the export without clipping.
+        self.sample(ts='2026-10-23T16:00:00Z',actual=-21)
+        self.sample(ts='2026-10-22T16:15:00Z',horizon=180,actual=-26,model_id=2)
+        self.sample(ts='2026-10-23T16:30:00Z',horizon=30,actual=250,model_id=3)
+        with self.store._connect() as db:
+            db.execute("""UPDATE forecast_shadow_quality_samples
+                SET baseline_w=11.03,shadow_w=11.03
+                WHERE valid_at='2026-10-23T16:00:00Z'""")
+        exported=[]
+        dest=InfluxDB2Destination({
+            'settings':{'url':'https://test.invalid','org':'org','bucket':'test','token':'xyz'},
+            'instance_id':'test-instance','instance_name':'Site A',
+        })
+        original_send=dest.send
+        def capture(kind,items):
+            exported.extend(items)
+            original_send(kind,items)
+        dest.send=capture
+        config={'exporters':[{'id':'site','type':'influxdb2','enabled':True,
+                             'settings':{'forecast_shadow_quality_enabled':True,
+                                         'forecast_quality_enabled':False},'batch_size':50}]}
+        manager=ExportManager(self.source,lambda:config,state_path=self.root/'cursors.sqlite')
+        manager.register('influxdb2',lambda _:dest)
+        with patch('pv2hash.exporters.influxdb2.httpx.Client') as http:
+            http.return_value.__enter__.return_value.post.return_value.status_code=204
+            manager.run_once()
+            sent='\n'.join(c.kwargs['content'].decode()
+                           for c in http.return_value.__enter__.return_value.post.call_args_list)
+        self.assertIn('actual_w=-21.0',sent)
+        self.assertIn('baseline_error_w=32.03',sent)
+        self.assertIn('shadow_error_w=32.03',sent)
+        self.assertIn('actual_w=-26.0',sent)
+        self.assertIn('actual_w=250.0',sent)
+        self.assertEqual([r['quality_id'] for r in exported],[1,2,3])
+        self.assertEqual(manager._state('site','forecast_shadow_quality')['cursor'],'3')
+        self.assertEqual(manager._state('site','forecast_shadow_quality')['consecutive_failures'],0)
+        # Forecast predictions remain non-negative and invalid payloads still fail.
+        invalid={**exported[0], 'baseline_w':-10}
+        with self.assertRaisesRegex(ValueError,'Invalid shadow quality'):
+            dest.send('forecast_shadow_quality',[invalid])
+        invalid={**exported[0], 'actual_w':float('nan')}
+        with self.assertRaisesRegex(ValueError,'Invalid shadow quality'):
+            dest.send('forecast_shadow_quality',[invalid])
+
     def test_exporter_checkbox_toggle_preserves_verified_connection(self):
         settings = {'url':'https://example.invalid:8086','org':'org','bucket':'pv2hash-dev',
                     'token':'abc','batch_size':120,'timeout_seconds':10,'precision':'ns',
