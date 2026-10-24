@@ -21,6 +21,10 @@ from pv2hash.sources.expression import compile_expression, evaluate_expression
 logger = get_logger("pv2hash.source.pv_modbus")
 
 
+class SMAStandbyPower(ValueError):
+    """AC-power register answered with SMA's documented standby NaN marker."""
+
+
 class PvModbusSource(ModbusTcpRegisterReader, EnergySource):
     driver_id = "pv_modbus"
     driver_label = "Modbus TCP PV-Erzeugung"
@@ -150,6 +154,16 @@ class PvModbusSource(ModbusTcpRegisterReader, EnergySource):
             "int32": -(2 ** 31), "uint32": 2 ** 32 - 1,
         }
         if cfg.value_type in unavailable and value == unavailable[cfg.value_type]:
+            # SMA documents that the signed 30775 AC-power NaN means 0 W
+            # when its PV-powered measurement processor is asleep.
+            # Only a *single*, correctly typed S32 AC-power read has this
+            # meaning. Other registers and calculated inputs remain invalid.
+            if (self.power_mode == "single" and cfg is self.power_cfg
+                    and cfg.address == 30775 and cfg.value_type == "int32"):
+                raise SMAStandbyPower(
+                    "SMA-Standby: keine Leistungsangabe (NaN in Register 30775); "
+                    "AC-Einspeisung wird als 0 W behandelt"
+                )
             raise ValueError(
                 f"PV-Modbus: ungültiger SMA-NaN-Messwert in Register "
                 f"{cfg.name} ({cfg.address}, {cfg.value_type}); kein Live-Wert"
@@ -193,12 +207,28 @@ class PvModbusSource(ModbusTcpRegisterReader, EnergySource):
         self.debug_info["last_poll_at"] = datetime.now(UTC).isoformat()
         try:
             value, register_values = await asyncio.to_thread(self._poll_reading)
+        except SMAStandbyPower as exc:
+            # A valid Modbus response with a documented no-generation
+            # sentinel is not a broken connection or a measured zero.
+            self.power_w = 0.0
+            self.updated_at = datetime.now(UTC)
+            self.quality = "standby"
+            self.last_error = None
+            self._last_reported_error = None
+            self.debug_info.update({
+                "current_quality": "standby", "pv_power_w": 0.0,
+                "register_values": [], "last_error": None,
+                "last_live_packet_at": self.updated_at.isoformat(),
+                "note": str(exc),
+            })
+            return 0.0
         except Exception as exc:
             self.debug_info["register_values"] = []
             self.power_w = None  # Never display stale power as a live measurement.
             self.quality = "offline"
             self.last_error = str(exc)
-            self.debug_info.update({"current_quality": "offline", "pv_power_w": None, "last_error": self.last_error})
+            self.debug_info.update({"current_quality": "offline", "pv_power_w": None, "last_error": self.last_error,
+                                    "note": None})
             if self.last_error != self._last_reported_error:
                 logger.warning("PV-Modbus-Abfrage fehlgeschlagen: %s", self.last_error)
                 self._last_reported_error = self.last_error
@@ -213,6 +243,7 @@ class PvModbusSource(ModbusTcpRegisterReader, EnergySource):
             "current_quality": "live", "pv_power_w": value,
             "register_values": register_values,
             "last_error": None, "last_live_packet_at": self.updated_at.isoformat(),
+            "note": None,
         })
         return value
 
