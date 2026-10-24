@@ -50,7 +50,7 @@ def rule_state():
     line = target[0]
     # iproute may print 'lookup 2020' or 'lookup 2020' with arbitrary spacing.
     if not (line.startswith(PRIORITY + ":") and
-            "from " + PUBLIC in line and
+            any("from " + value in line for value in (PUBLIC, PUBLIC[:-4])) and
             "lookup " + TABLE in line):
         fail("Priority 120 or table 2020 already belongs to a different rule: " + line)
     return True
@@ -79,7 +79,7 @@ def check_baseline():
         fail("IPv4 WireGuard address missing")
     if "inet6 " + ULA not in a6:
         fail("IPv6 WG ULA address missing")
-    if PUBLIC in a6 or PUBLIC in run(IP, "-6", "-o", "addr", "show").stdout:
+    if PUBLIC.split("/")[0] in a6 or PUBLIC.split("/")[0] in run(IP, "-6", "-o", "addr", "show").stdout:
         fail("Public IPv6 already assigned: defer to live-public-address stage")
     peer_rows = run(WG, "show", IFACE, "allowed-ips").stdout.splitlines()
     if len(peer_rows) != 1:
@@ -116,6 +116,8 @@ def main():
     print("POLICY_TABLE_DEFAULT=" + ("present" if route_present else "absent"))
     print("SOURCE_POLICY_RULE=" + ("present" if rule_present else "absent"))
     if operation in ("--check", "--status"):
+        if route_present != rule_present:
+            fail("Partial IPv6 policy configuration already present; inspect manually")
         print("CHECK_OK nothing_changed")
         return 0
     if operation == "--rollback":
