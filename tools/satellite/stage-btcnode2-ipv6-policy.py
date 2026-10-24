@@ -49,7 +49,7 @@ def rule_state():
         fail("Unexpected existing IPv6 policy rules at priority 120 or table 2020")
     line = target[0]
     # iproute may print 'lookup 2020' or 'lookup 2020' with arbitrary spacing.
-    words = line.replace(":", ": ").split()
+    words = line.split()
     try:
         source = words[words.index("from") + 1]
         lookup = words[words.index("lookup") + 1]
