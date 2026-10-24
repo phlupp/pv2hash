@@ -2559,6 +2559,7 @@ def _build_dashboard_live_payload() -> dict:
                 "quality": pv_round.quality if pv_round else "disabled",
                 "enabled": pv_adapter is not None,
                 "live_count": pv_round.live_count if pv_round else 0,
+                "standby_count": pv_round.standby_count if pv_round else 0,
                 "enabled_count": pv_round.enabled_count if pv_round else 0,
                 "source": state.config.get("pv", {}).get("name", "PV-Erzeugung"),
                 "driver_label": getattr(pv_adapter, "driver_label", None) if pv_adapter else None,

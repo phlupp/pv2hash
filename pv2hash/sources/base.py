@@ -116,6 +116,7 @@ class EnergySource(ABC):
         return {
             "live": "Live",
             "simulated": "Simulation",
+            "standby": "Standby",
             "stale": "Veraltet",
             "degraded": "Teilweise",
             "offline": "Offline",

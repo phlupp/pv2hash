@@ -96,11 +96,29 @@ class PvModbusTest(unittest.TestCase):
                 with OneShotModbus(struct.pack(fmt,sentinel)) as server:
                     adapter=build_pv_source(cfg(port=server.port, address=30775,
                                                 dtype=dtype, factor=-0.1))
-                    self.assertIsNone(asyncio.run(adapter.read()))
-                    self.assertEqual(adapter.quality,"offline")
-                    self.assertIsNone(adapter.power_w)
-                    self.assertIn("SMA-NaN",adapter.debug_info["devices"][0]["last_error"])
-                    self.assertEqual(adapter.debug_info["devices"][0]["register_values"],[])
+                    result=asyncio.run(adapter.read())
+                    device=adapter.debug_info["devices"][0]
+                    if dtype == "int32":
+                        self.assertEqual(result, 0.0)
+                        self.assertEqual(adapter.quality, "live")
+                        self.assertEqual(adapter.snapshot.live_count, 0)
+                        self.assertEqual(adapter.snapshot.standby_count, 1)
+                        self.assertEqual(device["quality"], "standby")
+                        self.assertIsNone(device["last_error"])
+                        self.assertIn("SMA-Standby", device["note"])
+                    else:
+                        self.assertIsNone(result)
+                        self.assertEqual(adapter.quality,"offline")
+                        self.assertIsNone(adapter.power_w)
+                        self.assertIn("SMA-NaN",device["last_error"])
+                    self.assertEqual(device["register_values"],[])
+
+    def test_s32_nan_on_non_sma_power_register_stays_invalid(self):
+        with OneShotModbus(struct.pack(">i", -(2 ** 31))) as server:
+            adapter=build_pv_source(cfg(port=server.port,address=30773,dtype="int32"))
+            self.assertIsNone(asyncio.run(adapter.read()))
+            self.assertEqual(adapter.quality,"offline")
+            self.assertIn("SMA-NaN",adapter.snapshot.devices[0]["last_error"])
 
     def test_sma_nan_does_not_reject_normal_negative_ac_power(self):
         with OneShotModbus(struct.pack(">i",-716)) as server:

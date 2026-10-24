@@ -48,7 +48,9 @@ function EnergySection({ context }: { context: DashboardContext }) {
           value={pvValid ? formatPower(pvData?.power_w) : '—'}
           detail={pvData?.quality === 'offline' ? 'Modbus-Messung nicht erreichbar'
             : pvValid && pvData?.quality === 'degraded' ? 'Teilsumme aus ' + (pvData.live_count ?? 0) + '/' + (pvData.enabled_count ?? 0) + ' Wechselrichtern'
-            : pvValid ? 'Aktuelle PV-Leistung' : 'Warte auf PV-Messwert'}
+            : pvValid && (pvData?.standby_count ?? 0) > 0
+              ? (pvData?.standby_count ?? 0) + ' Wechselrichter in Standby (SMA-NaN = 0 W)'
+              : pvValid ? 'Aktuelle PV-Leistung' : 'Warte auf PV-Messwert'}
           quality={
             <QualityBadge
               quality={pvData?.quality}

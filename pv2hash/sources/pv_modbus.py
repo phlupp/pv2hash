@@ -17,8 +17,13 @@ from pv2hash.sources.base import EnergySource
 from pv2hash.sources.battery_modbus import ModbusValueConfig
 from pv2hash.sources.modbus_register import ModbusTcpRegisterReader
 from pv2hash.sources.expression import compile_expression, evaluate_expression
+from pv2hash.sources.pv_reading import PvReading
 
 logger = get_logger("pv2hash.source.pv_modbus")
+
+
+class SMAStandbyPower(ValueError):
+    """AC-power register answered with SMA's documented standby NaN marker."""
 
 
 class PvModbusSource(ModbusTcpRegisterReader, EnergySource):
@@ -150,6 +155,16 @@ class PvModbusSource(ModbusTcpRegisterReader, EnergySource):
             "int32": -(2 ** 31), "uint32": 2 ** 32 - 1,
         }
         if cfg.value_type in unavailable and value == unavailable[cfg.value_type]:
+            # SMA documents that the signed 30775 AC-power NaN means 0 W
+            # when its PV-powered measurement processor is asleep.
+            # Only a *single*, correctly typed S32 AC-power read has this
+            # meaning. Other registers and calculated inputs remain invalid.
+            if (self.power_mode == "single" and cfg is self.power_cfg
+                    and cfg.address == 30775 and cfg.value_type == "int32"):
+                raise SMAStandbyPower(
+                    "SMA-Standby: keine Leistungsangabe (NaN in Register 30775); "
+                    "AC-Einspeisung wird als 0 W behandelt"
+                )
             raise ValueError(
                 f"PV-Modbus: ungültiger SMA-NaN-Messwert in Register "
                 f"{cfg.name} ({cfg.address}, {cfg.value_type}); kein Live-Wert"
@@ -158,7 +173,7 @@ class PvModbusSource(ModbusTcpRegisterReader, EnergySource):
 
     def _poll_sync(self) -> float:
         if self.power_mode == "calculated":
-            return self._poll_reading()[0]
+            return self._poll_reading().power_w
         with socket.create_connection((self.host, self.port), timeout=self.request_timeout_seconds) as sock:
             sock.settimeout(self.request_timeout_seconds)
             value = self._read_numeric_value(sock, self.power_cfg)
@@ -166,12 +181,18 @@ class PvModbusSource(ModbusTcpRegisterReader, EnergySource):
             raise ValueError("PV-Modbus: ungültiger oder fehlender Leistungswert.")
         return value
 
-    def _poll_reading(self) -> tuple[float, list[dict]]:
-        """Return a single completed reading, never publish intermediate registers."""
+    def _poll_reading(self) -> PvReading:
+        """Interpret vendor-specific register semantics into a generic PV result."""
         if self.power_mode == "single":
-            value = self._poll_sync()
-            return value, [{"name": self.power_cfg.name, "address": self.power_cfg.address,
-                            "value": value}]
+            try:
+                value = self._poll_sync()
+            except SMAStandbyPower as exc:
+                # The vendor exception never leaves this driver. The PV core
+                # only sees a standardized, explicitly derived standby result.
+                return PvReading(power_w=0.0, quality="standby", note=str(exc))
+            return PvReading(power_w=value, register_values=[
+                {"name": self.power_cfg.name, "address": self.power_cfg.address,
+                 "value": value}])
         readings: list[dict] = []
         values: dict[str, float] = {}
         with socket.create_connection((self.host, self.port), timeout=self.request_timeout_seconds) as sock:
@@ -186,35 +207,37 @@ class PvModbusSource(ModbusTcpRegisterReader, EnergySource):
                 values[rid] = value
                 readings.append({"name": cfg.name, "address": cfg.address, "value": value})
         power = evaluate_expression(self.compiled_expression, values)
-        return power, readings
+        return PvReading(power_w=power, register_values=readings)
 
     async def read(self):
         """Independent background polling. This is never called by the controller."""
         self.debug_info["last_poll_at"] = datetime.now(UTC).isoformat()
         try:
-            value, register_values = await asyncio.to_thread(self._poll_reading)
+            reading = await asyncio.to_thread(self._poll_reading)
         except Exception as exc:
             self.debug_info["register_values"] = []
             self.power_w = None  # Never display stale power as a live measurement.
             self.quality = "offline"
             self.last_error = str(exc)
-            self.debug_info.update({"current_quality": "offline", "pv_power_w": None, "last_error": self.last_error})
+            self.debug_info.update({"current_quality": "offline", "pv_power_w": None, "last_error": self.last_error,
+                                    "note": None})
             if self.last_error != self._last_reported_error:
                 logger.warning("PV-Modbus-Abfrage fehlgeschlagen: %s", self.last_error)
                 self._last_reported_error = self.last_error
             return None
 
-        self.power_w = value
+        self.power_w = reading.power_w
         self.updated_at = datetime.now(UTC)
-        self.quality = "live"
+        self.quality = reading.quality
         self.last_error = None
         self._last_reported_error = None
         self.debug_info.update({
-            "current_quality": "live", "pv_power_w": value,
-            "register_values": register_values,
+            "current_quality": reading.quality, "pv_power_w": reading.power_w,
+            "register_values": reading.register_values,
             "last_error": None, "last_live_packet_at": self.updated_at.isoformat(),
+            "note": reading.note,
         })
-        return value
+        return reading.power_w
 
     @classmethod
     def config_fields_from_settings(cls, settings: dict) -> list[dict]:

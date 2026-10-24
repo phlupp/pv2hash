@@ -97,6 +97,81 @@ class GroupRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(group.quality,"offline")
         self.assertIsNone(group.power_w)
 
+    async def test_sma_power_standby_stays_full_quality_with_large_inverter(self):
+        from pv2hash.sources.pv_modbus import SMAStandbyPower
+        group = build_pv_source(two_device_config())
+        big,small = [adapter for _,adapter in group.devices]
+        with patch.object(big, "_poll_sync", return_value=4300.0), patch.object(
+            small, "_poll_sync", side_effect=SMAStandbyPower("SMA-Standby 30775")
+        ):
+            self.assertEqual(await group.read(), 4300.0)
+        snap=group.snapshot
+        self.assertEqual(snap.quality, "live")
+        self.assertEqual((snap.live_count,snap.standby_count,snap.enabled_count),(1,1,2))
+        self.assertEqual([x["quality"] for x in snap.devices],["live","standby"])
+        self.assertEqual([x["power_w"] for x in snap.devices],[4300.0,0.0])
+        self.assertIsNone(snap.devices[1]["last_error"])
+        self.assertIn("Standby",snap.devices[1]["note"])
+
+        with patch.object(big,"_poll_sync",side_effect=SMAStandbyPower("Standby")), patch.object(
+            small,"_poll_sync",side_effect=SMAStandbyPower("Standby")
+        ):
+            self.assertEqual(await group.read(),0.0)
+        self.assertEqual(group.quality,"live")
+        self.assertEqual(group.snapshot.standby_count,2)
+
+        with patch.object(big,"_poll_sync",return_value=4200.0),patch.object(
+            small,"_poll_sync",side_effect=OSError("Connection refused")
+        ):
+            self.assertEqual(await group.read(),4200.0)
+        self.assertEqual(group.quality,"degraded")
+        self.assertEqual(group.snapshot.standby_count,0)
+        self.assertEqual(group.snapshot.devices[1]["quality"],"offline")
+
+    async def test_generic_driver_standby_contract_is_manufacturer_neutral(self):
+        from pv2hash.sources.pv_reading import PvReading
+        from pv2hash.sources.pv_group import PvGenerationGroup
+
+        class OtherBrandDriver:
+            driver_label = "PV-Zähler anderer Hersteller"
+            request_timeout_seconds = 1.0
+
+            def __init__(self, reading):
+                self.reading = reading
+
+            def _poll_reading(self):
+                return self.reading
+
+            def close(self):
+                pass
+
+        devices = [
+            ({"id": "other-a", "name": "Andere Anlage", "driver": "generic"},
+             OtherBrandDriver(PvReading(power_w=1870.0, quality="live"))),
+            ({"id": "other-b", "name": "Andere Anlage Standby", "driver": "generic"},
+             OtherBrandDriver(PvReading(power_w=0.0, quality="standby",
+                                        note="Hersteller bestätigt: keine Einspeisung"))),
+        ]
+        group = PvGenerationGroup(devices)
+        self.assertEqual(await group.read(), 1870.0)
+        self.assertEqual(group.snapshot.quality, "live")
+        self.assertEqual(group.snapshot.standby_count, 1)
+        self.assertEqual(group.snapshot.devices[1]["quality"], "standby")
+        self.assertEqual(group.snapshot.devices[1]["note"],
+                         "Hersteller bestätigt: keine Einspeisung")
+        group.close()
+
+    async def test_invalid_generic_standby_or_missing_result_cannot_fabricate_power(self):
+        from pv2hash.sources.pv_reading import PvReading
+        with self.assertRaisesRegex(ValueError, "exactly 0 W"):
+            PvReading(power_w=900, quality="standby")
+        with self.assertRaisesRegex(ValueError, "finite"):
+            PvReading(power_w=float("nan"), quality="live")
+        with self.assertRaisesRegex(ValueError, "quality"):
+            PvReading(power_w=0, quality="offline")
+        with self.assertRaisesRegex(ValueError, "finite"):
+            PvReading(power_w=float("inf"), quality="standby")
+
     async def test_all_offline_is_none_not_zero(self):
         group = build_pv_source(two_device_config())
         with patch.object(group.devices[0][1], "_poll_sync", side_effect=OSError("no route")), patch.object(
