@@ -34,9 +34,10 @@ einen einzigen Snapshot-Tausch veröffentlicht:
 - Anschließend wird ein vollständiger `PvRound` publiziert:
   `number`, `updated_at`, `power_w`, `quality`, `live_count`,
   `enabled_count`, `devices[]`.
-- **LIVE**: alle aktivierten Geräte melden gültige Werte;
-  ihre Summe gilt als vollständige PV-Erzeugung.
-- **DEGRADED**: mindestens ein Gerät LIVE, mindestens ein anderes
+- **LIVE**: alle aktivierten Geräte melden gültige Werte oder
+  den eng begrenzten SMA-Standby-Zustand (0 W abgeleitet).
+  Ihre Summe gilt als vollständige PV-Erzeugung.
+- **DEGRADED**: mindestens ein Gerät liefert einen gültigen Beitrag, mindestens ein anderes
   ausgefallen/abgelaufen. Die Summe der gültigen Werte wird mit
   sichtbarer Kennzeichnung als **Teilsumme** publiziert.
 - **OFFLINE**: kein aktives Gerät liefert gültige aktuelle Werte.
@@ -134,20 +135,43 @@ Referenz: [SMA Modbus Technical Information](https://files.sma.de/downloads/SMA-
 Abschnitt „SMA Data Types“ / NaN-Werte.
 
 Der PV-Modbus-Adapter prüft **den dekodierten Rohwert vor dem Faktor**.
-Bei einem solchen Marker liefert der betroffene Wechselrichter keine
-LIVE-Messung. Seine Diagnose enthält einen expliziten `last_error`
-mit Registername/Adresse/Datentyp; `power_w` bleibt `null`.
-Andere Geräte gehen weiterhin mit ihren gültigen Livewerten in die
-Gesamtsumme ein. Die Gruppe ist bei einem ungültigen Gerät
-`degraded` (gültige **Teilsumme**), bei ausschließlich ungültigen
-Geräten `offline` mit `null` als Leistung. Eine echte gemessene
-`0 W` bleibt dagegen LIVE.
+SMA erklärt für die AC-Einspeiseleistung ausdrücklich, dass NaN bei
+schlafendem Leistungsteil in praktisch allen relevanten Fällen
+**0 W Einspeisung** bedeutet:
+[SMA Modbus FAQ](https://www.sma.de/produkte/produktfeatures-schnittstellen/modbus-protokoll-schnittstelle).
 
-Wichtig: Das ist **keine automatische Umwandlung nach 0 W**.
-So werden weder Datenlogger, InfluxDB noch die Prognose-Auswertung
-durch extrem negative Scheinwerte verfälscht. Das Verhalten ist auf
-PV-Modbus beschränkt; die Modbus-Batteriemessung und Minersteuerung
-werden nicht verändert.
+**Standby-Ausnahme nur für eine eindeutig definierte Messung:**
+
+- Nur im **Einzelwertmodus** bei **SMA-AC-Register 30775** mit korrekt
+  konfiguriertem **S32 (int32)** und dem Rohmarker 0x80000000
+  wird die erfolgreiche Modbus-Antwort als **standby** klassifiziert.
+  Die numerische AC-Einspeiseleistung wird **abgeleitet** mit
+  0 W angesetzt. Das ist ausdrücklich *kein gemessener 0-W-Wert*.
+  Gerätediagnose und Oberfläche zeigen STANDBY und einen Hinweis auf
+  die SMA-NaN-Interpretation statt einer OFFLINE-/Fehlermeldung.
+- Ein Standby-Gerät zählt als **beitragsfähig mit 0 W**. Sind alle
+  Mitglieder entweder live oder der oben definierte standby,
+  ist die vollständige PV-Gruppensumme live: DataLogger,
+  Prognosebewertung und Export dürfen dann auch eine weiterhin
+  produzierende zweite Anlage auswerten (z. B. kleiner WR
+  schneebedeckt, großer WR erzeugt weiter Strom).
+- Die Einzelgeräte-Diagnose unterscheidet stets live_count
+  und standby_count. Bei ausschließlich Standby gilt die
+  vollständige Gruppensumme 0 W mit dem dokumentierten Standby-
+  Hinweis, statt fälschlich von einem Kommunikationsausfall zu sprechen.
+- **Timeout, Verbindungsabbruch, Modbus-Protokollfehler, falscher
+  Datentyp, anderer SMA-NaN-Sentinel oder ein NaN in einem
+  berechneten Wert mit mehreren Registern** bleibt ausdrücklich
+  offline beim betroffenen Gerät. Dann ist eine gemischte
+  Gesamtgruppe weiterhin degraded; fehlende Leistung wird nicht
+  unbesehen auf 0 W gesetzt. Nur tatsächlich vorliegende,
+  verwendbare Werte gehen in die Summe ein.
+- Die Miner-/Batterieregelung und deren Modbus-Pfad bleiben unberührt.
+  Die PV-Erzeugung ist eine unabhängige Beobachtungsquelle.
+
+Diese Änderung wirkt **nur für neu abgefragte Werte**. Bereits
+gespeicherte degraded-Zeiträume können ohne separate und
+überprüfbare Datenbasis nicht nachträglich als LIVE gewertet werden.
 
 ### Bereits gespeicherte historische Fehlerwerte
 
