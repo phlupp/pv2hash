@@ -159,10 +159,10 @@ def main():
         return 0
     if mode == "--ensure":
         if not current[0]:
-            run(IP6T, "-w", "-I", *RULES[0])
+            run(IP6T, "-w", "-I", RULES[0][0], "1", *RULES[0][1])
             print("RESTORED_INPUT=yes")
         if not current[1]:
-            run(IP6T, "-w", "-I", *RULES[1])
+            run(IP6T, "-w", "-I", RULES[1][0], "1", *RULES[1][1])
             print("RESTORED_OUTPUT=yes")
         if get_rule_state() != (True, True):
             fail("Exact-rule verification failed")
