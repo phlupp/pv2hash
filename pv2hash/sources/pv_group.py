@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pv2hash.logging_ext.setup import get_logger
+from pv2hash.sources.pv_modbus import SMAStandbyPower
 
 logger = get_logger("pv2hash.source.pv_group")
 
@@ -39,6 +40,7 @@ class PvRound:
     updated_at: datetime | None = None
     devices: tuple[dict, ...] = ()
     live_count: int = 0
+    standby_count: int = 0
     enabled_count: int = 0
 
     def as_dict(self) -> dict[str, Any]:
@@ -46,7 +48,8 @@ class PvRound:
             "number": self.number, "power_w": self.power_w,
             "quality": self.quality,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "live_count": self.live_count, "enabled_count": self.enabled_count,
+            "live_count": self.live_count, "standby_count": self.standby_count,
+            "enabled_count": self.enabled_count,
             "devices": [dict(x) for x in self.devices],
         }
 
@@ -101,6 +104,7 @@ class PvGenerationGroup:
             "last_live_packet_at": state.updated_at.isoformat() if state.updated_at else None,
             "round_number": state.number,
             "live_count": state.live_count,
+            "standby_count": state.standby_count,
             "enabled_count": state.enabled_count,
             "devices": [dict(x) for x in state.devices],
         }
@@ -124,6 +128,12 @@ class PvGenerationGroup:
                 raise ValueError("PV-Modbus: ungültiger Messwert")
             result.update(power_w=float(value), quality="live", register_values=register_values,
                           updated_at=datetime.now(UTC).isoformat())
+        except SMAStandbyPower as exc:
+            # Not a lost connection. The documented SMA AC-power sentinel
+            # means no generation; expose this derivation per inverter.
+            result.update(quality="standby", power_w=0.0,
+                          updated_at=datetime.now(UTC).isoformat(),
+                          note=str(exc))
         except TimeoutError:
             result["last_error"] = f"Timeout nach {timeout:g} s"
         except Exception as exc:
@@ -141,16 +151,20 @@ class PvGenerationGroup:
             if self._closed:
                 return None
             live = [m for m in members if m["quality"] == "live"]
+            standby = [m for m in members if m["quality"] == "standby"]
+            usable = live + standby
             count = len(self.devices)
-            quality = ("live" if len(live) == count else
-                       "degraded" if live else "offline")
-            total = sum(m["power_w"] for m in live) if live else None
+            # Standby contributes a documented 0 W but is kept explicitly
+            # distinct from a measured live value in the member diagnostics.
+            quality = ("live" if len(usable) == count else
+                       "degraded" if usable else "offline")
+            total = sum(m["power_w"] for m in usable) if usable else None
             completed = PvRound(
                 number=self._round.number + 1,
                 power_w=total, quality=quality,
                 updated_at=datetime.now(UTC),
                 devices=tuple(members),
-                live_count=len(live), enabled_count=count,
+                live_count=len(live), standby_count=len(standby), enabled_count=count,
             )
             # This is the ONLY publication point, after gather/timeout.
             self._round = completed
