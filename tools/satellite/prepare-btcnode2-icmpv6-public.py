@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 PATH = Path("/usr/local/sbin/btcnode2-wg-icmpv6.py")
 BACKUP_DIR = Path("/root/btcnode2-wg6-backups")
 OLD_SHA256 = "eef981dd9124a633617c561fdec640b713fc33140f527cb5f95fa6947145bb2d"
+NEW_SHA256 = "0a22ce3b0ec217e6816516620f2a876adbb94e26a315b780fd79068d4d88ccac"
 BEFORE = 'if set(fields[1:]) != expected:'
 AFTER = 'if set(fields[1:]) not in (expected, expected | {"::/0"}):'
 
@@ -49,10 +50,10 @@ def main():
     initial_expected_new = (
         BEFORE.encode() not in current
         and current.count(AFTER.encode()) == 1
+        and digest(current) == NEW_SHA256
     )
     if initial_expected_new:
-        # Exact hash of the expected transformed verified v1, computed from the
-        # known original text only; never patch arbitrary changed scripts.
+        # Accept only the exact verified transformed version.
         print("PREDICATE_ALREADY_UPDATED; no network changes")
         if sys.argv[1] == "--apply":
             print("ALREADY_APPLIED")
