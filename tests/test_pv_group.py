@@ -128,6 +128,50 @@ class GroupRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(group.snapshot.standby_count,0)
         self.assertEqual(group.snapshot.devices[1]["quality"],"offline")
 
+    async def test_generic_driver_standby_contract_is_manufacturer_neutral(self):
+        from pv2hash.sources.pv_reading import PvReading
+        from pv2hash.sources.pv_group import PvGenerationGroup
+
+        class OtherBrandDriver:
+            driver_label = "PV-Zähler anderer Hersteller"
+            request_timeout_seconds = 1.0
+
+            def __init__(self, reading):
+                self.reading = reading
+
+            def _poll_reading(self):
+                return self.reading
+
+            def close(self):
+                pass
+
+        devices = [
+            ({"id": "other-a", "name": "Andere Anlage", "driver": "generic"},
+             OtherBrandDriver(PvReading(power_w=1870.0, quality="live"))),
+            ({"id": "other-b", "name": "Andere Anlage Standby", "driver": "generic"},
+             OtherBrandDriver(PvReading(power_w=0.0, quality="standby",
+                                        note="Hersteller bestätigt: keine Einspeisung"))),
+        ]
+        group = PvGenerationGroup(devices)
+        self.assertEqual(await group.read(), 1870.0)
+        self.assertEqual(group.snapshot.quality, "live")
+        self.assertEqual(group.snapshot.standby_count, 1)
+        self.assertEqual(group.snapshot.devices[1]["quality"], "standby")
+        self.assertEqual(group.snapshot.devices[1]["note"],
+                         "Hersteller bestätigt: keine Einspeisung")
+        group.close()
+
+    async def test_invalid_generic_standby_or_missing_result_cannot_fabricate_power(self):
+        from pv2hash.sources.pv_reading import PvReading
+        with self.assertRaisesRegex(ValueError, "exactly 0 W"):
+            PvReading(power_w=900, quality="standby")
+        with self.assertRaisesRegex(ValueError, "finite"):
+            PvReading(power_w=float("nan"), quality="live")
+        with self.assertRaisesRegex(ValueError, "quality"):
+            PvReading(power_w=0, quality="offline")
+        with self.assertRaisesRegex(ValueError, "finite"):
+            PvReading(power_w=float("inf"), quality="standby")
+
     async def test_all_offline_is_none_not_zero(self):
         group = build_pv_source(two_device_config())
         with patch.object(group.devices[0][1], "_poll_sync", side_effect=OSError("no route")), patch.object(
