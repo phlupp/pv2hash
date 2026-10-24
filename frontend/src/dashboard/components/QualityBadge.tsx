@@ -10,6 +10,7 @@ const qualityStates: Record<string, QualityDisplay> = {
   ok: { label: 'OK', color: 'teal' },
   good: { label: 'OK', color: 'teal' },
   simulated: { label: 'SIMULIERT', color: 'blue' },
+  standby: { label: 'STANDBY', color: 'gray' },
   stale: { label: 'VERALTET', color: 'yellow' },
   degraded: { label: 'GESTÖRT', color: 'yellow' },
   no_data: { label: 'KEINE DATEN', color: 'gray' },
