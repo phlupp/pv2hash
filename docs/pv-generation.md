@@ -57,6 +57,33 @@ und der Runtime-Snapshot der Aufzeichnung lesen ausschließlich den
 letzten abgeschlossenen Aggregat-Snapshot. Es gibt keine
 zwischengeschaltete Addition in der GUI.
 
+## Herstellerunabhängige Treiber-Schnittstelle
+
+Alle PV-Treiber geben aus einer abgeschlossenen Abfragerunde ein
+**PvReading** aus pv2hash.sources.pv_reading zurück:
+
+- power_w: endlicher Beitrag zur Gesamtleistung (W);
+- quality: ausschließlich live oder standby für eine erfolgreiche Abfrage;
+- register_values: optionale Messdetails des Geräts;
+- note: optionaler erklärender Hinweis, z. B. welcher herstellerspezifische
+  Standby-Marker interpretiert wurde.
+
+**Der Treiber** entscheidet anhand des jeweiligen Herstellerprotokolls,
+ob ein Modbus-/API-Wert eine echte Leistung, nachweisbarer Standby oder
+ein Fehler ist. Ein erkannter Standby-Wert liefert einen ausdrücklich
+**abgeleiteten Beitrag von 0 W**; der ursprüngliche Marker wird nicht als
+normale Live-Messung ausgegeben. Fehler/Timeouts signalisieren die Treiber
+weiterhin als Ausnahmen. Ein ungültiger Qualitätswert, NaN, Infinity oder
+Standby ungleich 0 W ist im generischen Ergebnis verboten.
+
+**Der Gruppen-Core** importiert nur das gemeinsame PvReading. Er kennt
+weder SMA-Register noch herstellerspezifische Exceptions. Er summiert
+live- und standby-Beiträge, veröffentlicht den atomaren PV-Snapshot,
+hält die Anzahlen von live und standby getrennt und gibt nur bei
+vollständig erfolgreichen Ergebnissen die Qualität live weiter.
+Ein künftig hinzukommender Fronius-/anderer PV-Treiber kann denselben
+Standby-Vertrag verwenden, ohne den PV-Core anzupassen.
+
 ## Anzeige und Einrichtung
 
 Unter **Messungen**:
