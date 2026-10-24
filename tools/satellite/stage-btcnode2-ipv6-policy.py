@@ -49,9 +49,14 @@ def rule_state():
         fail("Unexpected existing IPv6 policy rules at priority 120 or table 2020")
     line = target[0]
     # iproute may print 'lookup 2020' or 'lookup 2020' with arbitrary spacing.
+    words = line.replace(":", ": ").split()
+    try:
+        source = words[words.index("from") + 1]
+        lookup = words[words.index("lookup") + 1]
+    except (ValueError, IndexError) as exc:
+        fail("Malformed source policy rule: " + line)
     if not (line.startswith(PRIORITY + ":") and
-            any("from " + value in line for value in (PUBLIC, PUBLIC[:-4])) and
-            "lookup " + TABLE in line):
+            source in (PUBLIC, PUBLIC.split("/")[0]) and lookup == TABLE):
         fail("Priority 120 or table 2020 already belongs to a different rule: " + line)
     return True
 
