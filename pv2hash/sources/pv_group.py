@@ -7,13 +7,12 @@ single read-only source for dashboard, DataLogger, Influx and diagnostics.
 from __future__ import annotations
 
 import asyncio
-import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from pv2hash.logging_ext.setup import get_logger
-from pv2hash.sources.pv_modbus import SMAStandbyPower
+from pv2hash.sources.pv_reading import PvReading
 
 logger = get_logger("pv2hash.source.pv_group")
 
@@ -122,18 +121,14 @@ class PvGenerationGroup:
             # The socket read happens in an independent thread and does not
             # mutate the published state. Timed-out threads cannot publish a
             # late result into the *next* round.
-            value, register_values = await asyncio.wait_for(
+            reading = await asyncio.wait_for(
                 asyncio.to_thread(adapter._poll_reading), timeout=timeout)
-            if isinstance(value, bool) or not math.isfinite(float(value)):
-                raise ValueError("PV-Modbus: ungültiger Messwert")
-            result.update(power_w=float(value), quality="live", register_values=register_values,
-                          updated_at=datetime.now(UTC).isoformat())
-        except SMAStandbyPower as exc:
-            # Not a lost connection. The documented SMA AC-power sentinel
-            # means no generation; expose this derivation per inverter.
-            result.update(quality="standby", power_w=0.0,
+            if not isinstance(reading, PvReading):
+                raise TypeError("PV driver returned no standardized PvReading")
+            result.update(power_w=reading.power_w, quality=reading.quality,
+                          register_values=reading.register_values,
                           updated_at=datetime.now(UTC).isoformat(),
-                          note=str(exc))
+                          note=reading.note)
         except TimeoutError:
             result["last_error"] = f"Timeout nach {timeout:g} s"
         except Exception as exc:
