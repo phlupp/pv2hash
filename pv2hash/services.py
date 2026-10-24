@@ -340,6 +340,7 @@ class RuntimeServices:
                 {"label": "Geräte", "value": len(pv_devices)},
                 {"label": "Aktiv", "value": round_snapshot.enabled_count if round_snapshot else 0},
                 {"label": "LIVE", "value": round_snapshot.live_count if round_snapshot else 0},
+                {"label": "Standby", "value": round_snapshot.standby_count if round_snapshot else 0},
             ],
             "detail_groups": [
                 {"title": "Letzte vollständige Abfragerunde", "fields": [
@@ -420,6 +421,7 @@ class RuntimeServices:
                                    "fields": [
                                        {"label": "Treiber", "value": driver},
                                        {"label": "Fehler", "value": status.get("last_error")},
+                                       {"label": "Hinweis", "value": status.get("note")},
                                        *[
                                            {"label": f"{row['name']} ({row['address']})",
                                             "value": row["value"], "unit": "W", "precision": 0}
