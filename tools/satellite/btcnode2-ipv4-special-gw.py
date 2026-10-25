@@ -40,17 +40,17 @@ DNAT_MARK = "btcnode2-v4-special-dnat"
 FWD = (
     '        iifname "eth0" oifname "wg0" ip daddr 10.99.0.51 '
     'tcp dport 23334 ct status dnat ct state new accept '
-    'comment "' + FWD_MARK + '"\n'
+    + 'ct status dnat ct state new accept comment "' + FWD_MARK + '"\\n'
 )
 SNAT = (
     '        iifname "eth0" oifname "wg0" ip daddr 10.99.0.51 '
     'tcp dport 23334 ct status dnat snat to 10.99.0.1 '
-    'comment "' + SNAT_MARK + '"\n'
+    + 'ct status dnat snat to 10.99.0.1 comment "' + SNAT_MARK + '"\\n'
 )
 DNAT = (
     '        iifname "eth0" ip daddr 188.68.32.252 '
     'tcp dport 23335 dnat to 10.99.0.51:23334 '
-    'comment "' + DNAT_MARK + '"\n'
+    + 'dnat to 10.99.0.51:23334 comment "' + DNAT_MARK + '"\\n'
 )
 PRE = (
     "    chain prerouting {\n"
@@ -65,13 +65,13 @@ DELTA = (
     "add chain ip nat prerouting { type nat hook prerouting priority dstnat; policy accept; }\n"
     + "add rule inet filter forward "
     + 'iifname "eth0" oifname "wg0" ip daddr 10.99.0.51 tcp dport 23334 '
-    + 'ct status dnat ct state new accept comment "' + FWD_MARK + '"\n"
+    + 'ct status dnat ct state new accept comment "' + FWD_MARK + '"\\n'
     + "add rule ip nat postrouting "
     + 'iifname "eth0" oifname "wg0" ip daddr 10.99.0.51 tcp dport 23334 '
-    + 'ct status dnat snat to 10.99.0.1 comment "' + SNAT_MARK + '"\n"
+    + 'ct status dnat snat to 10.99.0.1 comment "' + SNAT_MARK + '"\\n'
     + "add rule ip nat prerouting "
     + 'iifname "eth0" ip daddr 188.68.32.252 tcp dport 23335 '
-    + 'dnat to 10.99.0.51:23334 comment "' + DNAT_MARK + '"\n"
+    + 'dnat to 10.99.0.51:23334 comment "' + DNAT_MARK + '"\\n'
 )
 
 
@@ -95,7 +95,7 @@ def read_conf():
         if not all(present) or any(contents.count(key) != 1 for key in markers):
             abort("Partial or duplicate TCP/23335 configuration")
         if not (BANNER + FWD in contents and PRE in contents and SNAT in contents and
-                "type nat hook postrouting priority srcnat; policy accept;\\n" in contents):
+                "type nat hook postrouting priority srcnat; policy accept;\n" in contents):
             abort("Persisted nftables rules differ from expected structure")
         return contents, True
     if contents.count(NAT_ANCHOR) != 1:
