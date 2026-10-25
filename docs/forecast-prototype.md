@@ -248,37 +248,38 @@ bereinigten Ersatzmessungen in SQLite oder InfluxDB geschrieben.
 Die Open-Meteo-Prognose unterscheidet zwischen **Auflösung** und
 **Abrufhäufigkeit**:
 
-- **Prognoseauflösung:** wahlweise 15 oder 60 Minuten, standardmäßig 15.
-  Im Viertelstundenmodus wird
-  `minutely_15=global_tilted_irradiance_instant` vom Anbieter abgerufen;
-  im Stundenmodus weiterhin `hourly`. Echte UTC-Zeitpunkte und
-  generatorbezogene Ausrichtung werden beibehalten. Fehlende Punkte
-  interpoliert PV2Hash nicht.
+- **Prognoseauflösung:** verbindlich 15 Minuten; im regulären Betrieb
+  wird ausschließlich
+  `minutely_15=global_tilted_irradiance_instant` vom Anbieter abgerufen.
+  Echte UTC-Zeitpunkte und generatorbezogene Ausrichtung bleiben
+  erhalten, fehlende Punkte werden nicht interpoliert.
+  Das frühere auswählbare Stundenraster entfällt aus der GUI.
 - **Automatischer Abruf:** unveränderlich alle 15 Minuten auf
   gemeinsamen UTC-Slots. Das ehemals einstellbare Intervall
   (15 bis 360 Minuten, historischer Standard 30) ist entfallen.
   Die GUI zeigt den festen Takt als Information.
 
-**Bestandsinstallationen:** Bereits gespeicherte Abrufintervalle
-bleiben historisch in der Konfiguration vorhanden, werden aber beim
-Abruf ignoriert. Beim nächsten Speichern der Prognoseeinstellungen
-wird der Legacy-Wert auf 15 normalisiert. Keine Änderung historischer
-Prognose- oder Qualitätswerte. Siehe
+**Bestandsinstallationen:** Bereits gespeicherte `refresh_minutes`
+und `resolution_minutes`-Werte (auch 30/60 Minuten) bleiben
+historisch in der Konfiguration vorhanden, werden beim neuen
+Abruf aber ignoriert. Beim nächsten Speichern der
+Prognoseeinstellungen werden beide Werte auf 15 normalisiert.
+Die aktuelle Tagesdarstellung verwendet das 15-Minuten-Raster.
+Keine rückwirkende Änderung alter Revisionen oder Qualitätswerte.
+Siehe
 [Prognosequalität und UTC-Takt](forecast-quality.md).
 
 **Speichervertrag:** Das bisherige `forecast_points`-Schema und die
 Werte in W bleiben unverändert. Ein vollständiger Anbieterabruf wird
 weiterhin atomar pro Generatorfläche, Wechselrichter und Gesamtergebnis
 abgelegt. Ausschließlich **zukünftige** Zeitpunkte werden aktualisiert;
-ältere Werte bleiben zur Qualitätsevaluierung unverändert. Bei einem
-Wechsel von 15 auf 60 Minuten werden nach einem *erfolgreichen*
-Anbieterabruf nur die bereits gespeicherten **zukünftigen**
-Viertelstundenpunkte außerhalb des neuen Stundenrasters entfernt.
-Vergangene 15-Minuten-Werte bleiben erhalten. Fehlende Werte werden
-nicht interpoliert. Die kWh-Integration erkennt die Auflösung der
-historisch gespeicherten Punkte, und für den aktuellen/zukünftigen
-Tag beachtet sie die gewählte Auflösung, damit Datenlücken nicht
-als Vollständigkeit gelten. Die standortbezogene Tageszählung
+ältere Werte bleiben zur Qualitätsevaluierung unverändert.
+Der Datenspeicher bleibt kompatibel mit historischen 60-Minuten-
+Revisionen, während neue Abrufe ausschließlich 15-Minuten-Werte
+erzeugen. Fehlende Werte werden nicht interpoliert. Die kWh-
+Integration erkennt das Raster archivierter Prognosen; für aktuelle
+und zukünftige Werte gilt das feste 15-Minuten-Raster, damit
+Datenlücken nicht als Vollständigkeit gelten. Die standortbezogene Tageszählung
 berücksichtigt 23-/25-Stunden-Tage bei der Zeitumstellung.
 
 **Tests auf `testvm01`:** Simulierte HTTP-Antworten für beide API-Felder,
