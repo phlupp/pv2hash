@@ -156,7 +156,7 @@ def remove_live_nft_rules():
     for label in ("btcnode2-public-datum", "btcnode2-public-mail-ping"):
         for line in listing.splitlines():
             if label in line:
-                match = re.search(r"# handle (\\d+)\\s*$", line)
+                match = re.search(r"# handle ([0-9]+) *$", line)
                 if not match:
                     fail("Cannot identify exact nftables rule handle for " + label)
                 run("/usr/sbin/nft", "delete", "rule", "inet", "filter", "forward",
