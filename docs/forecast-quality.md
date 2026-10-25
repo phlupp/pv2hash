@@ -40,8 +40,9 @@ dritte Diagrammkurve und fairer Qualitätsvergleich) steht in
 15-Minuten-Takt**, unabhängig vom Startzeitpunkt der Instanz und von alten
 Konfigurationswerten. Die nominalen UTC-Ausgabezeiten sind `xx:10`,
 `xx:25`, `xx:40` und `xx:55`, also etwa fünf Minuten vor der nächsten
-Viertelstundengrenze. Das bisherige editierbare Abrufintervall entfällt
-aus der GUI; stattdessen wird der feste Takt erläutert.
+Viertelstundengrenze. Sowohl Abruf als auch Prognoseauflösung sind
+fest auf 15 Minuten eingestellt; beide ehemaligen Eingabefelder sind
+entfallen. Die GUI zeigt diesen Standard als Information.
 
 - Nur in den ersten vier Minuten eines Slots werden automatische Abrufe
   begonnen. Versäumte Slots werden nicht nachträglich als ausgegeben
@@ -54,10 +55,16 @@ aus der GUI; stattdessen wird der feste Takt erläutert.
   Scheduler nicht. Die API liefert nun 15, und beim nächsten Speichern
   werden alte Werte auf 15 normalisiert. Alte Formular-Requests mit
   dem Feld werden zur Kompatibilität akzeptiert, aber ignoriert.
-- **Prognoseauflösung und Abruf sind verschieden:** 15-Minuten-Auflösung
-  bleibt für flächendeckende Viertelstunden-Vergleiche erforderlich.
-  60-Minuten-Auflösung bleibt als separate Anbieteroption erhalten;
-  sie kann naturgemäß nur Stunden-Zielpunkte bewerten.
+- **Prognoseauflösung und Abruf bleiben technisch unterschiedliche
+  Vorgänge**, sind aber für eine vergleichbare Prognosequalität beide
+  verbindlich auf 15 Minuten festgelegt. Open-Meteo liefert dafür
+  native `minutely_15`-Werte statt stündlicher Daten. Es werden keine
+  Zwischenpunkte interpoliert.
+- **Legacy-Auflösung:** Alte gespeicherte `resolution_minutes=60` wird
+  bei neuen Anbieterabrufen sowie in der aktuellen Tagesdarstellung
+  ignoriert; die API liefert 15, und beim nächsten Speichern wird
+  die Einstellung normalisiert. Historische 60-Minuten-Revisionen
+  und alle bisherigen Bewertungen bleiben unverändert.
 - Open-Meteo aktualisiert die eigentlichen Wettermodelle nicht zwingend
   alle 15 Minuten. Zwei Abrufe können dieselben Prognosewerte liefern,
   sind aber als tatsächlich ausgegebene Revisionen zeitlich korrekt
