@@ -382,7 +382,7 @@ export function ForecastPage() {
                 )
               ))}
               <Text size="xs" c="dimmed">
-                Wetterabruf alle 15 Minuten (fest) · UTC-synchron für vergleichbare Prognosequalität.
+                Wetterabruf und Prognoseauflösung: jeweils 15 Minuten (fest) · UTC-synchron für vergleichbare Prognosequalität.
               </Text>
               <Divider label="PV-Generatorflächen je Wechselrichter"/>
               <Text size="xs" c="dimmed">
