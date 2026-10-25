@@ -34,6 +34,42 @@ dritte Diagrammkurve und fairer Qualitätsvergleich) steht in
   Transaktionen ohne automatisches `VACUUM`.
   [SQLite-Status, Aufbewahrung und optionaler Influx-Export](sqlite-storage.md).
 
+## Einheitliche UTC-Abrufzeitpunkte (für vergleichbare Vorlaufqualität)
+
+Der automatische Abruf ist unabhängig vom Neustartzeitpunkt einer Instanz
+**fest an das UTC-Viertelstundenraster gebunden**. Bei einem konfigurierten
+15-Minuten-Intervall lauten die nominalen Zeiten `xx:10`, `xx:25`,
+`xx:40` und `xx:55` **UTC**, also jeweils etwa **fünf Minuten vor**
+dem nächsten Viertelstunden-Stichtag. Bei 30 Minuten erfolgen Abrufe
+nominal `xx:10` und `xx:40`; andere Intervalle verwenden dieselbe
+globale 15-Minuten-Rasterbasis. Werte, die kein Vielfaches von 15 Minuten
+sind, werden für die *effektive Taktung* auf das nächste Vielfache
+aufgerundet, damit nicht häufiger als konfiguriert abgerufen wird.
+
+- Ein Hintergrundabruf startet nur im **vierminütigen Fenster** ab der
+  geplanten UTC-Slotzeit. Wird ein Slot verpasst, wartet das System auf
+  den nächsten; es behauptet nie eine rückdatierte Ausgabezeit.
+- Die letzte erfolgreiche Revision ist bereits persistent gespeichert und
+  unterdrückt einen erneuten Abruf im gleichen Slot auch nach Neustart.
+  Bei Fehlern sind Wiederholungen innerhalb desselben Slots möglich.
+- UTC vermeidet doppelte beziehungsweise übersprungene Slots bei
+  Sommer-/Winterzeitumstellungen. Der tatsächlich gespeicherte
+  `issued_at`-Zeitstempel bleibt maßgeblich für jede Qualitätsbewertung.
+- **Vollständige 15-/30-Minuten-Vorlaufabdeckung:** Dazu ist ein
+  **Abrufintervall von 15 Minuten** erforderlich, zusätzlich zur
+  15-Minuten-**Prognoseauflösung**. Mit 30 oder mehr Minuten bleiben
+  einige Viertelstunden-Ziele zwangsläufig ohne geeignete Prognoserevision;
+  diese Lücken werden **nicht künstlich aufgefüllt**.
+- Bestehende Instanz-Einstellungen, gespeicherte Revisionen, Export-Cursor
+  und Vergleiche bleiben unverändert. Für gleichwertige Daten die
+  Abrufintervalle aller zu vergleichenden Hashpis über die vorhandene
+  Einstellung auf 15 Minuten setzen (separate freizugebende Konfiguration).
+
+Die Qualitätsbewertung behält ausdrücklich ihre bisherigen engen
+Toleranzen und verwendet nur **vorab archivierte Prognosen** und gültige
+LIVE-Istwerte. Die feste Taktung beeinflusst weder Mining-/Batterie-
+Regelung noch Shadow-Lernalgorithmen.
+
 ## Prognosefehler nach Vorlaufzeit
 
 Eine unabhängige Hintergrundaufgabe wertet alle fünf Minuten vergangene,
