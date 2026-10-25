@@ -2954,11 +2954,8 @@ async def forecast_background_loop() -> None:
         if not fc.get("enabled"):
             continue
         try:
-            minutes = int((fc.get("settings") or {}).get("refresh_minutes", 60))
             last = forecast_store.metadata().get("last_success")
-            if not due_in_forecast_slot(
-                now=datetime.now(UTC), last_success=last, refresh_minutes=minutes,
-            ):
+            if not due_in_forecast_slot(now=datetime.now(UTC), last_success=last):
                 continue
             await update_forecast(config, forecast_store)
         except (ValueError, TypeError, RuntimeError, OSError) as exc:
