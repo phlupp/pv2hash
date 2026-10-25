@@ -34,41 +34,45 @@ dritte Diagrammkurve und fairer Qualitätsvergleich) steht in
   Transaktionen ohne automatisches `VACUUM`.
   [SQLite-Status, Aufbewahrung und optionaler Influx-Export](sqlite-storage.md).
 
-## Einheitliche UTC-Abrufzeitpunkte (für vergleichbare Vorlaufqualität)
+## Einheitlicher Wetterabruf alle 15 Minuten (UTC)
 
-Der automatische Abruf ist unabhängig vom Neustartzeitpunkt einer Instanz
-**fest an das UTC-Viertelstundenraster gebunden**. Bei einem konfigurierten
-15-Minuten-Intervall lauten die nominalen Zeiten `xx:10`, `xx:25`,
-`xx:40` und `xx:55` **UTC**, also jeweils etwa **fünf Minuten vor**
-dem nächsten Viertelstunden-Stichtag. Bei 30 Minuten erfolgen Abrufe
-nominal `xx:10` und `xx:40`; andere Intervalle verwenden dieselbe
-globale 15-Minuten-Rasterbasis. Werte, die kein Vielfaches von 15 Minuten
-sind, werden für die *effektive Taktung* auf das nächste Vielfache
-aufgerundet, damit nicht häufiger als konfiguriert abgerufen wird.
+**Der automatische Wetterabruf läuft auf allen Hashpis mit festem
+15-Minuten-Takt**, unabhängig vom Startzeitpunkt der Instanz und von alten
+Konfigurationswerten. Die nominalen UTC-Ausgabezeiten sind `xx:10`,
+`xx:25`, `xx:40` und `xx:55`, also etwa fünf Minuten vor der nächsten
+Viertelstundengrenze. Das bisherige editierbare Abrufintervall entfällt
+aus der GUI; stattdessen wird der feste Takt erläutert.
 
-- Ein Hintergrundabruf startet nur im **vierminütigen Fenster** ab der
-  geplanten UTC-Slotzeit. Wird ein Slot verpasst, wartet das System auf
-  den nächsten; es behauptet nie eine rückdatierte Ausgabezeit.
-- Die letzte erfolgreiche Revision ist bereits persistent gespeichert und
-  unterdrückt einen erneuten Abruf im gleichen Slot auch nach Neustart.
-  Bei Fehlern sind Wiederholungen innerhalb desselben Slots möglich.
-- UTC vermeidet doppelte beziehungsweise übersprungene Slots bei
-  Sommer-/Winterzeitumstellungen. Der tatsächlich gespeicherte
-  `issued_at`-Zeitstempel bleibt maßgeblich für jede Qualitätsbewertung.
-- **Vollständige 15-/30-Minuten-Vorlaufabdeckung:** Dazu ist ein
-  **Abrufintervall von 15 Minuten** erforderlich, zusätzlich zur
-  15-Minuten-**Prognoseauflösung**. Mit 30 oder mehr Minuten bleiben
-  einige Viertelstunden-Ziele zwangsläufig ohne geeignete Prognoserevision;
-  diese Lücken werden **nicht künstlich aufgefüllt**.
-- Bestehende Instanz-Einstellungen, gespeicherte Revisionen, Export-Cursor
-  und Vergleiche bleiben unverändert. Für gleichwertige Daten die
-  Abrufintervalle aller zu vergleichenden Hashpis über die vorhandene
-  Einstellung auf 15 Minuten setzen (separate freizugebende Konfiguration).
+- Nur in den ersten vier Minuten eines Slots werden automatische Abrufe
+  begonnen. Versäumte Slots werden nicht nachträglich als ausgegeben
+  gekennzeichnet. Der reale Zeitstempel bleibt entscheidend.
+- Der letzte erfolgreiche Abruf ist dauerhaft gespeichert und verhindert
+  Duplikate auch nach Neustarts; gescheiterte Abrufe können innerhalb
+  desselben Slots wiederholt werden.
+- Durch UTC bleiben die Abrufe unabhängig von Sommer- und Winterzeit.
+- Bestehende `refresh_minutes`-Werte (z. B. 30/60) beeinflussen den
+  Scheduler nicht. Die API liefert nun 15, und beim nächsten Speichern
+  werden alte Werte auf 15 normalisiert. Alte Formular-Requests mit
+  dem Feld werden zur Kompatibilität akzeptiert, aber ignoriert.
+- **Prognoseauflösung und Abruf sind verschieden:** 15-Minuten-Auflösung
+  bleibt für flächendeckende Viertelstunden-Vergleiche erforderlich.
+  60-Minuten-Auflösung bleibt als separate Anbieteroption erhalten;
+  sie kann naturgemäß nur Stunden-Zielpunkte bewerten.
+- Open-Meteo aktualisiert die eigentlichen Wettermodelle nicht zwingend
+  alle 15 Minuten. Zwei Abrufe können dieselben Prognosewerte liefern,
+  sind aber als tatsächlich ausgegebene Revisionen zeitlich korrekt
+  nachvollziehbar. Manuelle Aktualisierungen werden weiterhin mit
+  ihrer tatsächlichen Ausgabezeit archiviert.
+- Aufwand: **96 Abrufrunden täglich je aktivem Hashpi**. Der derzeitige
+  Treiber stellt pro Generatorfläche einen API-Aufruf je Runde; es
+  entstehen entsprechend mehr archivierte Prognoserevisionen.
+  Bei sehr vielen Generatorflächen sollten API-Nutzung und SQLite-
+  Speicherbedarf beobachtet werden.
 
-Die Qualitätsbewertung behält ausdrücklich ihre bisherigen engen
-Toleranzen und verwendet nur **vorab archivierte Prognosen** und gültige
-LIVE-Istwerte. Die feste Taktung beeinflusst weder Mining-/Batterie-
-Regelung noch Shadow-Lernalgorithmen.
+Die Toleranzen der 15/30/60/180-Minuten-Qualitätsbewertung bleiben
+bewusst streng. Historische Prognoserevisionen, Vergleiche und
+Export-Cursor werden nicht verändert. Mining- und Batterieregelung
+bleiben vollständig unabhängig.
 
 ## Prognosefehler nach Vorlaufzeit
 
