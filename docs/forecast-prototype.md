@@ -114,6 +114,29 @@ Bedingung für API-Key. Die React-GUI rendert diese Felder generisch.
   manuelles Aktualisieren. Kein automatischer Provider-Zugriff
   allein durch Öffnen der Seite.
 
+### Grundregel für zukünftige API-Integrationen
+
+Wir wählen beim Einbinden eines neuen Prognoseanbieters die **feinste
+tatsächlich verfügbare und fachlich belastbare Zeitauflösung** seiner
+Vorhersagedaten. Davon leiten wir die möglichen
+**Qualitäts-Bewertungszeitpunkte** ab. Separat legen wir anhand echter
+Modell-/API-Aktualisierungen, Nutzungsgrenzen und gewünschter
+Vorlaufhorizonte den passenden **Abrufrhythmus** fest.
+Feinere Prognose-Zielzeitpunkte bedeuten nicht automatisch, dass der
+Anbieter auch so häufig neue Prognoserevisionen berechnet.
+
+Diese Regel betrifft die Treiberarchitektur und die spätere
+anbieterabhängige Qualitätsauswertung, **nicht** den bereits festgelegten
+Open-Meteo-Betrieb mit 15-Minuten-Auflösung und 15-Minuten-Abruf.
+Fehlende Zeitpunkte werden niemals als real vorhergesagt ausgegeben;
+Vergleiche verwenden nur vor der Zielzeit archivierte Prognosen.
+Für übergreifende Anbieter-/Standortvergleiche zählen ausschließlich
+gleiche Zielzeiten und Vorlaufhorizonte beziehungsweise ein ausdrücklich
+einheitlich aggregiertes Raster.
+
+Technische Anforderungen und Umsetzungsabgrenzung:
+[Prognosequalität – Architekturstandard für zusätzliche APIs](forecast-quality.md#architekturstandard-für-zusätzliche-wetterprognose-apis).
+
 ## Speicherung und API
 
 Separate Datei `data/forecast.sqlite`, Tabelle `forecast_points`.
