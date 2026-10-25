@@ -27,11 +27,6 @@ class OpenMeteoDriver:
             {"name": "api_key", "label": "API-Key (nur Kunden-API)",
              "type": "password", "optional": True,
              "visible_when": {"name": "mode", "value": "customer"}},
-            {"name": "resolution_minutes", "label": "Prognoseauflösung",
-             "type": "select", "options": [
-                 {"value": "15", "label": "15 Minuten (96 Werte/Tag)"},
-                 {"value": "60", "label": "60 Minuten (24 Werte/Tag)"},
-             ]},
         ]
 
     def __init__(self, *, mode: str = "free", api_key: str = "",
