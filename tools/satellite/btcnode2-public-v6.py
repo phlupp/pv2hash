@@ -9,6 +9,7 @@ Modes: --check, --apply, --ensure, --status, --rollback.
 """
 from pathlib import Path
 import os
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,8 @@ PRIORITY = "120"
 TARGET = Path("/usr/local/sbin/btcnode2-public-v6.py")
 SERVICE = Path("/etc/systemd/system/btcnode2-public-v6.service")
 TIMER = Path("/etc/systemd/system/btcnode2-public-v6.timer")
+ULA_HELPER = Path("/usr/local/sbin/btcnode2-wg-icmpv6.py")
+EXPECTED_ULA_HELPER_SHA = "0a22ce3b0ec217e6816516620f2a876adbb94e26a315b780fd79068d4d88ccac"
 
 # Public-facing rules are tied to the WG interface and exact public /128.
 # All non-DATUM TCP ports, incl. SSH, RPC and admin GUIs, remain blocked.
@@ -121,7 +124,7 @@ def public_address():
     matches = [x for x in out.splitlines() if "inet6 " + PUB_CIDR in x]
     if len(matches) > 1:
         fail("Duplicate public IPv6 address assignments")
-    if matches and not matches[0].split()[1].startswith(IFACE + ":"):
+    if matches and matches[0].split()[1].split("@")[0] != IFACE:
         fail("Public IPv6 already owned by another interface")
     return bool(matches)
 
@@ -143,6 +146,9 @@ def preflight():
         fail("wg-quick service not active")
     if run(SYSTEMCTL, "is-active", "btcnode2-wg-icmpv6.timer").stdout.strip() != "active":
         fail("Earlier ULA ICMPv6 timer not active")
+    if (not ULA_HELPER.is_file() or
+            hashlib.sha256(ULA_HELPER.read_bytes()).hexdigest() != EXPECTED_ULA_HELPER_SHA):
+        fail("Earlier ICMPv6 timer helper not updated for optional ::/0")
     addr4 = run(IP, "-4", "-o", "addr", "show", "dev", IFACE).stdout
     addr6 = run(IP, "-6", "-o", "addr", "show", "dev", IFACE).stdout
     if "inet 10.99.0.51/32" not in addr4 or "inet6 " + ULA not in addr6:
