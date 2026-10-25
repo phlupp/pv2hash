@@ -137,6 +137,33 @@ def nft_state():
     return current, NFT_RULES in current
 
 
+def add_live_nft_rules():
+    # Append only our two filtered forward rules; do not flush a production
+    # gateway's potentially more recent in-memory nftables changes.
+    run("/usr/sbin/nft", "add", "rule", "inet", "filter", "forward",
+        "iifname", WAN_IF, "oifname", WG_IF, "ip6", "daddr", PUBLIC,
+        "tcp", "dport", "23334", "ct", "state", "new", "accept",
+        "comment", "btcnode2-public-datum")
+    run("/usr/sbin/nft", "add", "rule", "inet", "filter", "forward",
+        "iifname", WAN_IF, "oifname", WG_IF, "ip6", "saddr", MAIL6,
+        "ip6", "daddr", PUBLIC, "meta", "l4proto", "ipv6-icmp",
+        "accept", "comment", "btcnode2-public-mail-ping")
+
+
+def remove_live_nft_rules():
+    # Each target must carry our precise unique marker; never flush chain.
+    listing = run("/usr/sbin/nft", "-a", "list", "chain", "inet", "filter", "forward").stdout
+    for label in ("btcnode2-public-datum", "btcnode2-public-mail-ping"):
+        for line in listing.splitlines():
+            if label in line:
+                match = re.search(r"# handle ([0-9]+) *$", line)
+                if not match:
+                    fail("Cannot identify exact nftables rule handle for " + label)
+                run("/usr/sbin/nft", "delete", "rule", "inet", "filter", "forward",
+                    "handle", match.group(1))
+                break
+
+
 def firewall_live():
     rows = run("/usr/sbin/nft", "list", "chain", "inet", "filter", "forward").stdout
     return all(marker in rows for marker in ("btcnode2-public-datum", "btcnode2-public-mail-ping"))
@@ -229,7 +256,7 @@ def main():
         ensure()
         print("ALREADY_APPLIED")
         return 0
-    if record[2] != OLD or live != OLD or nft_has or route_state() or proxy_state():
+    if record[2] != OLD or live != OLD or nft_has or firewall_live() or route_state() or proxy_state():
         fail("Partial or foreign public configuration exists; refuse apply")
     # Validate the candidate nftables file before writing anything.
     new_nft = nft_contents.replace(NFT_INSERT_ANCHOR, NFT_RULES + NFT_INSERT_ANCHOR, 1)
@@ -263,14 +290,15 @@ def main():
         p.chmod(0o600)
     print("BACKUP_WG_OK=" + str(backup_wg), flush=True)
     print("BACKUP_NFT_OK=" + str(backup_nft), flush=True)
-    changed_wg = changed_nft = changed_route = changed_proxy = False
+    changed_wg = changed_nft = changed_route = changed_proxy = changed_live_nft = False
     try:
         # Keep current original file owner and mode.
         install_candidate(NFT_CONF, new_nft.encode(), NFT_CONF.stat())
         changed_nft = True
-        run("/usr/sbin/nft", "-f", str(NFT_CONF))
+        changed_live_nft = True
+        add_live_nft_rules()
         if not firewall_live():
-            fail("New nftables forward rules not active")
+            fail("New scoped nftables forward rules not active")
         install_candidate(CONF, new_wg.encode(), CONF.stat())
         changed_wg = True
         run("wg", "set", WG_IF, "peer", GW_KEY, "allowed-ips", ",".join(NEW))
@@ -298,9 +326,10 @@ def main():
             if changed_wg:
                 shutil.copy2(backup_wg, CONF)
                 run("wg", "set", WG_IF, "peer", GW_KEY, "allowed-ips", ",".join(OLD))
+            if changed_live_nft:
+                remove_live_nft_rules()
             if changed_nft:
                 shutil.copy2(backup_nft, NFT_CONF)
-                run("/usr/sbin/nft", "-f", str(NFT_CONF))
             print("ROLLBACK_OK previous public-GW state restored", file=sys.stderr)
         except Exception as e:
             print("ROLLBACK_FAILED inspect backups: " + str(e), file=sys.stderr)
