@@ -32,8 +32,6 @@ class OpenMeteoDriver:
                  {"value": "15", "label": "15 Minuten (96 Werte/Tag)"},
                  {"value": "60", "label": "60 Minuten (24 Werte/Tag)"},
              ]},
-            {"name": "refresh_minutes", "label": "Abrufintervall (Minuten)",
-             "type": "number", "min": 15, "max": 360},
         ]
 
     def __init__(self, *, mode: str = "free", api_key: str = "",
