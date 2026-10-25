@@ -34,6 +34,104 @@ dritte Diagrammkurve und fairer Qualitätsvergleich) steht in
   Transaktionen ohne automatisches `VACUUM`.
   [SQLite-Status, Aufbewahrung und optionaler Influx-Export](sqlite-storage.md).
 
+## Architekturstandard für zusätzliche Wetterprognose-APIs
+
+**Anbieteradapter verwenden die feinste *tatsächlich verfügbare und
+fachlich geeignete* native Prognose-Zeitauflösung**, sofern sie als
+belastbare Anbieter-Zeitreihe bereitsteht. Wir wählen nicht pauschal
+15 Minuten, nur weil Open-Meteo das derzeit unterstützt. Ein neuer
+Anbieter kann beispielsweise echte 5-, 10-, 15- oder 60-Minuten-Punkte
+liefern. Unterstützt er nur stündliche Werte, wird keine 5- oder
+15-Minuten-Prognose vorgetäuscht.
+
+Dabei sind drei voneinander unabhängige Größen zu unterscheiden:
+
+1. **Vorhersage-Zeitauflösung (`valid_at`-Raster):** Abstand der vom
+   Anbieter tatsächlich gelieferten Zielzeitpunkte. Die feinste
+   native Auflösung wird bevorzugt; rein nachträglich interpolierte
+   oder als hochauflösend etikettierte, inhaltlich aber identische
+   Stundenwerte gelten nicht als zusätzliche Informationsqualität.
+2. **Abruf-/Versionsrhythmus (`issued_at`):** Wie oft tatsächlich neue
+   oder erneut veröffentlichte Vorhersagestände bezogen und archiviert
+   werden. Er wird an Anbieterfähigkeit, echte Update-Kadenz,
+   API-Limits, Datenvolumen und unsere gewünschten Vorlauf-Horizonte
+   angepasst. Eine feinere Zielzeitauflösung allein erfordert
+   *nicht* dieselbe Abrufhäufigkeit.
+3. **Bewertungsraster und Vorlaufhorizonte:** Qualitätsvergleiche
+   dürfen nur für vorhandene Zielzeitpunkte und einen *tatsächlich vor
+   dem Stichtag ausgegebenen* Prognosestand gebildet werden, der die
+   zum Horizont passende zeitliche Toleranz erfüllt. Die künftig
+   unterstützten Auflösungen/Horizonte müssen pro Anbieter bzw.
+   Datenreihe als Fähigkeiten ausgewiesen und in der Bewertung
+   ausdrücklich berücksichtigt werden.
+
+**Vergleichbarkeit:** Standort-, Anbieter- und Modellvergleiche werden
+nur für gemeinsame, sachlich gleichwertige Zielzeiten, Vorlaufhorizonte
+und gültige LIVE-Ist-Messungen gezogen. Feinere Daten dürfen bei Bedarf
+für übergreifende Analysen *explizit* auf ein gemeinsames gröberes
+Raster aggregiert werden, wobei Herkunft, Rohauflösung und etwaige
+Aggregation nachvollziehbar bleiben. Fehlende Zeitpunkte werden
+nicht stillschweigend interpoliert, Bewertungen nicht rückwirkend
+aus späteren Prognoseständen erzeugt. Unterschiedliche Auflösung und
+Abdeckung werden als solche sichtbar, nicht als bessere/schlechtere
+Genauigkeit verwechselt.
+
+**Geltungsbereich / Umsetzungsstand:** Das ist der verbindliche
+Entwurfsgrundsatz für **zukünftige API-Treiber und eine spätere
+fähigkeitsgesteuerte Qualitätsbewertung**. Der *aktuelle* Open-Meteo-
+Treiber in PR #68 bleibt bewusst bei **15 Minuten für Abruf und
+native Prognoseauflösung**, mit den bestehenden Horizonten
+15/30/60/180 Minuten. Die dynamische Anpassung an andere Anbieter
+ist **noch nicht implementiert** und wird erst bei deren Integration
+mit eigenen Tests eingeführt; die Minerregelung bleibt unabhängig.
+
+## Einheitlicher Wetterabruf alle 15 Minuten (UTC)
+
+**Der automatische Wetterabruf läuft auf allen Hashpis mit festem
+15-Minuten-Takt**, unabhängig vom Startzeitpunkt der Instanz und von alten
+Konfigurationswerten. Die nominalen UTC-Ausgabezeiten sind `xx:10`,
+`xx:25`, `xx:40` und `xx:55`, also etwa fünf Minuten vor der nächsten
+Viertelstundengrenze. Sowohl Abruf als auch Prognoseauflösung sind
+fest auf 15 Minuten eingestellt; beide ehemaligen Eingabefelder sind
+entfallen. Die GUI zeigt diesen Standard als Information.
+
+- Nur in den ersten vier Minuten eines Slots werden automatische Abrufe
+  begonnen. Versäumte Slots werden nicht nachträglich als ausgegeben
+  gekennzeichnet. Der reale Zeitstempel bleibt entscheidend.
+- Der letzte erfolgreiche Abruf ist dauerhaft gespeichert und verhindert
+  Duplikate auch nach Neustarts; gescheiterte Abrufe können innerhalb
+  desselben Slots wiederholt werden.
+- Durch UTC bleiben die Abrufe unabhängig von Sommer- und Winterzeit.
+- Bestehende `refresh_minutes`-Werte (z. B. 30/60) beeinflussen den
+  Scheduler nicht. Die API liefert nun 15, und beim nächsten Speichern
+  werden alte Werte auf 15 normalisiert. Alte Formular-Requests mit
+  dem Feld werden zur Kompatibilität akzeptiert, aber ignoriert.
+- **Prognoseauflösung und Abruf bleiben technisch unterschiedliche
+  Vorgänge**, sind aber für eine vergleichbare Prognosequalität beide
+  verbindlich auf 15 Minuten festgelegt. Open-Meteo liefert dafür
+  native `minutely_15`-Werte statt stündlicher Daten. Es werden keine
+  Zwischenpunkte interpoliert.
+- **Legacy-Auflösung:** Alte gespeicherte `resolution_minutes=60` wird
+  bei neuen Anbieterabrufen sowie in der aktuellen Tagesdarstellung
+  ignoriert; die API liefert 15, und beim nächsten Speichern wird
+  die Einstellung normalisiert. Historische 60-Minuten-Revisionen
+  und alle bisherigen Bewertungen bleiben unverändert.
+- Open-Meteo aktualisiert die eigentlichen Wettermodelle nicht zwingend
+  alle 15 Minuten. Zwei Abrufe können dieselben Prognosewerte liefern,
+  sind aber als tatsächlich ausgegebene Revisionen zeitlich korrekt
+  nachvollziehbar. Manuelle Aktualisierungen werden weiterhin mit
+  ihrer tatsächlichen Ausgabezeit archiviert.
+- Aufwand: **96 Abrufrunden täglich je aktivem Hashpi**. Der derzeitige
+  Treiber stellt pro Generatorfläche einen API-Aufruf je Runde; es
+  entstehen entsprechend mehr archivierte Prognoserevisionen.
+  Bei sehr vielen Generatorflächen sollten API-Nutzung und SQLite-
+  Speicherbedarf beobachtet werden.
+
+Die Toleranzen der 15/30/60/180-Minuten-Qualitätsbewertung bleiben
+bewusst streng. Historische Prognoserevisionen, Vergleiche und
+Export-Cursor werden nicht verändert. Mining- und Batterieregelung
+bleiben vollständig unabhängig.
+
 ## Prognosefehler nach Vorlaufzeit
 
 Eine unabhängige Hintergrundaufgabe wertet alle fünf Minuten vergangene,

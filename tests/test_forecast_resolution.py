@@ -7,11 +7,12 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from pv2hash.config.defaults import DEFAULT_CONFIG
 from pv2hash.forecast import generators_from_config, utc_iso
 from pv2hash.forecast.open_meteo import OpenMeteoDriver
-from pv2hash.forecast.service import apply_settings, settings_model
+from pv2hash.forecast.service import apply_settings, settings_model, update as update_forecast
 from pv2hash.forecast.store import ForecastStore, TOTAL
 from tests.test_forecast_foundation import config as sample_config
 
@@ -20,48 +21,95 @@ class SettingsTests(unittest.TestCase):
     def test_defaults_and_form_fields_are_independent(self):
         defaults = DEFAULT_CONFIG['forecast']['settings']
         self.assertEqual(defaults['resolution_minutes'], 15)
-        self.assertEqual(defaults['refresh_minutes'], 30)
+        self.assertEqual(defaults['refresh_minutes'], 15)
         model = settings_model(deepcopy(DEFAULT_CONFIG))
         self.assertEqual(model['settings']['resolution_minutes'], 15)
-        self.assertEqual(model['settings']['refresh_minutes'], 30)
+        self.assertEqual(model['settings']['refresh_minutes'], 15)
         fields = {item['name']:item for item in model['fields']}
-        self.assertEqual([item['value'] for item in fields['resolution_minutes']['options']], ['15','60'])
-        self.assertEqual(fields['refresh_minutes']['min'], 15)
-        self.assertEqual(fields['refresh_minutes']['max'], 360)
+        self.assertNotIn('resolution_minutes', fields)  # fixed native 15-minute API data
+        self.assertNotIn('refresh_minutes',fields)  # fixed scheduler; no editable field
         self.assertNotIn('api_key',model['settings'])
 
-    def test_legacy_config_preserves_existing_refresh_and_uses_15m_cadence(self):
+    def test_legacy_cadence_and_resolution_are_ignored_without_mutating_prior_config(self):
         cfg = sample_config()  # simulates existing configured instance
-        new = apply_settings(cfg, {'settings': {'resolution_minutes': '15'}})
-        self.assertEqual(new['forecast']['settings']['refresh_minutes'], 60)
+        new = apply_settings(cfg, {'settings': {'resolution_minutes': '60'}})
+        self.assertEqual(new['forecast']['settings']['refresh_minutes'], 15)
         self.assertEqual(new['forecast']['settings']['resolution_minutes'], 15)
         self.assertEqual(cfg['forecast']['settings']['refresh_minutes'], 60)
-        # Old installs have no resolution key at all.
+        # Old installs have no resolution key at all; others have 60 stored.
         self.assertEqual(settings_model(cfg)['settings']['resolution_minutes'], 15)
+        self.assertEqual(settings_model(cfg)['settings']['refresh_minutes'], 15)
 
-    def test_independent_settings_persist_and_reject_invalid_without_side_effects(self):
+    def test_both_intervals_are_fixed_without_side_effects(self):
         cfg = sample_config()
         cfg['miners']=[{'id':'unchanged'}]
-        choices=[('15', '30', 15, 30), ('60', '15', 60, 15), ('15', '360', 15, 360)]
-        for resolution, refresh, expected_resolution, expected_refresh in choices:
+        choices=[('15', '30'), ('60', '15'), ('15', '360'), ('invalid', '2')]
+        for resolution, refresh in choices:
             with self.subTest(resolution=resolution, refresh=refresh):
                 new=apply_settings(cfg,{'settings':{
                     'resolution_minutes':resolution,'refresh_minutes':refresh,
                 }})
                 settings=new['forecast']['settings']
                 self.assertEqual((settings['resolution_minutes'],settings['refresh_minutes']),
-                                 (expected_resolution,expected_refresh))
+                                 (15, 15))
                 self.assertEqual(new['miners'],cfg['miners'])
-                self.assertEqual(settings_model(new)['settings']['resolution_minutes'],expected_resolution)
+                self.assertEqual(settings_model(new)['settings']['resolution_minutes'], 15)
         for value in ('0', '10', '30', '61', '15.5', 'bogus', None):
-            with self.subTest(bad_resolution=value):
-                with self.assertRaisesRegex(ValueError,'Prognoseauflösung'):
-                    apply_settings(cfg,{'settings':{'resolution_minutes':value}})
-        for value in ('1', '361', 'invalid'):
-            with self.subTest(bad_refresh=value):
-                with self.assertRaises(ValueError):
-                    apply_settings(cfg,{'settings':{'refresh_minutes':value}})
+            with self.subTest(legacy_resolution=value):
+                new=apply_settings(cfg, {'settings':{'resolution_minutes':value}})
+                self.assertEqual(new['forecast']['settings']['resolution_minutes'],15)
+        for value in ('1', '361', 'invalid', None):
+            with self.subTest(legacy_refresh=value):
+                new=apply_settings(cfg,{'settings':{'refresh_minutes':value}})
+                self.assertEqual(new['forecast']['settings']['refresh_minutes'],15)
+                self.assertEqual(new['miners'],cfg['miners'])
+        old=deepcopy(cfg)
+        old['forecast']['settings']['resolution_minutes'] = 60
+        self.assertEqual(settings_model(old)['settings']['resolution_minutes'], 15)
+        normalized=apply_settings(old, {'settings': {}})
+        self.assertEqual(normalized['forecast']['settings']['resolution_minutes'], 15)
+        self.assertEqual(old['forecast']['settings']['resolution_minutes'], 60)
         self.assertNotIn('resolution_minutes',cfg['forecast']['settings'])
+
+
+class LegacyForecastUpdateTests(unittest.IsolatedAsyncioTestCase):
+    async def test_legacy_hourly_install_issues_native_quarter_hour_forecast(self):
+        config = sample_config()
+        config['forecast']['settings']['resolution_minutes'] = 60
+        config['forecast']['settings']['refresh_minutes'] = 60
+
+        class FakeProvider:
+            driver_id = 'open_meteo'
+            def __init__(self, *, mode, api_key, resolution_minutes):
+                self.resolution_minutes = resolution_minutes
+            async def fetch(self, latitude, longitude, generators):
+                self.assert_valid = len(generators) == 3
+                valid_at = utc_iso(
+                    datetime.now(UTC).replace(minute=15,second=0,microsecond=0)
+                    + timedelta(hours=2))
+                return 'Europe/Berlin', {
+                    f'{g.inverter_id}/{g.generator_id}': {valid_at: 1000.0}
+                    for g in generators
+                }
+
+        with TemporaryDirectory() as temp:
+            store = ForecastStore(Path(temp) / 'forecast.sqlite')
+            with patch.dict('pv2hash.forecast.service.DRIVERS',
+                            {'open_meteo': FakeProvider}):
+                result = await update_forecast(config, store)
+            self.assertEqual(result['inverters'], 2)
+            self.assertEqual(result['future_points'], 1)
+            with sqlite3.connect(store.path) as conn:
+                actual_resolution = conn.execute(
+                    'SELECT resolution_minutes FROM forecast_revisions'
+                    ' ORDER BY revision_id DESC LIMIT 1').fetchone()[0]
+                self.assertEqual(actual_resolution, 15)
+                actual_shadow = conn.execute(
+                    'SELECT COUNT(*) FROM forecast_shadow_revisions').fetchone()[0]
+                self.assertEqual(actual_shadow, 1)
+        # Neither legacy setting was mutated by the fetch.
+        self.assertEqual(config['forecast']['settings']['resolution_minutes'], 60)
+        self.assertEqual(config['forecast']['settings']['refresh_minutes'], 60)
 
 
 class OpenMeteoCadenceTests(unittest.IsolatedAsyncioTestCase):

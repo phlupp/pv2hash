@@ -28,6 +28,7 @@ from fastapi.templating import Jinja2Templates
 
 from pv2hash.config.store import CONFIG_PATH, load_config, save_config
 from pv2hash.forecast.store import ForecastStore
+from pv2hash.forecast.schedule import due_in_forecast_slot, FORECAST_RESOLUTION_MINUTES
 from pv2hash.forecast.service import (
     settings_model as forecast_settings_model,
     apply_settings as apply_forecast_settings,
@@ -2940,7 +2941,12 @@ async def forecast_quality_background_loop() -> None:
 
 
 async def forecast_background_loop() -> None:
-    """Disabled by default. Poll only when a forecast is configured and enabled."""
+    """Fetch in common UTC slots instead of inheriting each process start phase.
+
+    This keeps 15/30/60/180-minute as-issued quality horizons comparable
+    across installations. Successful forecasts are already persisted; there
+    is no new cursor or state to migrate.
+    """
     while True:
         await asyncio.sleep(60)
         config = state.config
@@ -2948,12 +2954,8 @@ async def forecast_background_loop() -> None:
         if not fc.get("enabled"):
             continue
         try:
-            minutes = int((fc.get("settings") or {}).get("refresh_minutes", 60))
             last = forecast_store.metadata().get("last_success")
-            recent = last and (
-                datetime.now(UTC) - datetime.fromisoformat(last.replace("Z", "+00:00"))
-            ).total_seconds() < max(15, minutes) * 60
-            if recent:
+            if not due_in_forecast_slot(now=datetime.now(UTC), last_success=last):
                 continue
             await update_forecast(config, forecast_store)
         except (ValueError, TypeError, RuntimeError, OSError) as exc:
@@ -3934,9 +3936,7 @@ async def api_forecast_refresh():
 async def api_forecast_day(date: str | None = None):
     try:
         result = forecast_store.day(
-            date, resolution_minutes=int(
-                (state.config.get("forecast") or {}).get("settings", {}).get("resolution_minutes", 15)
-            ),
+            date, resolution_minutes=FORECAST_RESOLUTION_MINUTES,
         )
     except (ValueError, OverflowError) as exc:
         return JSONResponse({"status":"error","message":str(exc)},status_code=400)

@@ -114,6 +114,29 @@ Bedingung für API-Key. Die React-GUI rendert diese Felder generisch.
   manuelles Aktualisieren. Kein automatischer Provider-Zugriff
   allein durch Öffnen der Seite.
 
+### Grundregel für zukünftige API-Integrationen
+
+Wir wählen beim Einbinden eines neuen Prognoseanbieters die **feinste
+tatsächlich verfügbare und fachlich belastbare Zeitauflösung** seiner
+Vorhersagedaten. Davon leiten wir die möglichen
+**Qualitäts-Bewertungszeitpunkte** ab. Separat legen wir anhand echter
+Modell-/API-Aktualisierungen, Nutzungsgrenzen und gewünschter
+Vorlaufhorizonte den passenden **Abrufrhythmus** fest.
+Feinere Prognose-Zielzeitpunkte bedeuten nicht automatisch, dass der
+Anbieter auch so häufig neue Prognoserevisionen berechnet.
+
+Diese Regel betrifft die Treiberarchitektur und die spätere
+anbieterabhängige Qualitätsauswertung, **nicht** den bereits festgelegten
+Open-Meteo-Betrieb mit 15-Minuten-Auflösung und 15-Minuten-Abruf.
+Fehlende Zeitpunkte werden niemals als real vorhergesagt ausgegeben;
+Vergleiche verwenden nur vor der Zielzeit archivierte Prognosen.
+Für übergreifende Anbieter-/Standortvergleiche zählen ausschließlich
+gleiche Zielzeiten und Vorlaufhorizonte beziehungsweise ein ausdrücklich
+einheitlich aggregiertes Raster.
+
+Technische Anforderungen und Umsetzungsabgrenzung:
+[Prognosequalität – Architekturstandard für zusätzliche APIs](forecast-quality.md#architekturstandard-für-zusätzliche-wetterprognose-apis).
+
 ## Speicherung und API
 
 Separate Datei `data/forecast.sqlite`, Tabelle `forecast_points`.
@@ -245,45 +268,41 @@ bereinigten Ersatzmessungen in SQLite oder InfluxDB geschrieben.
 
 ## Prognoseauflösung und Abrufintervall getrennt (Folgeentwicklung)
 
-Die Open-Meteo-Einstellungen besitzen nun zwei **unabhängige** Felder:
+Die Open-Meteo-Prognose unterscheidet zwischen **Auflösung** und
+**Abrufhäufigkeit**:
 
-- **Prognoseauflösung:** 15 oder 60 Minuten (Standard **15 Minuten**).
-  Bei 15 Minuten fordert der Treiber `minutely_15=global_tilted_irradiance_instant`
-  an; bei 60 Minuten das bisherige `hourly`-Feld. Beide verwenden
-  `timeformat=unixtime`, standortbezogene `tilt`/`azimuth`-Parameter
-  je Generatorfläche und echte UTC-Zeitpunkte. PV2Hash interpoliert
-  **keine** künstlichen Zwischenwerte. Ob ein Wettermodell intern
-  15-Minuten-Werte liefert oder der Anbieter diese verfeinert, hängt
-  vom gewählten Regionalmodell ab; feinere Zeitpunkte allein sind
-  kein Beweis für höhere Prognosegenauigkeit.
-- **Abrufintervall (Minuten):** standardmäßig **30 Minuten** für
-  neue Installationen; einstellbar 15–360. Es begrenzt ausschließlich,
-  wie oft PV2Hash neue Wetterprognosen anfordert. Die Prognoseansicht
-  fragt weiterhin die gespeicherten Daten alle 30 Sekunden ab, ohne
-  dadurch neue Wetteranfragen auszulösen.
+- **Prognoseauflösung:** verbindlich 15 Minuten; im regulären Betrieb
+  wird ausschließlich
+  `minutely_15=global_tilted_irradiance_instant` vom Anbieter abgerufen.
+  Echte UTC-Zeitpunkte und generatorbezogene Ausrichtung bleiben
+  erhalten, fehlende Punkte werden nicht interpoliert.
+  Das frühere auswählbare Stundenraster entfällt aus der GUI.
+- **Automatischer Abruf:** unveränderlich alle 15 Minuten auf
+  gemeinsamen UTC-Slots. Das ehemals einstellbare Intervall
+  (15 bis 360 Minuten, historischer Standard 30) ist entfallen.
+  Die GUI zeigt den festen Takt als Information.
 
-**Bestehende Konfigurationen:** Bereits ausdrücklich gespeicherte
-`refresh_minutes`-Werte (z. B. 60) bleiben erhalten; die neue
-`resolution_minutes`-Einstellung verwendet bei bisher fehlendem Feld
-15 Minuten. Wer auch die Abrufe auf 30 Minuten umstellen möchte,
-setzt **Abrufintervall (Minuten)** im Prognoseformular auf 30 und
-speichert. Es findet keine stillschweigende Überschreibung bestehender
-Intervalle statt. API-Anbieter-Schlüssel werden weiterhin nicht
-zurückgegeben oder geloggt.
+**Bestandsinstallationen:** Bereits gespeicherte `refresh_minutes`
+und `resolution_minutes`-Werte (auch 30/60 Minuten) bleiben
+historisch in der Konfiguration vorhanden, werden beim neuen
+Abruf aber ignoriert. Beim nächsten Speichern der
+Prognoseeinstellungen werden beide Werte auf 15 normalisiert.
+Die aktuelle Tagesdarstellung verwendet das 15-Minuten-Raster.
+Keine rückwirkende Änderung alter Revisionen oder Qualitätswerte.
+Siehe
+[Prognosequalität und UTC-Takt](forecast-quality.md).
 
 **Speichervertrag:** Das bisherige `forecast_points`-Schema und die
 Werte in W bleiben unverändert. Ein vollständiger Anbieterabruf wird
 weiterhin atomar pro Generatorfläche, Wechselrichter und Gesamtergebnis
 abgelegt. Ausschließlich **zukünftige** Zeitpunkte werden aktualisiert;
-ältere Werte bleiben zur Qualitätsevaluierung unverändert. Bei einem
-Wechsel von 15 auf 60 Minuten werden nach einem *erfolgreichen*
-Anbieterabruf nur die bereits gespeicherten **zukünftigen**
-Viertelstundenpunkte außerhalb des neuen Stundenrasters entfernt.
-Vergangene 15-Minuten-Werte bleiben erhalten. Fehlende Werte werden
-nicht interpoliert. Die kWh-Integration erkennt die Auflösung der
-historisch gespeicherten Punkte, und für den aktuellen/zukünftigen
-Tag beachtet sie die gewählte Auflösung, damit Datenlücken nicht
-als Vollständigkeit gelten. Die standortbezogene Tageszählung
+ältere Werte bleiben zur Qualitätsevaluierung unverändert.
+Der Datenspeicher bleibt kompatibel mit historischen 60-Minuten-
+Revisionen, während neue Abrufe ausschließlich 15-Minuten-Werte
+erzeugen. Fehlende Werte werden nicht interpoliert. Die kWh-
+Integration erkennt das Raster archivierter Prognosen; für aktuelle
+und zukünftige Werte gilt das feste 15-Minuten-Raster, damit
+Datenlücken nicht als Vollständigkeit gelten. Die standortbezogene Tageszählung
 berücksichtigt 23-/25-Stunden-Tage bei der Zeitumstellung.
 
 **Tests auf `testvm01`:** Simulierte HTTP-Antworten für beide API-Felder,
