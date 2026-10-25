@@ -381,6 +381,9 @@ export function ForecastPage() {
                     })}/>
                 )
               ))}
+              <Text size="xs" c="dimmed">
+                Wetterabruf alle 15 Minuten (fest) · UTC-synchron für vergleichbare Prognosequalität.
+              </Text>
               <Divider label="PV-Generatorflächen je Wechselrichter"/>
               <Text size="xs" c="dimmed">
                 Azimut: 0° Süd · −90° Ost · +90° West. Mehrere Dachflächen pro Wechselrichter sind möglich.
