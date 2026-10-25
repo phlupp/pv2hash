@@ -39,18 +39,18 @@ SNAT_MARK = "btcnode2-v4-special-snat"
 DNAT_MARK = "btcnode2-v4-special-dnat"
 FWD = (
     '        iifname "eth0" oifname "wg0" ip daddr 10.99.0.51 '
-    'tcp dport 23334 ct status dnat ct state new accept '
-    + 'ct status dnat ct state new accept comment "' + FWD_MARK + '"\\n'
+    'tcp dport 23334 ct status dnat ct state new accept comment "'
+    + FWD_MARK + '"\n'
 )
 SNAT = (
     '        iifname "eth0" oifname "wg0" ip daddr 10.99.0.51 '
-    'tcp dport 23334 ct status dnat snat to 10.99.0.1 '
-    + 'ct status dnat snat to 10.99.0.1 comment "' + SNAT_MARK + '"\\n'
+    'tcp dport 23334 ct status dnat snat to 10.99.0.1 comment "'
+    + SNAT_MARK + '"\n'
 )
 DNAT = (
     '        iifname "eth0" ip daddr 188.68.32.252 '
-    'tcp dport 23335 dnat to 10.99.0.51:23334 '
-    + 'dnat to 10.99.0.51:23334 comment "' + DNAT_MARK + '"\\n'
+    'tcp dport 23335 dnat to 10.99.0.51:23334 comment "'
+    + DNAT_MARK + '"\n'
 )
 PRE = (
     "    chain prerouting {\n"
@@ -62,18 +62,17 @@ BANNER = "        # btcnode2 ONLY: special IPv4 DATUM port 23335 -> WG 10.99.0.5
 
 # All three operations are one nft atomic transaction with no ruleset flush.
 DELTA = (
-    "add chain ip nat prerouting { type nat hook prerouting priority dstnat; policy accept; }\n"
-    + "add rule inet filter forward "
+    'add chain ip nat prerouting { type nat hook prerouting priority dstnat; policy accept; }\n'
+    + 'add rule inet filter forward '
     + 'iifname "eth0" oifname "wg0" ip daddr 10.99.0.51 tcp dport 23334 '
-    + 'ct status dnat ct state new accept comment "' + FWD_MARK + '"\\n'
-    + "add rule ip nat postrouting "
+    + 'ct status dnat ct state new accept comment "' + FWD_MARK + '"\n'
+    + 'add rule ip nat postrouting '
     + 'iifname "eth0" oifname "wg0" ip daddr 10.99.0.51 tcp dport 23334 '
-    + 'ct status dnat snat to 10.99.0.1 comment "' + SNAT_MARK + '"\\n'
-    + "add rule ip nat prerouting "
+    + 'ct status dnat snat to 10.99.0.1 comment "' + SNAT_MARK + '"\n'
+    + 'add rule ip nat prerouting '
     + 'iifname "eth0" ip daddr 188.68.32.252 tcp dport 23335 '
-    + 'dnat to 10.99.0.51:23334 comment "' + DNAT_MARK + '"\\n'
+    + 'dnat to 10.99.0.51:23334 comment "' + DNAT_MARK + '"\n'
 )
-
 
 def abort(msg):
     raise RuntimeError(msg)
