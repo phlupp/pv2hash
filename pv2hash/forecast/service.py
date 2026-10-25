@@ -11,6 +11,7 @@ import math
 
 from . import generators_from_config, forecast_config_fields, utc_iso
 from .open_meteo import OpenMeteoDriver
+from .schedule import FORECAST_REFRESH_MINUTES
 from .store import ForecastStore
 from .energy import energy_summary
 from .shadow import signature as shadow_signature, plant_summary
@@ -19,7 +20,7 @@ DRIVERS = {"open_meteo": OpenMeteoDriver}
 UPDATE_LOCK = asyncio.Lock()
 FORECAST_DEFAULT = {
     "enabled": False, "driver": "open_meteo",
-    "settings": {"mode": "free", "api_key": "", "refresh_minutes": 30, "resolution_minutes": 15},
+    "settings": {"mode": "free", "api_key": "", "refresh_minutes": FORECAST_REFRESH_MINUTES, "resolution_minutes": 15},
 }
 
 
@@ -36,7 +37,7 @@ def settings_model(config: dict) -> dict:
         "fields": forecast_config_fields(driver),
         "settings": {
             "mode": settings.get("mode", "free"),
-            "refresh_minutes": settings.get("refresh_minutes", 30),
+            "refresh_minutes": FORECAST_REFRESH_MINUTES,  # legacy API compatibility; no longer configurable
             "resolution_minutes": settings.get("resolution_minutes", 15),
             "api_key_configured": bool(settings.get("api_key")),
         },
@@ -78,12 +79,10 @@ def apply_settings(config: dict, payload: dict) -> dict:
     incoming = payload.get("settings") or {}
     mode = str(incoming.get("mode", settings.get("mode", "free")))
     api_key = str(incoming.get("api_key") or settings.get("api_key") or "")
-    try:
-        minutes = int(incoming.get("refresh_minutes", settings.get("refresh_minutes", 30)))
-    except (ValueError, TypeError):
-        raise ValueError("Abrufintervall benötigt eine Minutenzahl.") from None
-    if not 15 <= minutes <= 360:
-        raise ValueError("Abrufintervall muss 15–360 Minuten betragen.")
+    # Prior versions persisted independent intervals. The automatic
+    # scheduler now always issues every 15 minutes. Ignore an obsolete
+    # refresh_minutes field from a cached older client; preserve other
+    # settings and normalize the saved value on the next save.
     try:
         resolution = int(str(incoming.get(
             "resolution_minutes", settings.get("resolution_minutes", 15),
@@ -98,7 +97,7 @@ def apply_settings(config: dict, payload: dict) -> dict:
         "driver": driver,
         "settings": {
             "mode": mode, "api_key": api_key,
-            "refresh_minutes": minutes, "resolution_minutes": resolution,
+            "refresh_minutes": FORECAST_REFRESH_MINUTES, "resolution_minutes": resolution,
         },
     }
     if "inverters" in payload:
