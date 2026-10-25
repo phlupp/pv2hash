@@ -28,7 +28,7 @@ from fastapi.templating import Jinja2Templates
 
 from pv2hash.config.store import CONFIG_PATH, load_config, save_config
 from pv2hash.forecast.store import ForecastStore
-from pv2hash.forecast.schedule import due_in_forecast_slot
+from pv2hash.forecast.schedule import due_in_forecast_slot, FORECAST_RESOLUTION_MINUTES
 from pv2hash.forecast.service import (
     settings_model as forecast_settings_model,
     apply_settings as apply_forecast_settings,
@@ -3936,9 +3936,7 @@ async def api_forecast_refresh():
 async def api_forecast_day(date: str | None = None):
     try:
         result = forecast_store.day(
-            date, resolution_minutes=int(
-                (state.config.get("forecast") or {}).get("settings", {}).get("resolution_minutes", 15)
-            ),
+            date, resolution_minutes=FORECAST_RESOLUTION_MINUTES,
         )
     except (ValueError, OverflowError) as exc:
         return JSONResponse({"status":"error","message":str(exc)},status_code=400)
