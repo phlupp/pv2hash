@@ -245,31 +245,26 @@ bereinigten Ersatzmessungen in SQLite oder InfluxDB geschrieben.
 
 ## Prognoseauflösung und Abrufintervall getrennt (Folgeentwicklung)
 
-Die Open-Meteo-Einstellungen besitzen nun zwei **unabhängige** Felder:
+Die Open-Meteo-Prognose unterscheidet zwischen **Auflösung** und
+**Abrufhäufigkeit**:
 
-- **Prognoseauflösung:** 15 oder 60 Minuten (Standard **15 Minuten**).
-  Bei 15 Minuten fordert der Treiber `minutely_15=global_tilted_irradiance_instant`
-  an; bei 60 Minuten das bisherige `hourly`-Feld. Beide verwenden
-  `timeformat=unixtime`, standortbezogene `tilt`/`azimuth`-Parameter
-  je Generatorfläche und echte UTC-Zeitpunkte. PV2Hash interpoliert
-  **keine** künstlichen Zwischenwerte. Ob ein Wettermodell intern
-  15-Minuten-Werte liefert oder der Anbieter diese verfeinert, hängt
-  vom gewählten Regionalmodell ab; feinere Zeitpunkte allein sind
-  kein Beweis für höhere Prognosegenauigkeit.
-- **Abrufintervall (Minuten):** standardmäßig **30 Minuten** für
-  neue Installationen; einstellbar 15–360. Es begrenzt ausschließlich,
-  wie oft PV2Hash neue Wetterprognosen anfordert. Die Prognoseansicht
-  fragt weiterhin die gespeicherten Daten alle 30 Sekunden ab, ohne
-  dadurch neue Wetteranfragen auszulösen.
+- **Prognoseauflösung:** wahlweise 15 oder 60 Minuten, standardmäßig 15.
+  Im Viertelstundenmodus wird
+  `minutely_15=global_tilted_irradiance_instant` vom Anbieter abgerufen;
+  im Stundenmodus weiterhin `hourly`. Echte UTC-Zeitpunkte und
+  generatorbezogene Ausrichtung werden beibehalten. Fehlende Punkte
+  interpoliert PV2Hash nicht.
+- **Automatischer Abruf:** unveränderlich alle 15 Minuten auf
+  gemeinsamen UTC-Slots. Das ehemals einstellbare Intervall
+  (15 bis 360 Minuten, historischer Standard 30) ist entfallen.
+  Die GUI zeigt den festen Takt als Information.
 
-**Bestehende Konfigurationen:** Bereits ausdrücklich gespeicherte
-`refresh_minutes`-Werte (z. B. 60) bleiben erhalten; die neue
-`resolution_minutes`-Einstellung verwendet bei bisher fehlendem Feld
-15 Minuten. Wer auch die Abrufe auf 30 Minuten umstellen möchte,
-setzt **Abrufintervall (Minuten)** im Prognoseformular auf 30 und
-speichert. Es findet keine stillschweigende Überschreibung bestehender
-Intervalle statt. API-Anbieter-Schlüssel werden weiterhin nicht
-zurückgegeben oder geloggt.
+**Bestandsinstallationen:** Bereits gespeicherte Abrufintervalle
+bleiben historisch in der Konfiguration vorhanden, werden aber beim
+Abruf ignoriert. Beim nächsten Speichern der Prognoseeinstellungen
+wird der Legacy-Wert auf 15 normalisiert. Keine Änderung historischer
+Prognose- oder Qualitätswerte. Siehe
+[Prognosequalität und UTC-Takt](forecast-quality.md).
 
 **Speichervertrag:** Das bisherige `forecast_points`-Schema und die
 Werte in W bleiben unverändert. Ein vollständiger Anbieterabruf wird
