@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from pv2hash.forecast.schedule import due_in_forecast_slot, effective_refresh_minutes
+from pv2hash.forecast.schedule import due_in_forecast_slot, FORECAST_REFRESH_MINUTES
 from pv2hash.forecast.quality import evaluate_recent, quality_report
 from pv2hash.forecast.store import ForecastStore
 
@@ -17,9 +17,9 @@ def dt(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def due(time: str, last: str | None = None, interval: int = 15) -> bool:
+def due(time: str, last: str | None = None) -> bool:
     return due_in_forecast_slot(
-        now=dt(time), last_success=last, refresh_minutes=interval
+        now=dt(time), last_success=last
     )
 
 
@@ -48,22 +48,17 @@ class FixedUtcScheduleTests(unittest.TestCase):
         self.assertFalse(due("2026-10-24T12:22:00Z", None))
         self.assertTrue(due("2026-10-24T12:25:15Z", None))
 
-    def test_30_minute_cadence_stays_aligned_but_cannot_fill_all_quarters(self):
-        self.assertEqual(effective_refresh_minutes(30), 30)
-        for minute in (10, 40):
-            self.assertTrue(due(f"2026-10-24T12:{minute:02d}:00Z", interval=30))
-        for minute in (25, 55):
-            self.assertFalse(due(f"2026-10-24T12:{minute:02d}:00Z", interval=30))
-        self.assertTrue(due("2026-10-24T12:10:00Z", interval=60))
-        self.assertFalse(due("2026-10-24T12:40:00Z", interval=60))
-
-    def test_nonquarter_settings_do_not_increase_request_frequency(self):
-        self.assertEqual(effective_refresh_minutes(17), 30)
-        self.assertEqual(effective_refresh_minutes(31), 45)
-        self.assertEqual(effective_refresh_minutes(360), 360)
-        for invalid in (14, 361, 20.3, None):
-            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
-                effective_refresh_minutes(invalid)
+    def test_cadence_is_always_fifteen_minutes(self):
+        self.assertEqual(FORECAST_REFRESH_MINUTES, 15)
+        self.assertTrue(due("2026-10-24T12:10:00Z"))
+        self.assertTrue(due("2026-10-24T12:25:00Z"))
+        self.assertTrue(due("2026-10-24T12:40:00Z"))
+        self.assertTrue(due("2026-10-24T12:55:00Z"))
+        # Same schedule regardless of old saved 30/60 minute configurations.
+        # Scheduler accepts no interval input at all.
+        with self.assertRaises(TypeError):
+            due_in_forecast_slot(now=dt("2026-10-24T12:10:00Z"),
+                                 last_success=None, refresh_minutes=30)
 
     def test_utc_schedule_survives_berlin_dst_fall_back(self):
         berlin = ZoneInfo("Europe/Berlin")
@@ -73,13 +68,13 @@ class FixedUtcScheduleTests(unittest.TestCase):
         self.assertEqual(before.astimezone(berlin).hour, 2)
         self.assertEqual(after.astimezone(berlin).hour, 2)
         self.assertTrue(due_in_forecast_slot(
-            now=before.astimezone(berlin), last_success=None, refresh_minutes=15))
+            now=before.astimezone(berlin), last_success=None))
         self.assertTrue(due_in_forecast_slot(
             now=after.astimezone(berlin), last_success="2026-10-25T00:55:25Z",
-            refresh_minutes=15))
+            ))
         with self.assertRaisesRegex(ValueError, "timezone-aware"):
             due_in_forecast_slot(now=datetime(2026, 10, 25, 2, 10),
-                                 last_success=None, refresh_minutes=15)
+                                 last_success=None)
 
 
 class RealForecastQualityPairingTests(unittest.TestCase):
