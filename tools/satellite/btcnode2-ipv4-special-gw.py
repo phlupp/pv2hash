@@ -87,21 +87,22 @@ def read_conf():
     if not CONF.is_file() or CONF.is_symlink():
         abort("Unexpected nftables config file")
     contents = CONF.read_text()
-    if contents.count(FWD_ANCHOR) != 1 or contents.count(NAT_ANCHOR) != 1:
-        abort("Anchors changed; review gateway config before continuing")
-    if contents.count("table ip nat {") != 1:
-        abort("Unexpected ip NAT table count")
-    if "chain prerouting {" in contents and DNAT_MARK not in contents:
-        abort("Foreign IPv4 prerouting chain already exists")
-    if re.search(r"(?m)^\s*.*(23335|"+FWD_MARK+"|"+SNAT_MARK+"|"+DNAT_MARK+")", contents):
-        if any(contents.count(key) != 1 for key in (FWD_MARK, SNAT_MARK, DNAT_MARK)):
-            abort("Partial/foreign TCP 23335 config")
-        if BANNER + FWD not in contents or
-                PRE not in contents or SNAT not in contents:
-            abort("Expected persistent rules differ")
+    if contents.count(FWD_ANCHOR) != 1 or contents.count("table ip nat {") != 1:
+        abort("Expected gateway nftables anchors changed")
+    markers = (FWD_MARK, SNAT_MARK, DNAT_MARK)
+    present = [key in contents for key in markers]
+    if any(present):
+        if not all(present) or any(contents.count(key) != 1 for key in markers):
+            abort("Partial or duplicate TCP/23335 configuration")
+        if not (BANNER + FWD in contents and PRE in contents and SNAT in contents and
+                "type nat hook postrouting priority srcnat; policy accept;\\n" in contents):
+            abort("Persisted nftables rules differ from expected structure")
         return contents, True
+    if contents.count(NAT_ANCHOR) != 1:
+        abort("Expected original ip NAT postrouting anchor missing")
+    if "chain prerouting {" in contents or "23335" in contents:
+        abort("Foreign IPv4 prerouting chain or port 23335 already used")
     return contents, False
-
 
 def candidate(conf):
     if conf.count(FWD_ANCHOR) != 1 or conf.count(NAT_ANCHOR) != 1:
