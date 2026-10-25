@@ -20,29 +20,29 @@ class SettingsTests(unittest.TestCase):
     def test_defaults_and_form_fields_are_independent(self):
         defaults = DEFAULT_CONFIG['forecast']['settings']
         self.assertEqual(defaults['resolution_minutes'], 15)
-        self.assertEqual(defaults['refresh_minutes'], 30)
+        self.assertEqual(defaults['refresh_minutes'], 15)
         model = settings_model(deepcopy(DEFAULT_CONFIG))
         self.assertEqual(model['settings']['resolution_minutes'], 15)
-        self.assertEqual(model['settings']['refresh_minutes'], 30)
+        self.assertEqual(model['settings']['refresh_minutes'], 15)
         fields = {item['name']:item for item in model['fields']}
         self.assertEqual([item['value'] for item in fields['resolution_minutes']['options']], ['15','60'])
-        self.assertEqual(fields['refresh_minutes']['min'], 15)
-        self.assertEqual(fields['refresh_minutes']['max'], 360)
+        self.assertNotIn('refresh_minutes',fields)  # fixed scheduler; no editable field
         self.assertNotIn('api_key',model['settings'])
 
-    def test_legacy_config_preserves_existing_refresh_and_uses_15m_cadence(self):
+    def test_legacy_refresh_is_ignored_without_mutating_prior_config(self):
         cfg = sample_config()  # simulates existing configured instance
         new = apply_settings(cfg, {'settings': {'resolution_minutes': '15'}})
-        self.assertEqual(new['forecast']['settings']['refresh_minutes'], 60)
+        self.assertEqual(new['forecast']['settings']['refresh_minutes'], 15)
         self.assertEqual(new['forecast']['settings']['resolution_minutes'], 15)
         self.assertEqual(cfg['forecast']['settings']['refresh_minutes'], 60)
         # Old installs have no resolution key at all.
         self.assertEqual(settings_model(cfg)['settings']['resolution_minutes'], 15)
+        self.assertEqual(settings_model(cfg)['settings']['refresh_minutes'], 15)
 
-    def test_independent_settings_persist_and_reject_invalid_without_side_effects(self):
+    def test_resolution_persists_but_refresh_is_fixed_without_side_effects(self):
         cfg = sample_config()
         cfg['miners']=[{'id':'unchanged'}]
-        choices=[('15', '30', 15, 30), ('60', '15', 60, 15), ('15', '360', 15, 360)]
+        choices=[('15', '30', 15, 15), ('60', '15', 60, 15), ('15', '360', 15, 15)]
         for resolution, refresh, expected_resolution, expected_refresh in choices:
             with self.subTest(resolution=resolution, refresh=refresh):
                 new=apply_settings(cfg,{'settings':{
@@ -57,10 +57,11 @@ class SettingsTests(unittest.TestCase):
             with self.subTest(bad_resolution=value):
                 with self.assertRaisesRegex(ValueError,'Prognoseauflösung'):
                     apply_settings(cfg,{'settings':{'resolution_minutes':value}})
-        for value in ('1', '361', 'invalid'):
-            with self.subTest(bad_refresh=value):
-                with self.assertRaises(ValueError):
-                    apply_settings(cfg,{'settings':{'refresh_minutes':value}})
+        for value in ('1', '361', 'invalid', None):
+            with self.subTest(legacy_refresh=value):
+                new=apply_settings(cfg,{'settings':{'refresh_minutes':value}})
+                self.assertEqual(new['forecast']['settings']['refresh_minutes'],15)
+                self.assertEqual(new['miners'],cfg['miners'])
         self.assertNotIn('resolution_minutes',cfg['forecast']['settings'])
 
 
